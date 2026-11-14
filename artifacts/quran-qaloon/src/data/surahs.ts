@@ -40,7 +40,7 @@ export const QIRAAT: Qirah[] = [
 ];
 
 export const RECITERS: Reciter[] = [
-  { id: "yasser", name: "ياسر الدوسري", qirahId: "hafs", audioBaseUrl: "https://server11.mp3quran.net/yasser/", padded: true },
+  { id: "yasser", name: "ياسر الدوسري", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/yasser-dosari/r1/", padded: true },
   { id: "sudais", name: "عبد الرحمن السديس", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/abdurrahmaan_as_sudais/murattal/", padded: false },
   { id: "maher", name: "ماهر المعيقلي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/maher_almu3aiqly/year1422-1423//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.mahermuaiqly/" },
   { id: "mishary", name: "مشاري العفاسي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/mishari_al_afasy/murattal/", padded: false, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.alafasy/" },
@@ -48,7 +48,7 @@ export const RECITERS: Reciter[] = [
   { id: "husary", name: "محمود خليل الحصري", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/khalil_al_husary/murattal/", padded: false, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.husary/" },
   { id: "suraim", name: "سعود الشريم", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/saud_ash-shuraym/murattal/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.saoodshuraym/" },
   { id: "huthify", name: "علي الحذيفي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/ahmad_alhuthayfi//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.hudhaify/" },
-  { id: "ghamdi", name: "سعد الغامدي", qirahId: "hafs", audioBaseUrl: "https://server7.mp3quran.net/s_gmd/", padded: true },
+  { id: "ghamdi", name: "سعد الغامدي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/saad-ghamdi/r1/", padded: true },
   { id: "ajmy", name: "أحمد العجمي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/ahmed_ibn_3ali_al-3ajamy//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.ahmedajamy/" },
   { id: "qaloon-nafi", name: "قالون عن نافع - الحذيفي", qirahId: "qaloon", audioBaseUrl: "https://download.quranicaudio.com/quran/huthayfi_qaloon//", padded: true },
   { id: "qaloon-husary", name: "قالون عن نافع - الحصري", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/mahmoud-husary/r5/", padded: true },
