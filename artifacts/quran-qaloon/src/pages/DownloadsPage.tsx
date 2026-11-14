@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
-import { ArrowRight, HardDrive, Trash2, BookOpen, Moon, Sun, WifiOff, Download, AlertTriangle } from "lucide-react";
+import { ArrowRight, HardDrive, Trash2, BookOpen, Moon, Sun, WifiOff, Download, AlertTriangle, Square, CheckCircle2 } from "lucide-react";
 import { useOffline } from "@/context/OfflineContext";
-import { SURAHS } from "@/data/surahs";
+import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 
 interface DownloadsPageProps {
   darkMode: boolean;
@@ -26,9 +26,70 @@ function formatDate(ts: number): string {
 }
 
 export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPageProps) {
-  const { cachedItems, totalStorageBytes, deleteAudio, clearAll } = useOffline();
+  const { cachedItems, totalStorageBytes, deleteAudio, clearAll, downloadAudio, isCached } = useOffline();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+
+  // ---- تحميل المصحف كاملاً دفعة واحدة ----
+  const [selectedReciterId, setSelectedReciterId] = useState<string>(() => {
+    if (typeof window === "undefined") return "qaloon-nafi";
+    return localStorage.getItem("quran_reciter") ?? "qaloon-nafi";
+  });
+  const [bulk, setBulk] = useState<{
+    status: "idle" | "running" | "done" | "cancelled";
+    done: number;
+    total: number;
+    failed: number;
+    currentSurah: string;
+  }>({ status: "idle", done: 0, total: 0, failed: 0, currentSurah: "" });
+  const cancelBulkRef = useRef(false);
+  // Mirror of cachedItems for the async bulk loop (the closure would be stale).
+  const cachedItemsRef = useRef(cachedItems);
+  useEffect(() => {
+    cachedItemsRef.current = cachedItems;
+  }, [cachedItems]);
+
+  const selectedReciter =
+    RECITERS.find((r) => r.id === selectedReciterId) ??
+    RECITERS.find((r) => r.id === "qaloon-nafi")!;
+  const alreadyCachedForReciter = SURAHS.filter((s) => isCached(s.number, selectedReciter.id)).length;
+  const remainingForReciter = SURAHS.length - alreadyCachedForReciter;
+
+  const startBulkDownload = async () => {
+    const pending = SURAHS.filter((s) => !isCached(s.number, selectedReciter.id));
+    if (pending.length === 0) {
+      setBulk({ status: "done", done: 0, total: 0, failed: 0, currentSurah: "" });
+      return;
+    }
+    cancelBulkRef.current = false;
+    let done = 0;
+    let failed = 0;
+    setBulk({ status: "running", done: 0, total: pending.length, failed: 0, currentSurah: pending[0].name });
+    for (const surah of pending) {
+      if (cancelBulkRef.current) {
+        setBulk((prev) => ({ ...prev, status: "cancelled", done, failed }));
+        return;
+      }
+      setBulk((prev) => ({ ...prev, currentSurah: surah.name }));
+      await downloadAudio(
+        surah.number,
+        surah.name,
+        selectedReciter.id,
+        selectedReciter.name,
+        buildAudioUrl(selectedReciter, surah.number)
+      );
+      // downloadAudio swallows its own errors, so verify via the cache.
+      const key = `${surah.number}-${selectedReciter.id}`;
+      if (cachedItemsRef.current.some((c) => c.key === key)) done++;
+      else failed++;
+      setBulk((prev) => ({ ...prev, done, failed }));
+    }
+    setBulk((prev) => ({ ...prev, status: "done", done, failed, currentSurah: "" }));
+  };
+
+  const cancelBulkDownload = () => {
+    cancelBulkRef.current = true;
+  };
 
   const sorted = [...cachedItems].sort((a, b) => b.cachedAt - a.cachedAt);
 
@@ -133,6 +194,104 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
           )}
         </div>
 
+        {/* تحميل المصحف كاملاً */}
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 space-y-3">
+            <div className="flex items-center gap-2 text-foreground">
+              <Download className="w-4 h-4 text-primary" />
+              <span className="font-arabic text-sm">تحميل المصحف كاملاً</span>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              حمّل كل السور الـ114 دفعة واحدة بصوت القارئ الذي تختاره، لتستمع بدون إنترنت نهائياً.
+              قد يصل الحجم الإجمالي إلى مئات الميغابايت — يُفضَّل الاتصال بشبكة Wi-Fi وترك التطبيق مفتوحاً حتى يكتمل التحميل.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={selectedReciterId}
+                onChange={(e) => setSelectedReciterId(e.target.value)}
+                disabled={bulk.status === "running"}
+                className="flex-1 bg-background border border-border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
+              >
+                {RECITERS.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              {bulk.status === "running" ? (
+                <button
+                  onClick={cancelBulkDownload}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm hover:bg-red-600 transition-colors"
+                >
+                  <Square className="w-4 h-4" />
+                  إيقاف التحميل
+                </button>
+              ) : (
+                <button
+                  onClick={startBulkDownload}
+                  disabled={remainingForReciter === 0}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  {remainingForReciter === 0
+                    ? "كل السور محفوظة"
+                    : `تحميل الكل (${remainingForReciter} سورة)`}
+                </button>
+              )}
+            </div>
+
+            {alreadyCachedForReciter > 0 && bulk.status !== "running" && (
+              <div className="text-xs text-muted-foreground">
+                محفوظ حالياً بصوت {selectedReciter.name}: {alreadyCachedForReciter} من 114 سورة
+              </div>
+            )}
+
+            {bulk.status === "running" && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>جارٍ تحميل: {bulk.currentSurah}</span>
+                  <span>
+                    {bulk.done}/{bulk.total} سورة
+                    {bulk.failed > 0 ? ` — تعذّر ${bulk.failed}` : ""}
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${bulk.total > 0 ? Math.round((bulk.done / bulk.total) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {bulk.status === "done" && bulk.total > 0 && (
+              <div className="flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 rounded-xl px-3 py-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  اكتمل التحميل: {bulk.done} سورة جديدة
+                  {bulk.failed > 0
+                    ? ` — تعذّر تحميل ${bulk.failed} سورة، تحقق من الاتصال ثم اضغط «تحميل الكل» مجدداً لاستكمالها`
+                    : " — المصحف كاملاً محفوظ على جهازك"}
+                </span>
+              </div>
+            )}
+            {bulk.status === "done" && bulk.total === 0 && (
+              <div className="flex items-center gap-2 text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 rounded-xl px-3 py-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>كل السور محفوظة بالفعل بصوت {selectedReciter.name}</span>
+              </div>
+            )}
+            {bulk.status === "cancelled" && (
+              <div className="flex items-center gap-2 text-xs bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-xl px-3 py-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  أُوقف التحميل بعد {bulk.done} سورة — يمكنك استئنافه لاحقاً، وسيُكمِل من حيث توقف
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* How it works */}
         <div className="bg-primary/5 border border-primary/20 rounded-2xl px-5 py-4 text-sm">
           <div className="font-arabic text-primary mb-2 flex items-center gap-2">
@@ -151,6 +310,10 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
             <li className="flex items-start gap-2">
               <span className="text-primary mt-0.5">•</span>
               <span>السور المحفوظة تعمل بدون إنترنت تماماً — حتى في وضع الطيران</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-primary mt-0.5">•</span>
+              <span>من بطاقة «تحميل المصحف كاملاً» أعلاه يمكنك تحميل كل السور الـ114 دفعة واحدة بصوت قارئ واحد</span>
             </li>
           </ul>
         </div>

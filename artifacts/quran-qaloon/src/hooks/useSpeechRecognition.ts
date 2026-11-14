@@ -1,4 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
+import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 
 export interface SpeechRecognitionState {
   isListening: boolean;
@@ -7,6 +9,12 @@ export interface SpeechRecognitionState {
   error: string | null;
   isSupported: boolean;
 }
+
+const LANG = "ar-SA";
+const MIC_PERMISSION_ERROR =
+  "لم يُمنح إذن الميكروفون. يرجى السماح بالوصول إلى الميكروفون.";
+const NO_SPEECH_ERROR = "لم يُكتشف صوت. يرجى التحدث بوضوح.";
+const UNAVAILABLE_ERROR = "التعرف على الصوت غير متوفر على هذا الجهاز.";
 
 interface ISpeechRecognitionResult {
   readonly isFinal: boolean;
@@ -54,7 +62,7 @@ interface ISpeechRecognitionConstructor {
   new (): ISpeechRecognition;
 }
 
-function getSpeechRecognition(): ISpeechRecognitionConstructor | null {
+function getWebSpeechRecognition(): ISpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
   return (
     (window as unknown as { SpeechRecognition?: ISpeechRecognitionConstructor }).SpeechRecognition ??
@@ -63,24 +71,208 @@ function getSpeechRecognition(): ISpeechRecognitionConstructor | null {
   );
 }
 
+function isWebSupported(): boolean {
+  return typeof window !== "undefined" && !!getWebSpeechRecognition();
+}
+
+/**
+ * Speech recognition with two engines behind one interface:
+ * - On a native Android build (Capacitor): the native SpeechRecognizer via
+ *   @capacitor-community/speech-recognition. The Web Speech API does not
+ *   exist inside the Android WebView, so without this the mic check can
+ *   never work in the APK.
+ * - On the web: the browser Web Speech API, as before.
+ * TajweedChecker uses only { state, start, stop, reset } and never sees
+ * which engine is active.
+ */
 export function useSpeechRecognition() {
+  const isNative = Capacitor.isNativePlatform();
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>("");
+  // Native engine session state
+  const lastMatchesRef = useRef<string>("");
+  const finalizedRef = useRef(false);
+  const stopSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [state, setState] = useState<SpeechRecognitionState>({
     isListening: false,
     transcript: "",
     interimTranscript: "",
     error: null,
-    isSupported: typeof window !== "undefined" &&
-      !!(
-        (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ??
-        (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
-      ),
+    // On native, assume supported until available() says otherwise;
+    // on web this is known synchronously.
+    isSupported: isNative ? true : isWebSupported(),
   });
 
-  const start = useCallback(() => {
-    const SpeechRecognitionAPI = getSpeechRecognition();
+  // Verify native availability once (Android needs Google's speech service).
+  useEffect(() => {
+    if (!isNative) return;
+    let cancelled = false;
+    SpeechRecognition.available()
+      .then(({ available }) => {
+        if (!cancelled && !available) {
+          setState((s) => ({ ...s, isSupported: false }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setState((s) => ({ ...s, isSupported: false }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNative]);
+
+  const clearStopSafetyTimer = useCallback(() => {
+    if (stopSafetyTimerRef.current) {
+      clearTimeout(stopSafetyTimerRef.current);
+      stopSafetyTimerRef.current = null;
+    }
+  }, []);
+
+  const finalizeNativeSession = useCallback(() => {
+    if (finalizedRef.current) return;
+    finalizedRef.current = true;
+    clearStopSafetyTimer();
+    const finalText = lastMatchesRef.current.trim();
+    finalTranscriptRef.current = finalText;
+    setState((s) => ({
+      ...s,
+      isListening: false,
+      interimTranscript: "",
+      transcript: finalText,
+      error: finalText ? null : NO_SPEECH_ERROR,
+    }));
+  }, [clearStopSafetyTimer]);
+
+  const cleanupNativeListeners = useCallback(() => {
+    clearStopSafetyTimer();
+    void SpeechRecognition.removeAllListeners().catch(() => undefined);
+  }, [clearStopSafetyTimer]);
+
+  const startNative = useCallback(async () => {
+    // End any previous session cleanly before starting a new one.
+    cleanupNativeListeners();
+    finalizedRef.current = false;
+    lastMatchesRef.current = "";
+    finalTranscriptRef.current = "";
+
+    try {
+      const { available } = await SpeechRecognition.available();
+      if (!available) {
+        setState((s) => ({ ...s, error: UNAVAILABLE_ERROR, isSupported: false }));
+        return;
+      }
+    } catch {
+      setState((s) => ({ ...s, error: UNAVAILABLE_ERROR }));
+      return;
+    }
+
+    try {
+      const status = await SpeechRecognition.checkPermissions();
+      if (status.speechRecognition !== "granted") {
+        const next = await SpeechRecognition.requestPermissions();
+        if (next.speechRecognition !== "granted") {
+          setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+          return;
+        }
+      }
+    } catch {
+      setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+      return;
+    }
+
+    setState((s) => ({
+      ...s,
+      isListening: true,
+      transcript: "",
+      interimTranscript: "",
+      error: null,
+    }));
+
+    await SpeechRecognition.addListener("partialResults", (data: { matches: string[] }) => {
+      const text = data.matches?.[0] ?? "";
+      if (!text) return;
+      lastMatchesRef.current = text;
+      setState((s) => ({ ...s, interimTranscript: text }));
+    });
+
+    await SpeechRecognition.addListener(
+      "listeningState",
+      (data: { status: "started" | "stopped" }) => {
+        if (data.status === "started") {
+          setState((s) => ({ ...s, isListening: true }));
+        } else {
+          finalizeNativeSession();
+        }
+      }
+    );
+
+    try {
+      // With partialResults:true the promise resolves as soon as listening
+      // starts; results arrive through the partialResults events.
+      await SpeechRecognition.start({
+        language: LANG,
+        maxResults: 5,
+        partialResults: true,
+        popup: false,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (!finalizedRef.current) {
+        setState((s) => ({
+          ...s,
+          error: msg || "تعذّر بدء التعرف على الصوت.",
+          isListening: false,
+        }));
+      }
+    }
+  }, [cleanupNativeListeners, finalizeNativeSession]);
+
+  const stopNative = useCallback(() => {
+    // Ask the recognizer to stop; its onResults + listeningState('stopped')
+    // callbacks deliver the final text. The safety timer guarantees the UI
+    // never stays stuck listening if a native callback is lost (e.g. the
+    // no-match error path, which fires no 'stopped' event).
+    void SpeechRecognition.stop().catch(() => undefined);
+    clearStopSafetyTimer();
+    stopSafetyTimerRef.current = setTimeout(() => {
+      finalizeNativeSession();
+    }, 1500);
+  }, [clearStopSafetyTimer, finalizeNativeSession]);
+
+  const resetNative = useCallback(() => {
+    clearStopSafetyTimer();
+    finalizedRef.current = false;
+    lastMatchesRef.current = "";
+    finalTranscriptRef.current = "";
+    cleanupNativeListeners();
+    void SpeechRecognition.stop().catch(() => undefined);
+    setState((s) => ({
+      ...s,
+      isListening: false,
+      transcript: "",
+      interimTranscript: "",
+      error: null,
+    }));
+  }, [cleanupNativeListeners, clearStopSafetyTimer]);
+
+  // Native listeners must not leak across sessions or unmounts.
+  useEffect(() => {
+    return () => {
+      if (Capacitor.isNativePlatform()) {
+        if (stopSafetyTimerRef.current) clearTimeout(stopSafetyTimerRef.current);
+        void SpeechRecognition.removeAllListeners().catch(() => undefined);
+        void SpeechRecognition.stop().catch(() => undefined);
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  const startWeb = useCallback(() => {
+    const SpeechRecognitionAPI = getWebSpeechRecognition();
 
     if (!SpeechRecognitionAPI) {
       setState((s) => ({
@@ -96,7 +288,7 @@ export function useSpeechRecognition() {
 
     finalTranscriptRef.current = "";
     const recognition = new SpeechRecognitionAPI();
-    recognition.lang = "ar-SA";
+    recognition.lang = LANG;
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 3;
@@ -144,8 +336,8 @@ export function useSpeechRecognition() {
 
     recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
       const messages: Record<string, string> = {
-        "not-allowed": "لم يُمنح إذن الميكروفون. يرجى السماح بالوصول إلى الميكروفون.",
-        "no-speech": "لم يُكتشف صوت. يرجى التحدث بوضوح.",
+        "not-allowed": MIC_PERMISSION_ERROR,
+        "no-speech": NO_SPEECH_ERROR,
         "network": "خطأ في الشبكة.",
         "audio-capture": "لا يوجد ميكروفون. يرجى التحقق من الجهاز.",
         "aborted": "",
@@ -176,7 +368,7 @@ export function useSpeechRecognition() {
     }
   }, []);
 
-  const stop = useCallback(() => {
+  const stopWeb = useCallback(() => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
@@ -189,7 +381,7 @@ export function useSpeechRecognition() {
     }));
   }, []);
 
-  const reset = useCallback(() => {
+  const resetWeb = useCallback(() => {
     if (recognitionRef.current) {
       recognitionRef.current.abort();
       recognitionRef.current = null;
@@ -203,6 +395,21 @@ export function useSpeechRecognition() {
       error: null,
     }));
   }, []);
+
+  const start = useCallback(() => {
+    if (isNative) void startNative();
+    else startWeb();
+  }, [isNative, startNative, startWeb]);
+
+  const stop = useCallback(() => {
+    if (isNative) stopNative();
+    else stopWeb();
+  }, [isNative, stopNative, stopWeb]);
+
+  const reset = useCallback(() => {
+    if (isNative) resetNative();
+    else resetWeb();
+  }, [isNative, resetNative, resetWeb]);
 
   return { state, start, stop, reset };
 }

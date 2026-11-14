@@ -250,9 +250,9 @@ export default function TajweedChecker({ ayahs, surahName, fontSize = 22 }: Tajw
       <div className="p-6 text-center text-muted-foreground">
         <MicOff className="w-10 h-10 mx-auto mb-3 opacity-40" />
         <div className="text-sm">
-          ميزة التسميع الصوتي غير مدعومة في هذا المتصفح.
+          ميزة التسميع الصوتي غير مدعومة على هذا الجهاز.
           <br />
-          <span className="text-xs">يُرجى استخدام Google Chrome أو Microsoft Edge</span>
+          <span className="text-xs">تأكد من تثبيت خدمة التعرف على الصوت من Google ومنح إذن الميكروفون</span>
         </div>
       </div>
     );
