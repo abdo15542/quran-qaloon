@@ -54,9 +54,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download bundled fonts (woff2, binary — not in the repo)
-        working-directory: artifacts/quran-qaloon/src/assets/fonts
+        # NOTE: do NOT set working-directory to the fonts folder — it does
+        # not exist in the checkout (Git tracks no empty directories and
+        # the woff2 files are binary, so they are not in the repo). Create
+        # it here first, then download into it.
         run: |
-          mkdir -p .
+          mkdir -p artifacts/quran-qaloon/src/assets/fonts
+          cd artifacts/quran-qaloon/src/assets/fonts
           curl -fsSL -o AmiriQuran-normal-400-arabic.woff2 https://fonts.gstatic.com/s/amiriquran/v19/_Xmo-Hk0rD6DbUL4_vH8Zp5v5i2ssg.woff2
           curl -fsSL -o Amiri-normal-400-arabic.woff2 https://fonts.gstatic.com/s/amiri/v30/J7aRnpd8CGxBHpUrtLMA7w.woff2
           curl -fsSL -o Amiri-normal-700-arabic.woff2 https://fonts.gstatic.com/s/amiri/v30/J7acnpd8CGxBHp2VkaY6zp5yGw.woff2
