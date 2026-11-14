@@ -150,7 +150,7 @@ export function useOfflineStorage() {
       reciterId: string,
       reciterName: string,
       audioUrl: string
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       const key = getCacheKey(surahNumber, reciterId);
 
       setDownloads((prev) => {
@@ -188,7 +188,7 @@ export function useOfflineStorage() {
             return next;
           });
           await refreshCache();
-          return;
+          return true;
         }
 
         const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -231,6 +231,7 @@ export function useOfflineStorage() {
           return next;
         });
         await refreshCache();
+        return true;
       } catch (err) {
         const error = err instanceof Error ? err.message : "خطأ في التحميل";
         setDownloads((prev) => {
@@ -238,6 +239,7 @@ export function useOfflineStorage() {
           next.set(key, { key, progress: 0, status: "error", error });
           return next;
         });
+        return false;
       }
     },
     [refreshCache]

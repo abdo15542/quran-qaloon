@@ -12,7 +12,7 @@ interface OfflineContextValue {
     reciterId: string,
     reciterName: string,
     audioUrl: string
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   deleteAudio: (surahNumber: number, reciterId: string) => Promise<void>;
   clearAll: () => Promise<void>;
   getDownloadProgress: (surahNumber: number, reciterId: string) => DownloadProgress | null;

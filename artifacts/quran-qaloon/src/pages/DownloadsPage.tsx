@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { ArrowRight, HardDrive, Trash2, BookOpen, Moon, Sun, WifiOff, Download, AlertTriangle, Square, CheckCircle2 } from "lucide-react";
 import { useOffline } from "@/context/OfflineContext";
@@ -43,11 +43,6 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     currentSurah: string;
   }>({ status: "idle", done: 0, total: 0, failed: 0, currentSurah: "" });
   const cancelBulkRef = useRef(false);
-  // Mirror of cachedItems for the async bulk loop (the closure would be stale).
-  const cachedItemsRef = useRef(cachedItems);
-  useEffect(() => {
-    cachedItemsRef.current = cachedItems;
-  }, [cachedItems]);
 
   const selectedReciter =
     RECITERS.find((r) => r.id === selectedReciterId) ??
@@ -71,16 +66,18 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
         return;
       }
       setBulk((prev) => ({ ...prev, currentSurah: surah.name }));
-      await downloadAudio(
+      // downloadAudio reports success directly; do NOT verify via the
+      // cached-items state — React state updates lag behind the await and
+      // the check always read stale data (it reported 114 failed even
+      // though all 114 had actually been saved).
+      const ok = await downloadAudio(
         surah.number,
         surah.name,
         selectedReciter.id,
         selectedReciter.name,
         buildAudioUrl(selectedReciter, surah.number)
       );
-      // downloadAudio swallows its own errors, so verify via the cache.
-      const key = `${surah.number}-${selectedReciter.id}`;
-      if (cachedItemsRef.current.some((c) => c.key === key)) done++;
+      if (ok) done++;
       else failed++;
       setBulk((prev) => ({ ...prev, done, failed }));
     }
