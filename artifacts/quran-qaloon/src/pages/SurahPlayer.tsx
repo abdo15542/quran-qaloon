@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
+import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
@@ -106,6 +107,8 @@ export default function SurahPlayer({
     played: number;
   } | null>(null);
   const ayahRangeRef = useRef<{ startFrac: number; endFrac: number } | null>(null);
+  // موضع دقيق بالثواني من جدول التوقيت المقاس (إن وُجد لهذا القارئ والسورة).
+  const ayahExactRef = useRef<{ start: number; end: number } | null>(null);
   const ayahContinuousRef = useRef(false);
   useEffect(() => {
     ayahContinuousRef.current = ayahContinuous;
@@ -116,8 +119,39 @@ export default function SurahPlayer({
     if (audio) audio.pause();
     ayahSessionRef.current = null;
     ayahRangeRef.current = null;
+    ayahExactRef.current = null;
     setPlayingAyah(null);
   }, []);
+
+  // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
+  const applyAyahRange = useCallback(() => {
+    const audio = ayahAudioRef.current;
+    const session = ayahSessionRef.current;
+    if (!audio || !session) return false;
+    const exact = ayahExactRef.current;
+    if (exact) {
+      ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
+      audio.currentTime = exact.start;
+      audio.play().catch(() => {
+        setAyahError("تعذّر تشغيل صوت الآية");
+        stopAyah();
+      });
+      return true;
+    }
+    const range = ayahRangeRef.current;
+    if (range && isFinite(audio.duration) && audio.duration > 0) {
+      const start = Math.max(0, range.startFrac * audio.duration - 1);
+      const end = range.endFrac * audio.duration;
+      ayahSessionRef.current = { ...session, start, end };
+      audio.currentTime = start;
+      audio.play().catch(() => {
+        setAyahError("تعذّر تشغيل صوت الآية");
+        stopAyah();
+      });
+      return true;
+    }
+    return false;
+  }, [stopAyah]);
 
   const playAyah = useCallback(
     (ayahNumberInSurah: number) => {
@@ -135,8 +169,9 @@ export default function SurahPlayer({
         ? buildAyahAudioUrl(currentReciter, surahNumber, ayahNumberInSurah)
         : null;
       if (perAyahUrl) {
-        // صوت دقيق لكل آية (العفاسي، الحصري، المعيقلي، الشريم، العجمي، عبد الباسط).
+        // صوت دقيق لكل آية (العفاسي، الحصري، المعيقلي، الشريم، العجمي، عبد الباسط، الحذيفي).
         ayahRangeRef.current = null;
+        ayahExactRef.current = null;
         ayahSessionRef.current = {
           ayah: ayahNumberInSurah,
           start: 0,
@@ -153,25 +188,40 @@ export default function SurahPlayer({
         return;
       }
       // بديل (قالون وباقي القرّاء بلا مصدر صوت لكل آية): شغّل صوت
-      // السورة من عند الآية المضغوطة. موضع الآية يُقدَّر من حصتها من
-      // طول نص السورة، ويبدأ التشغيل قبلها بثانية حتى لا تُقطع أول كلمة.
+      // السورة من عند الآية المضغوطة.
+      // 1) إن وُجد جدول توقيت مقاس لهذا القارئ والسورة (من تسجيله نفسه):
+      //    موضع دقيق بالثواني، لا تقدير.
+      // 2) وإلا: تقدير من حصة الآية من طول نص السورة، يبدأ قبلها بثانية.
       const url = effectiveAudioUrl ?? networkAudioUrl;
       if (!url) {
         setAyahError("لا يوجد صوت متاح لهذه السورة");
         return;
       }
-      const totalChars = ayahs.reduce((sum, a) => sum + a.text.length, 0);
-      if (totalChars === 0) return;
-      let beforeChars = 0;
-      let ayahChars = 0;
-      for (const a of ayahs) {
-        if (a.numberInSurah < ayahNumberInSurah) beforeChars += a.text.length;
-        else if (a.numberInSurah === ayahNumberInSurah) ayahChars = a.text.length;
+      const timings = currentReciter
+        ? getAyahTimings(currentReciter.id, surahNumber)
+        : null;
+      ayahExactRef.current = null;
+      ayahRangeRef.current = null;
+      if (timings && timings.s.length === ayahs.length) {
+        const idx = ayahNumberInSurah - 1;
+        const start = Math.max(0, timings.s[idx] - 0.2);
+        const end =
+          idx + 1 < timings.s.length ? timings.s[idx + 1] : timings.d;
+        ayahExactRef.current = { start, end };
+      } else {
+        const totalChars = ayahs.reduce((sum, a) => sum + a.text.length, 0);
+        if (totalChars === 0) return;
+        let beforeChars = 0;
+        let ayahChars = 0;
+        for (const a of ayahs) {
+          if (a.numberInSurah < ayahNumberInSurah) beforeChars += a.text.length;
+          else if (a.numberInSurah === ayahNumberInSurah) ayahChars = a.text.length;
+        }
+        ayahRangeRef.current = {
+          startFrac: beforeChars / totalChars,
+          endFrac: (beforeChars + ayahChars) / totalChars,
+        };
       }
-      ayahRangeRef.current = {
-        startFrac: beforeChars / totalChars,
-        endFrac: (beforeChars + ayahChars) / totalChars,
-      };
       ayahSessionRef.current = {
         ayah: ayahNumberInSurah,
         start: 0,
@@ -182,21 +232,16 @@ export default function SurahPlayer({
       setPlayingAyah(ayahNumberInSurah);
       if (audio.src !== url) audio.src = url;
       if (audio.readyState >= 1 && isFinite(audio.duration) && audio.duration > 0) {
-        const range = ayahRangeRef.current;
-        const start = Math.max(0, range.startFrac * audio.duration - 1);
-        const end = range.endFrac * audio.duration;
-        ayahSessionRef.current = { ...ayahSessionRef.current, start, end };
-        audio.currentTime = start;
-        audio.play().catch(() => {
-          setAyahError("تعذّر تشغيل صوت الآية");
-          stopAyah();
-        });
+        applyAyahRange();
+      } else if (ayahExactRef.current) {
+        // الموضع الدقيق لا يحتاج مدة الملف: اقفز وشغّل فورًا.
+        applyAyahRange();
       } else {
         // انتظر تحميل بيانات الصوت ثم اقفز لموضع الآية (في مستمع loadedmetadata).
         audio.load();
       }
     },
-    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah]
+    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah, applyAyahRange]
   );
 
   const finishAyah = useCallback(() => {
@@ -228,22 +273,13 @@ export default function SurahPlayer({
   finishAyahRef.current = finishAyah;
   const stopAyahRef = useRef(stopAyah);
   stopAyahRef.current = stopAyah;
+  const applyAyahRangeRef = useRef(applyAyahRange);
+  applyAyahRangeRef.current = applyAyahRange;
   useEffect(() => {
     const audio = ayahAudioRef.current;
     if (!audio) return;
     const onLoadedMetadata = () => {
-      const range = ayahRangeRef.current;
-      const session = ayahSessionRef.current;
-      if (range && session && isFinite(audio.duration) && audio.duration > 0) {
-        const start = Math.max(0, range.startFrac * audio.duration - 1);
-        const end = range.endFrac * audio.duration;
-        ayahSessionRef.current = { ...session, start, end };
-        audio.currentTime = start;
-        audio.play().catch(() => {
-          setAyahError("تعذّر تشغيل صوت الآية");
-          stopAyahRef.current();
-        });
-      }
+      applyAyahRangeRef.current();
     };
     const onTimeUpdate = () => {
       const session = ayahSessionRef.current;
