@@ -1,8 +1,19 @@
 name: Build Quran Qaloon APK
 
 # Builds the Capacitor Android app from the quran-qaloon web app and
-# uploads a debug APK as a workflow artifact.
+# uploads a debug APK as a workflow artifact, plus a signed release APK
+# when the release-signing secrets are set (see below).
 # Trigger: every push to main, or manually from the Actions tab.
+#
+# Release signing: the release APK is signed with the app's own release
+# keystore using AGP's injected signing properties, so no signing config
+# lives in the repo. Required repository secrets (Settings → Secrets →
+# Actions):
+#   ANDROID_KEYSTORE_BASE64  base64 of the release .keystore file
+#   ANDROID_KEYSTORE_PASSWORD  keystore password (also the key password)
+#   ANDROID_KEY_ALIAS  key alias (quran-qaloon)
+# If ANDROID_KEYSTORE_BASE64 is unset, the release steps are skipped and
+# the debug APK still builds.
 #
 # Why the icon step exists: the repo is pushed through GitHub's file API,
 # which carries text only, so the 26 launcher/splash PNGs cannot be pushed
@@ -110,3 +121,30 @@ jobs:
           name: quran-qaloon-debug-apk
           path: artifacts/quran-qaloon/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Build release APK (signed)
+        # Skipped until the release-signing secrets exist. Signing uses
+        # AGP's injected properties so the keystore never enters the repo.
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: artifacts/quran-qaloon/android
+        env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          gradle :app:assembleRelease \
+            -Pandroid.injected.signing.store.file="$PWD/release.keystore" \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEYSTORE_PASSWORD"
+          ls -lh app/build/outputs/apk/release/app-release.apk
+          rm -f release.keystore
+
+                - name: Upload release APK
+                  if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+                  uses: actions/upload-artifact@v4
+                  with:
+                  name: quran-qaloon-release-apk
+                  path: artifacts/quran-qaloon/android/app/build/outputs/apk/release/app-release.apk
+                  if-no-files-found: error
