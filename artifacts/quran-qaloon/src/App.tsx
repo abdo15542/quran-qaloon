@@ -65,7 +65,13 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <OfflineProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        {/* NOTE: do NOT pass base={BASE_URL} here. Vite's base is './' for
+            relative asset URLs, but wouter turns base '.' into a "~" prefix
+            on every location ("~/" instead of "/"), so NO route ever matched
+            and the page rendered blank (only the bottom nav showed).
+            The app is served at the root of https://localhost/, so the
+            default empty base is correct. */}
+        <WouterRouter>
           <AppRoutes />
         </WouterRouter>
       </OfflineProvider>
