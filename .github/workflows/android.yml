@@ -83,11 +83,11 @@ jobs:
           test -f assets/splash.svg || (echo "ERROR: assets/splash.svg is missing" && exit 1)
           npx -y @capacitor/assets@4 generate --android
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
