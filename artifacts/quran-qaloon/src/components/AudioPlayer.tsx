@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, RotateCcw, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, RotateCcw, RefreshCw, Timer } from "lucide-react";
 import { useAudio } from "@/hooks/useAudio";
 
 interface AudioPlayerProps {
@@ -14,6 +14,8 @@ interface AudioPlayerProps {
   onNext?: () => void;
   hasPrevious?: boolean;
   hasNext?: boolean;
+  /** Increment to pause the player from outside (e.g. when ayah audio starts). */
+  pauseSignal?: number;
 }
 
 function formatTime(seconds: number): string {
@@ -35,11 +37,12 @@ export default function AudioPlayer({
   onNext,
   hasPrevious = true,
   hasNext = true,
+  pauseSignal = 0,
 }: AudioPlayerProps) {
   const [retryKey, setRetryKey] = useState(0);
   const urlWithRetry = audioUrl;
 
-  const { state, toggle, seek, setVolume, setPlaybackRate } = useAudio(
+  const { state, toggle, pause, seek, setVolume, setPlaybackRate } = useAudio(
     urlWithRetry,
     initialTime,
     onProgress,
@@ -47,6 +50,59 @@ export default function AudioPlayer({
     retryKey
   );
   const progressRef = useRef<HTMLInputElement>(null);
+
+  // Pause from outside (ayah playback takes over the speaker).
+  const pauseRef = useRef(pause);
+  pauseRef.current = pause;
+  useEffect(() => {
+    if (pauseSignal > 0) pauseRef.current();
+  }, [pauseSignal]);
+
+  // ---- مؤقت إيقاف التشغيل (للاستماع قبل النوم) ----
+  const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = متوقف
+  const sleepEndsAtRef = useRef<number | null>(null);
+  const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSleepTimeout = () => {
+    if (sleepTimeoutRef.current) {
+      clearTimeout(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
+  };
+
+  const armSleepTimer = () => {
+    clearSleepTimeout();
+    if (!sleepEndsAtRef.current) return;
+    const msLeft = sleepEndsAtRef.current - Date.now();
+    if (msLeft <= 0) {
+      pauseRef.current();
+      setSleepMinutes(0);
+      sleepEndsAtRef.current = null;
+      return;
+    }
+    sleepTimeoutRef.current = setTimeout(() => {
+      pauseRef.current();
+      setSleepMinutes(0);
+      sleepEndsAtRef.current = null;
+    }, msLeft);
+  };
+
+  // Countdown runs only while playing; pausing freezes it, resuming re-arms it.
+  useEffect(() => {
+    if (state.isPlaying) armSleepTimer();
+    else clearSleepTimeout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.isPlaying]);
+
+  useEffect(() => clearSleepTimeout, []);
+
+  const cycleSleepTimer = () => {
+    const next = sleepMinutes === 0 ? 15 : sleepMinutes === 15 ? 30 : sleepMinutes === 30 ? 60 : 0;
+    setSleepMinutes(next);
+    sleepEndsAtRef.current = next > 0 ? Date.now() + next * 60_000 : null;
+    if (next > 0 && state.isPlaying) armSleepTimer();
+    else if (next === 0) clearSleepTimeout();
+  };
 
   const rates = [0.75, 1, 1.25, 1.5];
   const currentRateIndex = rates.indexOf(state.playbackRate);
@@ -194,6 +250,19 @@ export default function AudioPlayer({
             className="px-2 py-1 rounded-lg bg-muted hover:bg-muted/80 text-xs font-sans text-muted-foreground transition-colors min-w-[44px] text-center"
           >
             {state.playbackRate}x
+          </button>
+
+          <button
+            onClick={cycleSleepTimer}
+            title={sleepMinutes > 0 ? `إيقاف التشغيل بعد ${sleepMinutes} دقيقة` : "مؤقت إيقاف التشغيل"}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-sans transition-colors min-w-[44px] justify-center ${
+              sleepMinutes > 0
+                ? "bg-primary/10 text-primary"
+                : "bg-muted hover:bg-muted/80 text-muted-foreground"
+            }`}
+          >
+            <Timer className="w-3.5 h-3.5" />
+            {sleepMinutes > 0 ? `${sleepMinutes}د` : "إيقاف"}
           </button>
         </div>
 

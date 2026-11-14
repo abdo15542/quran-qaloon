@@ -142,3 +142,9 @@
   border-radius: 8px;
   transition: background 0.3s ease;
 }
+
+/* الشريط العلوي: إنزاله قليلًا ليظهر بوضوح أسفل شريط حالة الهاتف
+   (مساحة آمنة + حشوة إضافية فوق حشوة py-3 الافتراضية) */
+header.sticky {
+  padding-top: max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.75rem));
+}

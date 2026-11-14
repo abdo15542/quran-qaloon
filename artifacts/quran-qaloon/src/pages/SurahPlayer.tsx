@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl } from "@/data/surahs";
+import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
 import { getSurahAyahs } from "@/data/quran-text";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
@@ -66,6 +66,7 @@ export default function SurahPlayer({
   const { isCompleted, markCompleted, markUncompleted } = useKhatma();
   const { isCached, getCachedBlobUrl } = useOffline();
 
+
   useEffect(() => {
     document.documentElement.style.setProperty("--quran-font-size", `${fontSize}px`);
     localStorage.setItem("quran_font_size", String(fontSize));
@@ -89,6 +90,190 @@ export default function SurahPlayer({
   const savedProgress = getProgress(surahNumber);
   const initialTime = savedProgress?.currentTime ?? 0;
   const surahCompleted = isCompleted(surahNumber);
+
+  // ---- تشغيل آية بالضغط عليها (مع تكرار للحفظ وتشغيل متواصل) ----
+  const [playingAyah, setPlayingAyah] = useState<number | null>(null);
+  const [ayahRepeat, setAyahRepeat] = useState<number>(1);
+  const [ayahContinuous, setAyahContinuous] = useState(false);
+  const [ayahError, setAyahError] = useState<string | null>(null);
+  const [pauseSignal, setPauseSignal] = useState(0);
+  const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ayahSessionRef = useRef<{
+    ayah: number;
+    start: number;
+    end: number | null;
+    totalRepeats: number;
+    played: number;
+  } | null>(null);
+  const ayahRangeRef = useRef<{ startFrac: number; endFrac: number } | null>(null);
+  const ayahContinuousRef = useRef(false);
+  useEffect(() => {
+    ayahContinuousRef.current = ayahContinuous;
+  }, [ayahContinuous]);
+
+  const stopAyah = useCallback(() => {
+    const audio = ayahAudioRef.current;
+    if (audio) audio.pause();
+    ayahSessionRef.current = null;
+    ayahRangeRef.current = null;
+    setPlayingAyah(null);
+  }, []);
+
+  const playAyah = useCallback(
+    (ayahNumberInSurah: number) => {
+      // الضغط على الآية الجارية يوقفها.
+      if (playingAyah === ayahNumberInSurah) {
+        stopAyah();
+        return;
+      }
+      const audio = ayahAudioRef.current;
+      if (!audio) return;
+      // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
+      setPauseSignal((s) => s + 1);
+      setAyahError(null);
+      const perAyahUrl = currentReciter
+        ? buildAyahAudioUrl(currentReciter, surahNumber, ayahNumberInSurah)
+        : null;
+      if (perAyahUrl) {
+        // صوت دقيق لكل آية (العفاسي، الحصري، المعيقلي، الشريم، العجمي، عبد الباسط).
+        ayahRangeRef.current = null;
+        ayahSessionRef.current = {
+          ayah: ayahNumberInSurah,
+          start: 0,
+          end: null,
+          totalRepeats: ayahRepeat,
+          played: 0,
+        };
+        setPlayingAyah(ayahNumberInSurah);
+        audio.src = perAyahUrl;
+        audio.play().catch(() => {
+          setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
+          stopAyah();
+        });
+        return;
+      }
+      // بديل (قالون وباقي القرّاء بلا مصدر صوت لكل آية): شغّل صوت
+      // السورة من عند الآية المضغوطة. موضع الآية يُقدَّر من حصتها من
+      // طول نص السورة، ويبدأ التشغيل قبلها بثانية حتى لا تُقطع أول كلمة.
+      const url = effectiveAudioUrl ?? networkAudioUrl;
+      if (!url) {
+        setAyahError("لا يوجد صوت متاح لهذه السورة");
+        return;
+      }
+      const totalChars = ayahs.reduce((sum, a) => sum + a.text.length, 0);
+      if (totalChars === 0) return;
+      let beforeChars = 0;
+      let ayahChars = 0;
+      for (const a of ayahs) {
+        if (a.numberInSurah < ayahNumberInSurah) beforeChars += a.text.length;
+        else if (a.numberInSurah === ayahNumberInSurah) ayahChars = a.text.length;
+      }
+      ayahRangeRef.current = {
+        startFrac: beforeChars / totalChars,
+        endFrac: (beforeChars + ayahChars) / totalChars,
+      };
+      ayahSessionRef.current = {
+        ayah: ayahNumberInSurah,
+        start: 0,
+        end: null,
+        totalRepeats: ayahRepeat,
+        played: 0,
+      };
+      setPlayingAyah(ayahNumberInSurah);
+      if (audio.src !== url) audio.src = url;
+      if (audio.readyState >= 1 && isFinite(audio.duration) && audio.duration > 0) {
+        const range = ayahRangeRef.current;
+        const start = Math.max(0, range.startFrac * audio.duration - 1);
+        const end = range.endFrac * audio.duration;
+        ayahSessionRef.current = { ...ayahSessionRef.current, start, end };
+        audio.currentTime = start;
+        audio.play().catch(() => {
+          setAyahError("تعذّر تشغيل صوت الآية");
+          stopAyah();
+        });
+      } else {
+        // انتظر تحميل بيانات الصوت ثم اقفز لموضع الآية (في مستمع loadedmetadata).
+        audio.load();
+      }
+    },
+    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah]
+  );
+
+  const finishAyah = useCallback(() => {
+    const session = ayahSessionRef.current;
+    const audio = ayahAudioRef.current;
+    if (!session || !audio) return;
+    const played = session.played + 1;
+    if (played < session.totalRepeats) {
+      ayahSessionRef.current = { ...session, played };
+      audio.currentTime = session.start;
+      audio.play().catch(() => {
+        setAyahError("تعذّر تشغيل صوت الآية");
+        stopAyah();
+      });
+      return;
+    }
+    const nextAyah = session.ayah + 1;
+    if (ayahContinuousRef.current && ayahs.some((a) => a.numberInSurah === nextAyah)) {
+      playAyah(nextAyah);
+      return;
+    }
+    stopAyah();
+  }, [ayahs, playAyah, stopAyah]);
+
+  // مستمعو عنصر صوت الآية (مرة واحدة عند التركيب).
+  const playAyahRef = useRef(playAyah);
+  playAyahRef.current = playAyah;
+  const finishAyahRef = useRef(finishAyah);
+  finishAyahRef.current = finishAyah;
+  const stopAyahRef = useRef(stopAyah);
+  stopAyahRef.current = stopAyah;
+  useEffect(() => {
+    const audio = ayahAudioRef.current;
+    if (!audio) return;
+    const onLoadedMetadata = () => {
+      const range = ayahRangeRef.current;
+      const session = ayahSessionRef.current;
+      if (range && session && isFinite(audio.duration) && audio.duration > 0) {
+        const start = Math.max(0, range.startFrac * audio.duration - 1);
+        const end = range.endFrac * audio.duration;
+        ayahSessionRef.current = { ...session, start, end };
+        audio.currentTime = start;
+        audio.play().catch(() => {
+          setAyahError("تعذّر تشغيل صوت الآية");
+          stopAyahRef.current();
+        });
+      }
+    };
+    const onTimeUpdate = () => {
+      const session = ayahSessionRef.current;
+      if (session && session.end != null && audio.currentTime >= session.end) {
+        finishAyahRef.current();
+      }
+    };
+    const onEnded = () => finishAyahRef.current();
+    const onError = () => {
+      setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
+      stopAyahRef.current();
+    };
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+    return () => {
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
+      audio.pause();
+    };
+  }, []);
+
+  // تغيير السورة أو القارئ يوقف صوت الآية.
+  useEffect(() => {
+    stopAyah();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surahNumber, currentReciter?.id]);
 
   useEffect(() => {
     if (!networkAudioUrl || !currentReciter) {
@@ -170,6 +355,8 @@ export default function SurahPlayer({
 
   return (
     <div className="min-h-screen bg-background">
+      {/* عنصر صوت الآية (مخفي) — خارج أي شرط حتى تُرفَق مستمعاته عند التركيب */}
+      <audio ref={ayahAudioRef} preload="metadata" className="hidden" />
       {justCompleted && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-bounce-once font-arabic text-sm">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
@@ -264,6 +451,7 @@ export default function SurahPlayer({
                     onNext={nextSurah ? () => navigate(`/surah/${surahNumber + 1}`) : undefined}
                     hasPrevious={!!prevSurah}
                     hasNext={!!nextSurah}
+                    pauseSignal={pauseSignal}
                   />
                 </div>
               )}
@@ -449,9 +637,75 @@ export default function SurahPlayer({
 
                   {!loading && !error && ayahs.length > 0 && (
                     <div className="p-6">
+                      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">اضغط على أي آية لسماعها</span>
+                        {playingAyah != null && (
+                          <span className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full">
+                            <Volume2 className="w-3.5 h-3.5" />
+                            الآية {toArabicNum(playingAyah)}
+                          </span>
+                        )}
+                      </div>
+                      {playingAyah != null && (
+                        <div className="mb-4 flex flex-wrap items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2">
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Repeat className="w-3.5 h-3.5" />
+                            تكرار الآية:
+                          </span>
+                          {[1, 3, 5].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => {
+                                setAyahRepeat(n);
+                                if (ayahSessionRef.current) {
+                                  ayahSessionRef.current = {
+                                    ...ayahSessionRef.current,
+                                    totalRepeats: n,
+                                  };
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                                ayahRepeat === n
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              ×{n}
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => setAyahContinuous((c) => !c)}
+                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                              ayahContinuous
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            متواصل
+                          </button>
+                          <button
+                            onClick={stopAyah}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Square className="w-3 h-3" />
+                            إيقاف
+                          </button>
+                        </div>
+                      )}
+                      {ayahError && (
+                        <div className="mb-3 text-xs text-destructive bg-destructive/10 rounded-xl px-3 py-2">
+                          {ayahError}
+                        </div>
+                      )}
                       <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
                         {ayahs.map((ayah) => (
-                          <span key={ayah.number}>
+                          <span
+                            key={ayah.number}
+                            onClick={() => playAyah(ayah.numberInSurah)}
+                            className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
+                              playingAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                            }`}
+                          >
                             {ayah.text}{" "}
                             <span className="text-primary inline-block mx-1 text-base">
                               ﴿{toArabicNum(ayah.numberInSurah)}﴾

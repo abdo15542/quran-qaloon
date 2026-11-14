@@ -50,6 +50,9 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
   const alreadyCachedForReciter = SURAHS.filter((s) => isCached(s.number, selectedReciter.id)).length;
   const remainingForReciter = SURAHS.length - alreadyCachedForReciter;
 
+  // تحميل متوازٍ بأقصى سرعة: 5 سور في نفس الوقت بدل سورة بعد سورة.
+  const BULK_CONCURRENCY = 5;
+
   const startBulkDownload = async () => {
     const pending = SURAHS.filter((s) => !isCached(s.number, selectedReciter.id));
     if (pending.length === 0) {
@@ -60,28 +63,40 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     let done = 0;
     let failed = 0;
     setBulk({ status: "running", done: 0, total: pending.length, failed: 0, currentSurah: pending[0].name });
-    for (const surah of pending) {
-      if (cancelBulkRef.current) {
-        setBulk((prev) => ({ ...prev, status: "cancelled", done, failed }));
-        return;
+    let nextIndex = 0;
+    const worker = async () => {
+      for (;;) {
+        if (cancelBulkRef.current) return;
+        const idx = nextIndex++;
+        if (idx >= pending.length) return;
+        const surah = pending[idx];
+        setBulk((prev) => ({ ...prev, currentSurah: surah.name }));
+        // downloadAudio reports success directly; do NOT verify via the
+        // cached-items state — React state updates lag behind the await and
+        // the check always read stale data (it reported 114 failed even
+        // though all 114 had actually been saved).
+        const ok = await downloadAudio(
+          surah.number,
+          surah.name,
+          selectedReciter.id,
+          selectedReciter.name,
+          buildAudioUrl(selectedReciter, surah.number)
+        );
+        if (ok) done++;
+        else failed++;
+        setBulk((prev) => ({ ...prev, done, failed }));
       }
-      setBulk((prev) => ({ ...prev, currentSurah: surah.name }));
-      // downloadAudio reports success directly; do NOT verify via the
-      // cached-items state — React state updates lag behind the await and
-      // the check always read stale data (it reported 114 failed even
-      // though all 114 had actually been saved).
-      const ok = await downloadAudio(
-        surah.number,
-        surah.name,
-        selectedReciter.id,
-        selectedReciter.name,
-        buildAudioUrl(selectedReciter, surah.number)
-      );
-      if (ok) done++;
-      else failed++;
-      setBulk((prev) => ({ ...prev, done, failed }));
-    }
-    setBulk((prev) => ({ ...prev, status: "done", done, failed, currentSurah: "" }));
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(BULK_CONCURRENCY, pending.length) }, () => worker())
+    );
+    setBulk((prev) => ({
+      ...prev,
+      status: cancelBulkRef.current ? "cancelled" : "done",
+      done,
+      failed,
+      currentSurah: "",
+    }));
   };
 
   const cancelBulkDownload = () => {
@@ -200,6 +215,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
               حمّل كل السور الـ114 دفعة واحدة بصوت القارئ الذي تختاره، لتستمع بدون إنترنت نهائياً.
+              التحميل متوازٍ بأقصى سرعة (5 سور في نفس الوقت).
               قد يصل الحجم الإجمالي إلى مئات الميغابايت — يُفضَّل الاتصال بشبكة Wi-Fi وترك التطبيق مفتوحاً حتى يكتمل التحميل.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
