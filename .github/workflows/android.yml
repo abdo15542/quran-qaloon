@@ -1,0 +1,101 @@
+name: Build Quran Qaloon APK
+
+# Builds the Capacitor Android app from the quran-qaloon web app and
+# uploads a debug APK as a workflow artifact.
+# Trigger: every push to main, or manually from the Actions tab.
+#
+# Why the icon step exists: the repo is pushed through GitHub's file API,
+# which carries text only, so the 26 launcher/splash PNGs cannot be pushed
+# that way. Instead the repo carries text SVGs (assets/icon.svg and
+# assets/splash.svg) and this workflow generates every Android density
+# from them with @capacitor/assets before Gradle runs. If generation
+# fails, the job stops here on purpose — a build without icons would
+# fail later at resource linking with a confusing error.
+#
+# Why Gradle is installed instead of ./gradlew: gradle-wrapper.jar is
+# also binary and cannot be pushed through the file API, so the wrapper
+# cannot bootstrap. setup-gradle installs Gradle 8.11.1 directly.
+#
+# Why the font step exists: the app is fully offline — Quran text is
+# bundled in src/data/quran-text.ts and the fonts (Amiri Quran, Amiri,
+# Cairo, Inter) are bundled as woff2 in src/assets/fonts/. woff2 files
+# are binary and cannot be pushed through the GitHub file API either,
+# so this workflow downloads the same 7 font files from Google Fonts
+# before building. The step stops loudly if any download fails.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm 9
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download bundled fonts (woff2, binary — not in the repo)
+        working-directory: artifacts/quran-qaloon/src/assets/fonts
+        run: |
+          mkdir -p .
+          curl -fsSL -o AmiriQuran-normal-400-arabic.woff2 https://fonts.gstatic.com/s/amiriquran/v19/_Xmo-Hk0rD6DbUL4_vH8Zp5v5i2ssg.woff2
+          curl -fsSL -o Amiri-normal-400-arabic.woff2 https://fonts.gstatic.com/s/amiri/v30/J7aRnpd8CGxBHpUrtLMA7w.woff2
+          curl -fsSL -o Amiri-normal-700-arabic.woff2 https://fonts.gstatic.com/s/amiri/v30/J7acnpd8CGxBHp2VkaY6zp5yGw.woff2
+          curl -fsSL -o Amiri-italic-400-arabic.woff2 https://fonts.gstatic.com/s/amiri/v30/J7afnpd8CGxBHpUrhLQY66NL.woff2
+          curl -fsSL -o Cairo-normal-300-arabic.woff2 https://fonts.gstatic.com/s/cairo/v31/SLXVc1nY6HkvangtZmpQdkhzfH5lkSscQyyS4J0.woff2
+          curl -fsSL -o Cairo-normal-300-latin.woff2 https://fonts.gstatic.com/s/cairo/v31/SLXVc1nY6HkvangtZmpQdkhzfH5lkSscRiyS.woff2
+          curl -fsSL -o Inter-normal-400-latin.woff2 https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2
+          ls -l *.woff2
+
+      - name: Build web app
+        run: pnpm --filter @workspace/quran-qaloon run build
+
+      - name: Sync Capacitor Android project
+        run: pnpm --filter @workspace/quran-qaloon exec cap sync android
+
+      - name: Generate launcher icon and splash from SVG
+        working-directory: artifacts/quran-qaloon
+        run: |
+          test -f assets/icon.svg || (echo "ERROR: assets/icon.svg is missing" && exit 1)
+          test -f assets/splash.svg || (echo "ERROR: assets/splash.svg is missing" && exit 1)
+          npx -y @capacitor/assets@4 generate --android
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build debug APK
+        working-directory: artifacts/quran-qaloon/android
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-qaloon-debug-apk
+          path: artifacts/quran-qaloon/android/app/build/outputs/apk/debug/app-debug.apk
