@@ -1,9 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { BookOpen, ScrollText, Hash, Search } from "lucide-react";
+import { BookOpen, ScrollText, Hash, Search, Download } from "lucide-react";
 
 const NAV_ITEMS = [
   { path: "/", label: "القرآن", icon: BookOpen, exact: true },
   { path: "/athkar", label: "الأذكار", icon: ScrollText },
+  { path: "/downloads", label: "التحميلات", icon: Download },
   { path: "/tasbeeh", label: "التسبيح", icon: Hash },
   { path: "/search", label: "البحث", icon: Search },
 ];
