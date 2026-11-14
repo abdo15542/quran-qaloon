@@ -1,0 +1,74 @@
+import { useState, useEffect } from "react";
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { OfflineProvider } from "@/context/OfflineContext";
+import Home from "@/pages/Home";
+import SurahPlayer from "@/pages/SurahPlayer";
+import Athkar from "@/pages/Athkar";
+import AthkarDetail from "@/pages/AthkarDetail";
+import SearchPage from "@/pages/SearchPage";
+import DownloadsPage from "@/pages/DownloadsPage";
+import TasbeehPage from "@/pages/TasbeehPage";
+import RecitersList from "@/pages/RecitersList";
+import NotFound from "@/pages/not-found";
+import BottomNav from "@/components/BottomNav";
+
+const queryClient = new QueryClient();
+
+function AppRoutes() {
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [darkMode]);
+
+  const toggleDarkMode = () => setDarkMode((d) => !d);
+
+  return (
+    <>
+      <div className="pb-16">
+        <Switch>
+          <Route path="/" component={() => <Home darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/surah/:number">
+            {(params) => {
+              const num = parseInt(params.number, 10);
+              if (isNaN(num) || num < 1 || num > 114) return <NotFound />;
+              return <SurahPlayer surahNumber={num} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
+            }}
+          </Route>
+          <Route path="/athkar" component={() => <Athkar darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/athkar/:id">
+            {(params) => <AthkarDetail categoryId={params.id} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />}
+          </Route>
+          <Route path="/search" component={() => <SearchPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/downloads" component={() => <DownloadsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/tasbeeh" component={() => <TasbeehPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/reciters" component={() => <RecitersList darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route component={NotFound} />
+        </Switch>
+      </div>
+      <BottomNav />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <OfflineProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <AppRoutes />
+        </WouterRouter>
+      </OfflineProvider>
+    </QueryClientProvider>
+  );
+}

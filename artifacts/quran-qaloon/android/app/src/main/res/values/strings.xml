@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">تسميع القرآن - قالون عن نافع</string>
+    <string name="title_activity_main">تسميع القرآن - قالون عن نافع</string>
+    <string name="package_name">ly.quran.qaloon</string>
+    <string name="custom_url_scheme">ly.quran.qaloon</string>
+</resources>

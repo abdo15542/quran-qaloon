@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <!-- Splash artwork for Quran Qaloon. Same note as icon.svg: this SVG is
+       the text source @capacitor/assets generates the Android splash
+       drawables from in CI. -->
+  <defs>
+    <mask id="crescentCut">
+      <rect width="2732" height="2732" fill="#ffffff"/>
+      <circle cx="1630" cy="1180" r="330" fill="#000000"/>
+    </mask>
+  </defs>
+  <rect width="2732" height="2732" fill="#F8F6F0"/>
+  <circle cx="1366" cy="1366" r="640" fill="#0B6B4A"/>
+  <!-- Gold crescent -->
+  <circle cx="1366" cy="1180" r="400" fill="#E8B84B" mask="url(#crescentCut)"/>
+  <!-- Four-point star -->
+  <polygon points="1760,760 1804,872 1916,916 1804,960 1760,1072 1716,960 1604,916 1716,872" fill="#E8B84B"/>
+  <!-- Open book -->
+  <path d="M1020 1600 C1180 1500 1300 1500 1366 1552 C1432 1500 1552 1500 1712 1600 L1712 1810 C1552 1710 1432 1710 1366 1762 C1300 1710 1180 1710 1020 1810 Z" fill="#FFFFFF"/>
+  <path d="M1366 1552 L1366 1762" stroke="#0B6B4A" stroke-width="20" stroke-linecap="round"/>
+</svg>

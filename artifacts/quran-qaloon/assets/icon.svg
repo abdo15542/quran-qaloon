@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- App icon for Quran Qaloon (ly.quran.qaloon). Text file on purpose:
+       GitHub push via the API carries text only, so the launcher icon and
+       splash are generated from these SVGs in CI by @capacitor/assets.
+       Replace icon.svg / splash.svg with real artwork any time; the
+       workflow regenerates every density automatically. -->
+  <defs>
+    <mask id="crescentCut">
+      <rect width="1024" height="1024" fill="#ffffff"/>
+      <circle cx="648" cy="408" r="185" fill="#000000"/>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="#0B6B4A"/>
+  <!-- Gold crescent -->
+  <circle cx="512" cy="408" r="225" fill="#E8B84B" mask="url(#crescentCut)"/>
+  <!-- Four-point star -->
+  <polygon points="700,236 724,300 788,324 724,348 700,412 676,348 612,324 676,300" fill="#E8B84B"/>
+  <!-- Open book -->
+  <path d="M272 688 C366 632 452 632 512 682 C572 632 658 632 752 688 L752 812 C658 756 572 756 512 806 C452 756 366 756 272 812 Z" fill="#FFFFFF"/>
+  <path d="M512 682 L512 806" stroke="#0B6B4A" stroke-width="12" stroke-linecap="round"/>
+  <path d="M320 716 C380 686 440 684 478 706" fill="none" stroke="#0B6B4A" stroke-width="9" stroke-linecap="round"/>
+  <path d="M546 706 C584 684 644 686 704 716" fill="none" stroke="#0B6B4A" stroke-width="9" stroke-linecap="round"/>
+</svg>

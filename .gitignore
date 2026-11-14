@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.apk
+*.aab
+
+# Android / Gradle
+artifacts/quran-qaloon/android/.gradle/
+artifacts/quran-qaloon/android/app/build/
+artifacts/quran-qaloon/android/local.properties
+artifacts/quran-qaloon/android/app/src/main/assets/public/
+*.keystore
+*.jks
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+*.log
