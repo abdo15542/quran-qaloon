@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, RefreshCw, ScrollText } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
+import { searchQuran, getAyah } from "@/data/quran-text";
 
 interface SearchResult {
   number: number;
@@ -58,39 +59,13 @@ function highlight(text: string, query: string): React.ReactNode {
   );
 }
 
-async function fetchWithRetry(url: string, retries = 3): Promise<Response> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      if (res.ok) return res;
-      if (res.status >= 400 && res.status < 500) throw new Error(`خطأ ${res.status}`);
-    } catch (err) {
-      if (attempt === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-    }
-  }
-  throw new Error("فشل الاتصال بعد عدة محاولات");
-}
-
+// Offline: ayah context comes from the bundled Uthmani text — no network.
 async function fetchAyah(surahNum: number, ayahNum: number): Promise<ContextAyah | null> {
   if (ayahNum < 1) return null;
   const surah = SURAHS.find((s) => s.number === surahNum);
   if (!surah || ayahNum > surah.numberOfAyahs) return null;
-  try {
-    const res = await fetchWithRetry(
-      `https://api.alquran.cloud/v1/ayah/${surahNum}:${ayahNum}/quran-uthmani`
-    );
-    const data = await res.json();
-    if (data.code === 200 && data.data) {
-      return { numberInSurah: data.data.numberInSurah, text: data.data.text };
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  const a = getAyah(surahNum, ayahNum);
+  return a ? { numberInSurah: a.numberInSurah, text: a.text } : null;
 }
 
 function ResultCard({ result, query }: { result: SearchResult; query: string }) {
@@ -288,45 +263,24 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
       return;
     }
 
-    try {
-      const encoded = encodeURIComponent(trimmed);
-      const res = await fetchWithRetry(
-        `https://api.quran.com/api/v4/search?q=${encoded}&language=ar&size=30`
-      );
-      const data = await res.json();
-
-      const results = data?.search?.results ?? [];
-      if (results.length > 0) {
-        const mapped: SearchResult[] = results
-          .map((m: {
-            verse_key: string;
-            verse_id: number;
-            text: string;
-          }) => {
-            const [surahStr, ayahStr] = (m.verse_key ?? "").split(":");
-            const surahNumber = parseInt(surahStr, 10);
-            const numberInSurah = parseInt(ayahStr, 10);
-            const surah = SURAHS.find((s) => s.number === surahNumber);
-            if (!surah || isNaN(surahNumber) || isNaN(numberInSurah)) return null;
-            return {
-              number: m.verse_id,
-              numberInSurah,
-              text: m.text,
-              surahNumber,
-              surahName: surah.name,
-              juz: 0,
-            };
-          })
-          .filter(Boolean) as SearchResult[];
-        setResults(mapped);
-      } else {
-        setResults([]);
-      }
-    } catch {
-      setError("تعذّر الاتصال بالخادم. تحقق من اتصالك بالإنترنت ثم حاول مجدداً.");
-    } finally {
-      setLoading(false);
-    }
+    // Offline search over the bundled Uthmani text (diacritic-insensitive).
+    const hits = searchQuran(trimmed, 30);
+    const mapped: SearchResult[] = hits
+      .map((h) => {
+        const surah = SURAHS.find((s) => s.number === h.surahNumber);
+        if (!surah) return null;
+        return {
+          number: h.number,
+          numberInSurah: h.numberInSurah,
+          text: h.text,
+          surahNumber: h.surahNumber,
+          surahName: surah.name,
+          juz: 0,
+        };
+      })
+      .filter(Boolean) as SearchResult[];
+    setResults(mapped);
+    setLoading(false);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {

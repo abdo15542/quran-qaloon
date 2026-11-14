@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl } from "@/data/surahs";
+import { getSurahAyahs } from "@/data/quran-text";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
 import DownloadButton from "@/components/DownloadButton";
@@ -135,29 +136,21 @@ export default function SurahPlayer({
     setTimeout(() => setJustCompleted(false), 4000);
   }, [surahNumber, clearProgress, markCompleted]);
 
+  // Offline: the full Uthmani text is bundled in src/data/quran-text.ts —
+  // no network is needed to read a surah. Only audio is streamed/downloaded.
   useEffect(() => {
     if (!surah) return;
-    setLoading(true);
-    setError(null);
-    setAyahs([]);
     setJustCompleted(false);
-
-    const edition = currentQirah.textEdition;
-    fetch(`https://api.alquran.cloud/v1/surah/${surahNumber}/${edition}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("فشل التحميل");
-        return r.json();
-      })
-      .then((data) => {
-        if (data.code === 200 && data.data?.ayahs) {
-          setAyahs(data.data.ayahs);
-        } else {
-          throw new Error("بيانات غير صحيحة");
-        }
-      })
-      .catch(() => setError("تعذّر تحميل نص السورة"))
-      .finally(() => setLoading(false));
-  }, [surahNumber, surah, currentQirah.textEdition]);
+    const local = getSurahAyahs(surahNumber);
+    if (local.length > 0) {
+      setAyahs(local);
+      setError(null);
+    } else {
+      setAyahs([]);
+      setError("تعذّر تحميل نص السورة");
+    }
+    setLoading(false);
+  }, [surahNumber, surah]);
 
   if (!surah) {
     return (
