@@ -18,4 +18,4 @@ pnpm --filter @workspace/quran-qaloon exec cap sync android
 
 أضف ملف `.github/workflows/android.yml` (انظر `upload-guide.md` في ملفات المشروع)، ثم شغّل الـ workflow من تبويب Actions. الـ APK يظهر في Artifacts باسم `quran-qaloon-debug-apk` (نسخة debug).
 
-النص والصوت من الإنترنت (api.alquran.cloud وشبكات mp3quran / quranicaudio) ما لم تكن السورة محمّلة مسبقًا.
+يعمل التطبيق دون إنترنت بالكامل: نص القرآن (114 سورة، 6236 آية، برسم عثماني) مضمَّن في `src/data/quran-text.ts`، والبحث يعمل محليًا، والخطوط (Amiri Quran وAmiri وCairo وInter) مضمَّنة في `src/assets/fonts/`. الإنترنت مطلوب فقط لتشغيل الصوت أو تحميل سورة صوتيًا (شبكات mp3quran / quranicaudio).
