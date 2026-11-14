@@ -134,7 +134,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "keystore_b64_len=${#ANDROID_KEYSTORE_BASE64}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
           gradle :app:assembleRelease \
             -Pandroid.injected.signing.store.file="$PWD/release.keystore" \
             -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
