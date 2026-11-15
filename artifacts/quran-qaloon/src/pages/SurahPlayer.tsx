@@ -157,7 +157,7 @@ export default function SurahPlayer({
     let tries = 0;
     let done = false;
     const onSeeked = () => {
-      if (Math.abs(audio.currentTime - target) < 0.25) finish();
+      if (Math.abs(audio.currentTime - target) < 0.05) finish();
     };
     const giveUp = () => {
       if (done) return;
@@ -192,7 +192,7 @@ export default function SurahPlayer({
       if (!audio.seeking) audio.currentTime = target;
       ayahSeekTimerRef.current = window.setTimeout(check, 350);
     };
-    if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
+    if (Math.abs(audio.currentTime - target) < 0.05) { finish(); return; }
     audio.addEventListener("seeked", onSeeked);
     ayahSeekTimerRef.current = window.setTimeout(check, 600);
   }, [stopAyah]);
