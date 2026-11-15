@@ -40,6 +40,14 @@ function getStoredReciterId(qirahId: string): string {
   return getRecitersForQirah(qirahId)[0]?.id ?? "qaloon-nafi";
 }
 
+// في WebView على أندرويد يخرج الصوت المسموع متأخرًا عن ساعة عنصر الصوت
+// (currentTime) بنحو ثانيتين بسبب التخزين المؤقت للصوت، فتتقدّم الشارة
+// (الآية الظاهرة) على ما يُسمع فعلًا ويبدو أن التطبيق يقرأ الآية السابقة.
+// نؤخّر إنهاء الآية بهذا القدر حتى تتزامن الشارة مع الصوت المسموع.
+// (قيسناه من فيديوهات الجهاز: الشارة تسبق الصوت ~٢ ث؛ القفز نفسه صحيح
+// ويبدأ من الآية المضغوطة، المشكلة في التزامن فقط).
+const AYAH_END_LATENCY_S = 1.5;
+
 export default function SurahPlayer({
   surahNumber,
   darkMode,
@@ -192,6 +200,16 @@ export default function SurahPlayer({
     const exact = ayahExactRef.current;
     if (exact) {
       ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
+      // الصوت وصل فعلًا إلى داخل هذه الآية (بعد تأخير الإنهاء): لا تقفز
+      // للوراء وتعيد بدايتها، اتركه يكمل من حيث هو. ولأن الصوت لم يتوقف
+      // أصلًا فلن يصل حدث playing من جديد، فثبّت حالة البدء يدويًا حتى
+      // تظهر الشارة ولا يبقى مؤشر التحميل.
+      if (audio.currentTime >= exact.start && audio.currentTime < exact.end) {
+        if (audio.paused) audio.play().catch(() => {});
+        setAyahBuffering(false);
+        setAyahStarted(true);
+        return true;
+      }
       seekAyahAudio(exact.start);
       return true;
     }
@@ -200,6 +218,12 @@ export default function SurahPlayer({
       const start = Math.max(0, range.startFrac * audio.duration - 1);
       const end = range.endFrac * audio.duration;
       ayahSessionRef.current = { ...session, start, end };
+      if (audio.currentTime >= start && audio.currentTime < end) {
+        if (audio.paused) audio.play().catch(() => {});
+        setAyahBuffering(false);
+        setAyahStarted(true);
+        return true;
+      }
       seekAyahAudio(start);
       return true;
     }
@@ -343,7 +367,9 @@ export default function SurahPlayer({
     };
     const onTimeUpdate = () => {
       const session = ayahSessionRef.current;
-      if (session && session.end != null && audio.currentTime >= session.end) {
+      // أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر حتى لا
+      // تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
+      if (session && session.end != null && audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
         finishAyahRef.current();
       }
     };
