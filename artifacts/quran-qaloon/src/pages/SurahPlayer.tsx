@@ -130,6 +130,9 @@ export default function SurahPlayer({
   }, []);
 
   // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
+  // ملاحظة مهمة: في WebView أندرويد قد يُتجاهل تغيير currentTime
+  // والعنصر يعمل، فيستمر صوت الآية السابقة — لذلك نوقف التشغيل
+  // أولًا ثم نقفز ثم نشغّل، حتى يُطبَّق القفز دائمًا.
   const applyAyahRange = useCallback(() => {
     const audio = ayahAudioRef.current;
     const session = ayahSessionRef.current;
@@ -137,6 +140,7 @@ export default function SurahPlayer({
     const exact = ayahExactRef.current;
     if (exact) {
       ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
+      audio.pause();
       audio.currentTime = exact.start;
       audio.play().catch(() => {
         setAyahError("تعذّر تشغيل صوت الآية");
@@ -149,6 +153,7 @@ export default function SurahPlayer({
       const start = Math.max(0, range.startFrac * audio.duration - 1);
       const end = range.endFrac * audio.duration;
       ayahSessionRef.current = { ...session, start, end };
+      audio.pause();
       audio.currentTime = start;
       audio.play().catch(() => {
         setAyahError("تعذّر تشغيل صوت الآية");
@@ -268,6 +273,7 @@ export default function SurahPlayer({
     const played = session.played + 1;
     if (played < session.totalRepeats) {
       ayahSessionRef.current = { ...session, played };
+      audio.pause();
       audio.currentTime = session.start;
       audio.play().catch(() => {
         setAyahError("تعذّر تشغيل صوت الآية");
