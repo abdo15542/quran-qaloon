@@ -451,20 +451,27 @@ export default function SurahPlayer({
   }, [effectiveAudioUrl, networkAudioUrl, currentReciter, surahNumber]);
 
   useEffect(() => {
-    if (!networkAudioUrl || !currentReciter) {
-      setEffectiveAudioUrl(networkAudioUrl);
-      setIsOffline(false);
-      return;
-    }
+    // Switch immediately to the newly selected reciter's network audio.
+    // This prevents a tap during the cache lookup from using the previous
+    // reciter's blob URL with the new reciter's ayah timings.
+    setEffectiveAudioUrl(networkAudioUrl);
+    setIsOffline(false);
+
+    if (!networkAudioUrl || !currentReciter) return;
+
+    let cancelled = false;
     getCachedBlobUrl(surahNumber, currentReciter.id).then((blobUrl) => {
+      // Ignore stale cache lookups when the user changes surah or reciter.
+      if (cancelled) return;
       if (blobUrl) {
         setEffectiveAudioUrl(blobUrl);
         setIsOffline(true);
-      } else {
-        setEffectiveAudioUrl(networkAudioUrl);
-        setIsOffline(false);
       }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQirahChange = (qirahId: string) => {
