@@ -145,6 +145,11 @@ export default function SurahPlayer({
   // وإن لم تكن بيانات الصوت قد حُمّلت أصلًا لا نشغّل من موضع خاطئ؛
   // مستمع loadedmetadata يعيد تطبيق القفز عند جاهزيتها.
   const ayahSeekTimerRef = useRef<number | null>(null);
+  // الضغط على آية يريدها المستخدم من بدايتها دائمًا، حتى لو كان
+  // الصوت واقفًا داخلها أصلًا؛ أما التقدّم المتواصل فيترك الصوت يكمل
+  // من حيث هو حتى لا يعيد بداية الآية التالية (انظر applyAyahRange).
+  // يُمرَّر عبر ref لأن مستمع loadedmetadata قد يطبّق القفز لاحقًا.
+  const ayahForceSeekRef = useRef(false);
   const seekAyahAudio = useCallback((target: number) => {
     const audio = ayahAudioRef.current;
     if (!audio) return;
@@ -193,10 +198,14 @@ export default function SurahPlayer({
   }, [stopAyah]);
 
   // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
+  // ضغطة المستخدم (forceSeek) تقفز دائمًا إلى بداية الآية؛ أما التقدّم
+  // المتواصل فيترك الصوت يكمل إن كان داخل الآية التالية أصلًا.
   const applyAyahRange = useCallback(() => {
     const audio = ayahAudioRef.current;
     const session = ayahSessionRef.current;
     if (!audio || !session) return false;
+    const forceSeek = ayahForceSeekRef.current;
+    ayahForceSeekRef.current = false;
     const exact = ayahExactRef.current;
     if (exact) {
       ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
@@ -204,7 +213,8 @@ export default function SurahPlayer({
       // للوراء وتعيد بدايتها، اتركه يكمل من حيث هو. ولأن الصوت لم يتوقف
       // أصلًا فلن يصل حدث playing من جديد، فثبّت حالة البدء يدويًا حتى
       // تظهر الشارة ولا يبقى مؤشر التحميل.
-      if (audio.currentTime >= exact.start && audio.currentTime < exact.end) {
+      // هذا للتقدم المتواصل فقط؛ ضغطة المستخدم تقفز للبداية دائمًا.
+      if (!forceSeek && audio.currentTime >= exact.start && audio.currentTime < exact.end) {
         if (audio.paused) audio.play().catch(() => {});
         setAyahBuffering(false);
         setAyahStarted(true);
@@ -218,7 +228,7 @@ export default function SurahPlayer({
       const start = Math.max(0, range.startFrac * audio.duration - 1);
       const end = range.endFrac * audio.duration;
       ayahSessionRef.current = { ...session, start, end };
-      if (audio.currentTime >= start && audio.currentTime < end) {
+      if (!forceSeek && audio.currentTime >= start && audio.currentTime < end) {
         if (audio.paused) audio.play().catch(() => {});
         setAyahBuffering(false);
         setAyahStarted(true);
@@ -231,7 +241,7 @@ export default function SurahPlayer({
   }, [seekAyahAudio]);
 
   const playAyah = useCallback(
-    (ayahNumberInSurah: number) => {
+    (ayahNumberInSurah: number, fromTap = false) => {
       // الضغط على الآية الجارية يوقفها.
       if (playingAyah === ayahNumberInSurah) {
         stopAyah();
@@ -319,6 +329,10 @@ export default function SurahPlayer({
       };
       setPlayingAyah(ayahNumberInSurah);
       if (audio.src !== url) audio.src = url;
+      // ضغطة المستخدم تعني: ابدأ هذه الآية من أولها مهما كان موضع
+      // الصوت الحالي (حتى لو كان داخلها). التقدّم المتواصل يترك
+      // الصوت يكمل من حيث هو.
+      ayahForceSeekRef.current = fromTap;
       if (audio.readyState >= 1 && isFinite(audio.duration) && audio.duration > 0) {
         applyAyahRange();
       } else if (ayahExactRef.current) {
@@ -873,7 +887,7 @@ export default function SurahPlayer({
                         {ayahs.map((ayah) => (
                           <span
                             key={ayah.number}
-                            onClick={() => playAyah(ayah.numberInSurah)}
+                            onClick={() => playAyah(ayah.numberInSurah, true)}
                             className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
                               playingAyah === ayah.numberInSurah ? "bg-primary/15" : ""
                             }`}
