@@ -99,6 +99,7 @@ export default function SurahPlayer({
   const [ayahError, setAyahError] = useState<string | null>(null);
   const [pauseSignal, setPauseSignal] = useState(0);
   const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [ayahBuffering, setAyahBuffering] = useState(false);
   const ayahSessionRef = useRef<{
     ayah: number;
     start: number;
@@ -292,15 +293,26 @@ export default function SurahPlayer({
       setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
       stopAyahRef.current();
     };
+    // أثناء انتظار بيانات الصوت من الشبكة أظهر «جارٍ التحميل» بدل أن
+    // تبدو الآية متوقفة أو أن توقيتها خاطئ.
+    const onWaiting = () => setAyahBuffering(true);
+    const onPlaying = () => setAyahBuffering(false);
+    const onCanPlay = () => setAyahBuffering(false);
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
+    audio.addEventListener("waiting", onWaiting);
+    audio.addEventListener("playing", onPlaying);
+    audio.addEventListener("canplay", onCanPlay);
     return () => {
       audio.removeEventListener("loadedmetadata", onLoadedMetadata);
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
+      audio.removeEventListener("waiting", onWaiting);
+      audio.removeEventListener("playing", onPlaying);
+      audio.removeEventListener("canplay", onCanPlay);
       audio.pause();
     };
   }, []);
@@ -310,6 +322,20 @@ export default function SurahPlayer({
     stopAyah();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber, currentReciter?.id]);
+
+  // حمّل صوت السورة مسبقًا في عنصر صوت الآية منذ فتح الصفحة، حتى لا
+  // تنتظر كل قفزة إلى آية جلب بياناتها من الشبكة. كان العنصر
+  // preload="metadata" فيجلب البيانات عند الضغط فقط، فتتوقف الآية
+  // ثوانيَ أثناء التحميل ويبدو توقيتها خاطئًا على الاتصال البطيء.
+  useEffect(() => {
+    const audio = ayahAudioRef.current;
+    const url = effectiveAudioUrl ?? networkAudioUrl;
+    if (!audio || !url) return;
+    if (audio.src !== url) {
+      audio.src = url;
+      audio.load();
+    }
+  }, [effectiveAudioUrl, networkAudioUrl]);
 
   useEffect(() => {
     if (!networkAudioUrl || !currentReciter) {
@@ -392,7 +418,7 @@ export default function SurahPlayer({
   return (
     <div className="min-h-screen bg-background">
       {/* عنصر صوت الآية (مخفي) — خارج أي شرط حتى تُرفَق مستمعاته عند التركيب */}
-      <audio ref={ayahAudioRef} preload="metadata" className="hidden" />
+      <audio ref={ayahAudioRef} preload="auto" className="hidden" />
       {justCompleted && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-bounce-once font-arabic text-sm">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
@@ -679,6 +705,12 @@ export default function SurahPlayer({
                           <span className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full">
                             <Volume2 className="w-3.5 h-3.5" />
                             الآية {toArabicNum(playingAyah)}
+                          </span>
+                        )}
+                        {playingAyah != null && ayahBuffering && (
+                          <span className="flex items-center gap-1 bg-amber-500/10 text-amber-600 px-2 py-1 rounded-full">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            جارٍ تحميل الصوت...
                           </span>
                         )}
                       </div>
