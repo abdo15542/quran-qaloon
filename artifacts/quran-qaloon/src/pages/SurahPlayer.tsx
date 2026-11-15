@@ -178,7 +178,7 @@ export default function SurahPlayer({
     };
     const check = () => {
       if (done) return;
-      if (Math.abs(audio.currentTime - target) < 0.25) { finish(); return; }
+      if (Math.abs(audio.currentTime - target) < 0.05) { finish(); return; }
       // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
       // من موضع خاطئ.
       if (audio.readyState < 1) { giveUp(); return; }
