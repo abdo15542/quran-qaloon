@@ -129,10 +129,62 @@ export default function SurahPlayer({
     setPlayingAyah(null);
   }, []);
 
+  // قفز موثوق في WebView أندرويد: تغيير currentTime قد يُتجاهل إن لم
+  // تكن بيانات الصوت جاهزة (أو إن سبقه تشغيل)، فيبدأ الصوت من أول
+  // السورة فيسمع المستخدم الآيات السابقة للآية المضغوطة. لذلك نوقف
+  // التشغيل، نقفز، ونتأكد أن الموضع تغيّر فعلًا (حدث seeked أو قراءة
+  // currentTime) قبل أن نشغّل؛ وإن لم يتغيّر نعيد القفز بضع مرات.
+  // وإن لم تكن بيانات الصوت قد حُمّلت أصلًا لا نشغّل من موضع خاطئ؛
+  // مستمع loadedmetadata يعيد تطبيق القفز عند جاهزيتها.
+  const ayahSeekTimerRef = useRef<number | null>(null);
+  const seekAyahAudio = useCallback((target: number) => {
+    const audio = ayahAudioRef.current;
+    if (!audio) return;
+    if (ayahSeekTimerRef.current != null) {
+      window.clearTimeout(ayahSeekTimerRef.current);
+      ayahSeekTimerRef.current = null;
+    }
+    audio.pause();
+    audio.currentTime = target;
+    let tries = 0;
+    let done = false;
+    const onSeeked = () => {
+      if (Math.abs(audio.currentTime - target) < 0.75) finish();
+    };
+    const giveUp = () => {
+      if (done) return;
+      done = true;
+      audio.removeEventListener("seeked", onSeeked);
+      if (ayahSeekTimerRef.current != null) {
+        window.clearTimeout(ayahSeekTimerRef.current);
+        ayahSeekTimerRef.current = null;
+      }
+    };
+    const finish = () => {
+      if (done) return;
+      giveUp();
+      audio.play().catch(() => {
+        setAyahError("تعذّر تشغيل صوت الآية");
+        stopAyah();
+      });
+    };
+    const check = () => {
+      if (done) return;
+      if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
+      // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
+      // من موضع خاطئ.
+      if (audio.readyState < 1) { giveUp(); return; }
+      if (tries >= 5) { finish(); return; }
+      tries += 1;
+      if (!audio.seeking) audio.currentTime = target;
+      ayahSeekTimerRef.current = window.setTimeout(check, 350);
+    };
+    if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
+    audio.addEventListener("seeked", onSeeked);
+    ayahSeekTimerRef.current = window.setTimeout(check, 600);
+  }, [stopAyah]);
+
   // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
-  // ملاحظة مهمة: في WebView أندرويد قد يُتجاهل تغيير currentTime
-  // والعنصر يعمل، فيستمر صوت الآية السابقة — لذلك نوقف التشغيل
-  // أولًا ثم نقفز ثم نشغّل، حتى يُطبَّق القفز دائمًا.
   const applyAyahRange = useCallback(() => {
     const audio = ayahAudioRef.current;
     const session = ayahSessionRef.current;
@@ -140,12 +192,7 @@ export default function SurahPlayer({
     const exact = ayahExactRef.current;
     if (exact) {
       ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
-      audio.pause();
-      audio.currentTime = exact.start;
-      audio.play().catch(() => {
-        setAyahError("تعذّر تشغيل صوت الآية");
-        stopAyah();
-      });
+      seekAyahAudio(exact.start);
       return true;
     }
     const range = ayahRangeRef.current;
@@ -153,16 +200,11 @@ export default function SurahPlayer({
       const start = Math.max(0, range.startFrac * audio.duration - 1);
       const end = range.endFrac * audio.duration;
       ayahSessionRef.current = { ...session, start, end };
-      audio.pause();
-      audio.currentTime = start;
-      audio.play().catch(() => {
-        setAyahError("تعذّر تشغيل صوت الآية");
-        stopAyah();
-      });
+      seekAyahAudio(start);
       return true;
     }
     return false;
-  }, [stopAyah]);
+  }, [seekAyahAudio]);
 
   const playAyah = useCallback(
     (ayahNumberInSurah: number) => {
@@ -273,12 +315,7 @@ export default function SurahPlayer({
     const played = session.played + 1;
     if (played < session.totalRepeats) {
       ayahSessionRef.current = { ...session, played };
-      audio.pause();
-      audio.currentTime = session.start;
-      audio.play().catch(() => {
-        setAyahError("تعذّر تشغيل صوت الآية");
-        stopAyah();
-      });
+      seekAyahAudio(session.start);
       return;
     }
     const nextAyah = session.ayah + 1;
@@ -287,7 +324,7 @@ export default function SurahPlayer({
       return;
     }
     stopAyah();
-  }, [ayahs, playAyah, stopAyah]);
+  }, [ayahs, playAyah, stopAyah, seekAyahAudio]);
 
   // مستمعو عنصر صوت الآية (مرة واحدة عند التركيب).
   const playAyahRef = useRef(playAyah);
