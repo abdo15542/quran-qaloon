@@ -40,13 +40,8 @@ function getStoredReciterId(qirahId: string): string {
   return getRecitersForQirah(qirahId)[0]?.id ?? "qaloon-nafi";
 }
 
-// في WebView على أندرويد يخرج الصوت المسموع متأخرًا عن ساعة عنصر الصوت
-// (currentTime) بنحو ثانيتين بسبب التخزين المؤقت للصوت، فتتقدّم الشارة
-// (الآية الظاهرة) على ما يُسمع فعلًا ويبدو أن التطبيق يقرأ الآية السابقة.
-// نؤخّر إنهاء الآية بهذا القدر حتى تتزامن الشارة مع الصوت المسموع.
-// (قيسناه من فيديوهات الجهاز: الشارة تسبق الصوت ~٢ ث؛ القفز نفسه صحيح
-// ويبدأ من الآية المضغوطة، المشكلة في التزامن فقط).
-const AYAH_END_LATENCY_S = 1.5;
+// لا نضيف إزاحة ثابتة إلى ساعة الصوت: تختلف استجابة WebView بحسب
+// الجهاز ومصدر الصوت، وأي تأخير ثابت يسبب انحرافًا بين الآيات.
 
 export default function SurahPlayer({
   surahNumber,
@@ -162,7 +157,7 @@ export default function SurahPlayer({
     let tries = 0;
     let done = false;
     const onSeeked = () => {
-      if (Math.abs(audio.currentTime - target) < 0.75) finish();
+      if (Math.abs(audio.currentTime - target) < 0.25) finish();
     };
     const giveUp = () => {
       if (done) return;
@@ -183,11 +178,16 @@ export default function SurahPlayer({
     };
     const check = () => {
       if (done) return;
-      if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
+      if (Math.abs(audio.currentTime - target) < 0.25) { finish(); return; }
       // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
       // من موضع خاطئ.
       if (audio.readyState < 1) { giveUp(); return; }
-      if (tries >= 5) { finish(); return; }
+      if (tries >= 5) {
+        giveUp();
+        setAyahError("تعذّر الوصول إلى موضع الآية بدقة؛ أعد المحاولة");
+        stopAyah();
+        return;
+      }
       tries += 1;
       if (!audio.seeking) audio.currentTime = target;
       ayahSeekTimerRef.current = window.setTimeout(check, 350);
@@ -302,7 +302,7 @@ export default function SurahPlayer({
       ayahRangeRef.current = null;
       if (timings && timings.s.length === ayahs.length) {
         const idx = ayahNumberInSurah - 1;
-        const start = Math.max(0, timings.s[idx] - 0.2);
+        const start = Math.max(0, timings.s[idx]);
         const end =
           idx + 1 < timings.s.length ? timings.s[idx + 1] : timings.d;
         ayahExactRef.current = { start, end };
@@ -383,7 +383,7 @@ export default function SurahPlayer({
       const session = ayahSessionRef.current;
       // أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر حتى لا
       // تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
-      if (session && session.end != null && audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
+      if (session && session.end != null && audio.currentTime >= session.end) {
         finishAyahRef.current();
       }
     };
