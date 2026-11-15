@@ -40,8 +40,13 @@ function getStoredReciterId(qirahId: string): string {
   return getRecitersForQirah(qirahId)[0]?.id ?? "qaloon-nafi";
 }
 
-// لا نضيف إزاحة ثابتة إلى ساعة الصوت: تختلف استجابة WebView بحسب
-// الجهاز ومصدر الصوت، وأي تأخير ثابت يسبب انحرافًا بين الآيات.
+// في WebView على أندرويد يخرج الصوت المسموع متأخرًا عن ساعة عنصر الصوت
+// (currentTime) بنحو ثانيتين بسبب التخزين المؤقت للصوت، فتتقدّم الشارة
+// (الآية الظاهرة) على ما يُسمع فعلًا ويبدو أن التطبيق يقرأ الآية السابقة.
+// نؤخّر إنهاء الآية بهذا القدر حتى تتزامن الشارة مع الصوت المسموع.
+// (قيسناه من فيديوهات الجهاز: الشارة تسبق الصوت ~٢ ث؛ القفز نفسه صحيح
+// ويبدأ من الآية المضغوطة، المشكلة في التزامن فقط).
+const AYAH_END_LATENCY_S = 1.5;
 
 export default function SurahPlayer({
   surahNumber,
@@ -157,7 +162,7 @@ export default function SurahPlayer({
     let tries = 0;
     let done = false;
     const onSeeked = () => {
-      if (Math.abs(audio.currentTime - target) < 0.05) finish();
+      if (Math.abs(audio.currentTime - target) < 0.75) finish();
     };
     const giveUp = () => {
       if (done) return;
@@ -178,21 +183,16 @@ export default function SurahPlayer({
     };
     const check = () => {
       if (done) return;
-      if (Math.abs(audio.currentTime - target) < 0.05) { finish(); return; }
+      if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
       // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
       // من موضع خاطئ.
       if (audio.readyState < 1) { giveUp(); return; }
-      if (tries >= 5) {
-        giveUp();
-        setAyahError("تعذّر الوصول إلى موضع الآية بدقة؛ أعد المحاولة");
-        stopAyah();
-        return;
-      }
+      if (tries >= 5) { finish(); return; }
       tries += 1;
       if (!audio.seeking) audio.currentTime = target;
       ayahSeekTimerRef.current = window.setTimeout(check, 350);
     };
-    if (Math.abs(audio.currentTime - target) < 0.05) { finish(); return; }
+    if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
     audio.addEventListener("seeked", onSeeked);
     ayahSeekTimerRef.current = window.setTimeout(check, 600);
   }, [stopAyah]);
@@ -302,7 +302,7 @@ export default function SurahPlayer({
       ayahRangeRef.current = null;
       if (timings && timings.s.length === ayahs.length) {
         const idx = ayahNumberInSurah - 1;
-        const start = Math.max(0, timings.s[idx]);
+        const start = Math.max(0, timings.s[idx] - 0.2);
         const end =
           idx + 1 < timings.s.length ? timings.s[idx + 1] : timings.d;
         ayahExactRef.current = { start, end };
@@ -383,7 +383,7 @@ export default function SurahPlayer({
       const session = ayahSessionRef.current;
       // أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر حتى لا
       // تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
-      if (session && session.end != null && audio.currentTime >= session.end) {
+      if (session && session.end != null && audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
         finishAyahRef.current();
       }
     };
@@ -451,27 +451,20 @@ export default function SurahPlayer({
   }, [effectiveAudioUrl, networkAudioUrl, currentReciter, surahNumber]);
 
   useEffect(() => {
-    // Switch immediately to the newly selected reciter's network audio.
-    // This prevents a tap during the cache lookup from using the previous
-    // reciter's blob URL with the new reciter's ayah timings.
-    setEffectiveAudioUrl(networkAudioUrl);
-    setIsOffline(false);
-
-    if (!networkAudioUrl || !currentReciter) return;
-
-    let cancelled = false;
+    if (!networkAudioUrl || !currentReciter) {
+      setEffectiveAudioUrl(networkAudioUrl);
+      setIsOffline(false);
+      return;
+    }
     getCachedBlobUrl(surahNumber, currentReciter.id).then((blobUrl) => {
-      // Ignore stale cache lookups when the user changes surah or reciter.
-      if (cancelled) return;
       if (blobUrl) {
         setEffectiveAudioUrl(blobUrl);
         setIsOffline(true);
+      } else {
+        setEffectiveAudioUrl(networkAudioUrl);
+        setIsOffline(false);
       }
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQirahChange = (qirahId: string) => {
@@ -505,10 +498,12 @@ export default function SurahPlayer({
 
   // Offline: the full Uthmani text is bundled in src/data/quran-text.ts —
   // no network is needed to read a surah. Only audio is streamed/downloaded.
+  // The displayed text follows the selected qira'ah (Qaloon has its own
+  // table; other qira'at fall back to the Hafs text).
   useEffect(() => {
     if (!surah) return;
     setJustCompleted(false);
-    const local = getSurahAyahs(surahNumber);
+    const local = getSurahAyahs(surahNumber, selectedQirahId);
     if (local.length > 0) {
       setAyahs(local);
       setError(null);
@@ -517,7 +512,7 @@ export default function SurahPlayer({
       setError("تعذّر تحميل نص السورة");
     }
     setLoading(false);
-  }, [surahNumber, surah]);
+  }, [surahNumber, surah, selectedQirahId]);
 
   if (!surah) {
     return (

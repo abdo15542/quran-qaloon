@@ -4,6 +4,15 @@
 // Audio is still streamed/downloaded on demand from the reciter CDNs.
 // NOTE: as in the online API, the Bismillah is included at the start of
 // ayah 1 of every surah except 9 (and is ayah 1 of surah 1 itself).
+//
+// Per-riwayah texts: Qaloon readers hear Qaloon-specific words (e.g. 1:4
+// «مَلِكِ» not Hafs «مَالِكِ»), so the displayed text follows the selected
+// qira'ah — see getTextTable(). Warsh is NOT bundled: its Madani numbering
+// has 6214 ayahs (50 surahs differ from Hafs counts), so it cannot be
+// aligned to the app's Hafs-numbered audio/timings; Warsh falls back to
+// the Hafs text. The Warsh source is kept in
+// ~/workspace/quran-qaloon-android/riwayah-texts/ (see README-warsh.md).
+import { QURAN_TEXT_QALOON } from "./quran-text-qaloon";
 
 export interface LocalAyah {
   number: number;
@@ -129,8 +138,16 @@ export const QURAN_TEXT: string[][] = [
   ["بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ", "مَلِكِ ٱلنَّاسِ", "إِلَٰهِ ٱلنَّاسِ", "مِن شَرِّ ٱلْوَسْوَاسِ ٱلْخَنَّاسِ", "ٱلَّذِى يُوَسْوِسُ فِى صُدُورِ ٱلنَّاسِ", "مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ"],
 ];
 
-export function getSurahAyahs(surahNumber: number): LocalAyah[] {
-  const texts = QURAN_TEXT[surahNumber - 1];
+// Pick the bundled text table for a qira'ah id. Only Qaloon has its own
+// table (it shares Hafs ayah numbering, 6236 ayahs); every other qira'ah
+// falls back to the Hafs text.
+export function getTextTable(qirahId?: string): string[][] {
+  if (qirahId === "qaloon") return QURAN_TEXT_QALOON;
+  return QURAN_TEXT;
+}
+
+export function getSurahAyahs(surahNumber: number, qirahId?: string): LocalAyah[] {
+  const texts = getTextTable(qirahId)[surahNumber - 1];
   if (!texts) return [];
   return texts.map((text, i) => ({
     number: i + 1,
@@ -139,20 +156,24 @@ export function getSurahAyahs(surahNumber: number): LocalAyah[] {
   }));
 }
 
-export function getAyah(surahNumber: number, ayahNumber: number): LocalAyah | null {
-  const texts = QURAN_TEXT[surahNumber - 1];
+export function getAyah(surahNumber: number, ayahNumber: number, qirahId?: string): LocalAyah | null {
+  const texts = getTextTable(qirahId)[surahNumber - 1];
   if (!texts || ayahNumber < 1 || ayahNumber > texts.length) return null;
   return { number: ayahNumber, numberInSurah: ayahNumber, text: texts[ayahNumber - 1] };
 }
 
 // Strip tashkeel/tatweel and normalise alef/ya forms so a search typed
 // without diacritics still matches the fully vocalised Uthmani text.
+// Also strips Qaloon-specific marks (U+08F0–U+08F2 tanwin, U+06EC) and
+// maps Qaloon rasm variants (U+06D2 «ے» -> ya) so searching the Qaloon
+// text works the same way.
 export function normalizeArabic(s: string): string {
   return s
-    .replace(/[\u064B-\u0652\u0670\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g, "")
+    .replace(/[\u064B-\u0652\u0670\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
     .replace(/\u0629/g, "\u0647")
     .replace(/\u0649/g, "\u064A")
+    .replace(/\u06D2/g, "\u064A")
     .replace(/\u0624/g, "\u0648")
     .replace(/\u0626/g, "\u064A");
 }
@@ -164,12 +185,13 @@ export interface QuranSearchHit {
   surahNumber: number;
 }
 
-export function searchQuran(query: string, limit = 30): QuranSearchHit[] {
+export function searchQuran(query: string, limit = 30, qirahId?: string): QuranSearchHit[] {
   const q = normalizeArabic(query.trim());
   if (!q) return [];
+  const table = getTextTable(qirahId);
   const hits: QuranSearchHit[] = [];
-  for (let s = 0; s < QURAN_TEXT.length && hits.length < limit; s++) {
-    const texts = QURAN_TEXT[s];
+  for (let s = 0; s < table.length && hits.length < limit; s++) {
+    const texts = table[s];
     for (let i = 0; i < texts.length && hits.length < limit; i++) {
       if (normalizeArabic(texts[i]).includes(q)) {
         hits.push({ number: i + 1, numberInSurah: i + 1, text: texts[i], surahNumber: s + 1 });
