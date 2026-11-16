@@ -6,6 +6,7 @@ import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
+import TafsirSheet from "@/components/TafsirSheet";
 import DownloadButton from "@/components/DownloadButton";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
@@ -70,6 +71,8 @@ export default function SurahPlayer({
     return isNaN(n) ? null : n;
   }, [search]);
   const [highlightedAyah, setHighlightedAyah] = useState<number | null>(null);
+  // الآية المعروض تفسيرها (null = لا يوجد تفسير مفتوح).
+  const [tafsirAyah, setTafsirAyah] = useState<number | null>(null);
   const [ayahs, setAyahs] = useState<Ayah[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -972,6 +975,13 @@ export default function SurahPlayer({
                             <Square className="w-3 h-3" />
                             إيقاف
                           </button>
+                          <button
+                            onClick={() => playingAyah != null && setTafsirAyah(playingAyah)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                          >
+                            <BookOpen className="w-3.5 h-3.5" />
+                            التفسير
+                          </button>
                         </div>
                       )}
                       {ayahError && (
@@ -1024,6 +1034,19 @@ export default function SurahPlayer({
           </div>
         </div>
       </div>
+
+      {/* Tafsir sheet for the selected ayah */}
+      {tafsirAyah != null && surah && (
+        <TafsirSheet
+          surahNumber={surahNumber}
+          ayahNumber={tafsirAyah}
+          onClose={() => setTafsirAyah(null)}
+          onPlayAyah={(n) => {
+            setTafsirAyah(null);
+            playAyah(n, true);
+          }}
+        />
+      )}
     </div>
   );
 }

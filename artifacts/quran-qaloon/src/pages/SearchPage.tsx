@@ -4,6 +4,7 @@ import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronU
 import { SURAHS, QIRAAT } from "@/data/surahs";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
 import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
+import TafsirSheet from "@/components/TafsirSheet";
 
 interface SearchResult {
   number: number;
@@ -94,6 +95,7 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
   const [, navigate] = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [context, setContext] = useState<SearchResultContext | null>(null);
+  const [showTafsir, setShowTafsir] = useState(false);
 
   const surah = SURAHS.find((s) => s.number === result.surahNumber);
   const type = surah?.revelationType;
@@ -147,6 +149,12 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
               {type === "Meccan" ? "مكية" : type === "Medinan" ? "مدنية" : "مختلف فيها"}
             </span>
           )}
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowTafsir(true); }}
+            className="text-xs px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-500/20 transition-colors"
+          >
+            التفسير
+          </button>
           <span className="text-xs px-2.5 py-1 bg-primary/10 text-primary rounded-lg flex items-center gap-0.5">
             <ChevronLeft className="w-3.5 h-3.5" />
             الذهاب إلى الآية
@@ -220,6 +228,15 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
               )}
             </>
           )}
+        </div>
+      )}
+      {showTafsir && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <TafsirSheet
+            surahNumber={result.surahNumber}
+            ayahNumber={result.numberInSurah}
+            onClose={() => setShowTafsir(false)}
+          />
         </div>
       )}
     </div>
