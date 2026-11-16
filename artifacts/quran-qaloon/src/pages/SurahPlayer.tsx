@@ -130,6 +130,7 @@ export default function SurahPlayer({
   const stopAyah = useCallback(() => {
     const audio = ayahAudioRef.current;
     if (audio) audio.pause();
+    clearAyahStopTimer();
     ayahSessionRef.current = null;
     ayahRangeRef.current = null;
     ayahExactRef.current = null;
@@ -150,6 +151,15 @@ export default function SurahPlayer({
   // من حيث هو حتى لا يعيد بداية الآية التالية (انظر applyAyahRange).
   // يُمرَّر عبر ref لأن مستمع loadedmetadata قد يطبّق القفز لاحقًا.
   const ayahForceSeekRef = useRef(false);
+  // مؤقّت إيقاف بالساعة (احتياط لمستمع timeupdate): يوقف الصوت عند
+  // نهاية الآية حتى لو تأخّر timeupdate أو ساعة العنصر في WebView.
+  const ayahStopTimerRef = useRef<number | null>(null);
+  const clearAyahStopTimer = () => {
+    if (ayahStopTimerRef.current != null) {
+      window.clearTimeout(ayahStopTimerRef.current);
+      ayahStopTimerRef.current = null;
+    }
+  };
   const seekAyahAudio = useCallback((target: number) => {
     const audio = ayahAudioRef.current;
     if (!audio) return;
@@ -181,13 +191,24 @@ export default function SurahPlayer({
         stopAyah();
       });
     };
+    // القفز لم ينجح بعد مهلة طويلة: لا تشغّل من موضع خاطئ فيسمع
+    // المستخدم آية أخرى؛ أظهر خطأً وأوقف الجلسة بدل ذلك.
+    const failSeek = () => {
+      if (done) return;
+      giveUp();
+      setAyahBuffering(false);
+      setAyahError("تعذّر القفز إلى الآية — تحقق من الاتصال وحاول مجددًا");
+      stopAyah();
+    };
     const check = () => {
       if (done) return;
       if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
       // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
       // من موضع خاطئ.
       if (audio.readyState < 1) { giveUp(); return; }
-      if (tries >= 5) { finish(); return; }
+      // مهلة أطول (~10 ثوانٍ) لأن القفز البعيد في ملف سورة كبير
+      // متدفَّق من الشبكة قد يحتاج جلب نطاقه أولًا.
+      if (tries >= 28) { failSeek(); return; }
       tries += 1;
       if (!audio.seeking) audio.currentTime = target;
       ayahSeekTimerRef.current = window.setTimeout(check, 350);
@@ -247,6 +268,7 @@ export default function SurahPlayer({
         stopAyah();
         return;
       }
+      clearAyahStopTimer();
       const audio = ayahAudioRef.current;
       if (!audio) return;
       // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
@@ -347,6 +369,7 @@ export default function SurahPlayer({
   );
 
   const finishAyah = useCallback(() => {
+    clearAyahStopTimer();
     const session = ayahSessionRef.current;
     const audio = ayahAudioRef.current;
     if (!session || !audio) return;
@@ -371,6 +394,32 @@ export default function SurahPlayer({
   finishAyahRef.current = finishAyah;
   const stopAyahRef = useRef(stopAyah);
   stopAyahRef.current = stopAyah;
+
+  // مؤقّت إيقاف بالساعة: عند بدء تشغيل آية يُضبط ليوقف الصوت عند
+  // نهايتها بعد (النهاية − الموضع الحالي) من زمن التشغيل الفعلي،
+  // فيعمل حتى لو تأخّر حدث timeupdate أو ساعة العنصر. يُعاد ضبطه
+  // عند كل استئناف للتشغيل، ويُلغى عند الإيقاف أو التخزين المؤقت.
+  const scheduleAyahStop = () => {
+    clearAyahStopTimer();
+    const audio = ayahAudioRef.current;
+    const session = ayahSessionRef.current;
+    if (!audio || !session || session.end == null) return;
+    const target = ayahContinuousRef.current
+      ? session.end + AYAH_END_LATENCY_S
+      : session.end;
+    const remainingMs = (target - audio.currentTime) * 1000;
+    if (remainingMs <= 0) {
+      audio.pause();
+      finishAyahRef.current();
+      return;
+    }
+    ayahStopTimerRef.current = window.setTimeout(() => {
+      ayahStopTimerRef.current = null;
+      const a = ayahAudioRef.current;
+      if (a) a.pause();
+      finishAyahRef.current();
+    }, remainingMs);
+  };
   const applyAyahRangeRef = useRef(applyAyahRange);
   applyAyahRangeRef.current = applyAyahRange;
   useEffect(() => {
@@ -405,11 +454,13 @@ export default function SurahPlayer({
     };
     // أثناء انتظار بيانات الصوت من الشبكة أظهر «جارٍ التحميل» بدل أن
     // تبدو الآية متوقفة أو أن توقيتها خاطئ.
-    const onWaiting = () => setAyahBuffering(true);
+    const onWaiting = () => { clearAyahStopTimer(); setAyahBuffering(true); };
     const onPlaying = () => {
       setAyahBuffering(false);
       setAyahStarted(true);
+      scheduleAyahStop();
     };
+    const onPause = () => clearAyahStopTimer();
     const onCanPlay = () => setAyahBuffering(false);
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -417,6 +468,7 @@ export default function SurahPlayer({
     audio.addEventListener("error", onError);
     audio.addEventListener("waiting", onWaiting);
     audio.addEventListener("playing", onPlaying);
+    audio.addEventListener("pause", onPause);
     audio.addEventListener("canplay", onCanPlay);
     return () => {
       audio.removeEventListener("loadedmetadata", onLoadedMetadata);
@@ -425,7 +477,9 @@ export default function SurahPlayer({
       audio.removeEventListener("error", onError);
       audio.removeEventListener("waiting", onWaiting);
       audio.removeEventListener("playing", onPlaying);
+      audio.removeEventListener("pause", onPause);
       audio.removeEventListener("canplay", onCanPlay);
+      clearAyahStopTimer();
       audio.pause();
     };
   }, []);
