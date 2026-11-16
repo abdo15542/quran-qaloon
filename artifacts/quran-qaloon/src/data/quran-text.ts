@@ -162,20 +162,183 @@ export function getAyah(surahNumber: number, ayahNumber: number, qirahId?: strin
   return { number: ayahNumber, numberInSurah: ayahNumber, text: texts[ayahNumber - 1] };
 }
 
+// Uthmani spellings use و where modern spelling uses ا in a handful of
+// words (الصلوة = الصلاة، الزكوة = الزكاة ...). After the ة→ه step below
+// these become الصلوه/الزكوه/... — map them to the modern form so a search
+// typed in modern spelling finds them.
+const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
+  [/الصلوه/g, "الصلاه"],
+  [/الزكوه/g, "الزكاه"],
+  [/الحيوه/g, "الحياه"],
+  [/الربوا/g, "الربا"],
+  [/مشكوه/g, "مشكاه"],
+  [/منوه/g, "مناه"],
+  [/النجوه/g, "النجاه"],
+  [/الغدوه/g, "الغداه"],
+];
+
 // Strip tashkeel/tatweel and normalise alef/ya forms so a search typed
 // without diacritics still matches the fully vocalised Uthmani text.
 // Also strips Qaloon-specific marks (U+08F0–U+08F2 tanwin, U+06EC) and
 // maps Qaloon rasm variants (U+06D2 «ے» -> ya) so searching the Qaloon
 // text works the same way.
+// Two more unifications, so common modern spellings find the Uthmani
+// text: «ءا» (hamza + alef, e.g. «ءامنوا», «الءاخرة») -> «ا», so
+// «آمنوا» matches «ءامنوا»; and the Uthmani و-words above -> modern ا.
 export function normalizeArabic(s: string): string {
-  return s
+  let out = s
     .replace(/[\u064B-\u0652\u0670\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
+    .replace(/\u0621\u0627/g, "\u0627")
     .replace(/\u0629/g, "\u0647")
     .replace(/\u0649/g, "\u064A")
     .replace(/\u06D2/g, "\u064A")
     .replace(/\u0624/g, "\u0648")
     .replace(/\u0626/g, "\u064A");
+  for (const [re, rep] of UTHMANI_WORD_FIXES) out = out.replace(re, rep);
+  return out;
+}
+
+// Letters that attach to the front of a word as clitics (conjunctions /
+// prepositions). A search for a word matches it with up to two of these
+// in front (e.g. «وبالله» matches «الله»).
+const CLITIC_LETTERS = new Set(["و", "ف", "ب", "ك", "ل", "ت", "أ", "س"]);
+
+// Does a single normalised word match a single normalised query word?
+// The word matches when, after stripping up to two leading clitic
+// letters, it equals the query word — or the query word + «م» (the
+// vocative ending in «اللهم») — or the query's elided form (a query
+// starting with «ال» written without its alef, e.g. «لله» for «الله»).
+// Requiring a whole-word match (not a substring) keeps «الله» from
+// matching the unrelated words «اللهو» (amusement) and «اللهب» (flame).
+export function matchWord(word: string, queryWord: string): boolean {
+  const forms = [queryWord];
+  if (queryWord.startsWith("ال")) forms.push("ل" + queryWord.slice(2));
+  for (let p = 0; p <= 2 && p <= word.length; p++) {
+    if (p > 0 && !CLITIC_LETTERS.has(word[p - 1])) break;
+    const stem = word.slice(p);
+    for (const f of forms) {
+      if (stem === f || stem === f + "م") return true;
+    }
+  }
+  return false;
+}
+
+export interface QuranSearchHit {
+  number: number;
+  numberInSurah: number;
+  text: string;
+  surahNumber: number;
+}
+
+export interface QuranSearchHitDetailed extends QuranSearchHit {
+  occurrences: number;
+}
+
+export interface QuranSearchDetailed {
+  query: string;
+  totalOccurrences: number;
+  ayahCount: number;
+  surahCount: number;
+  hits: QuranSearchHitDetailed[];
+}
+
+// Full-Quran search: every matching ayah, with the number of times the
+// query occurs in each ayah, plus the totals (occurrences / ayahs /
+// surahs). A single-word query matches whole words (see matchWord); a
+// multi-word query (a phrase or a verse) matches consecutive words.
+// Runs over the bundled text, so it works fully offline.
+// The normalised text (split into words) is cached per qira'ah —
+// normalising all 6236 ayahs on every search is too slow for live search.
+const normalizedWordsByQirah = new Map<string, string[][][]>();
+function getNormalizedWords(qirahId?: string): string[][][] {
+  const key = qirahId ?? "hafs";
+  let cached = normalizedWordsByQirah.get(key);
+  if (!cached) {
+    const table = getTextTable(qirahId);
+    cached = table.map((texts) => texts.map((t) => normalizeArabic(t).split(/\s+/)));
+    normalizedWordsByQirah.set(key, cached);
+  }
+  return cached;
+}
+
+export function searchQuranDetailed(query: string, qirahId?: string): QuranSearchDetailed {
+  const q = normalizeArabic(query.trim());
+  const queryWords = q.split(/\s+/).filter(Boolean);
+  const empty: QuranSearchDetailed = { query: query.trim(), totalOccurrences: 0, ayahCount: 0, surahCount: 0, hits: [] };
+  if (!queryWords.length) return empty;
+  const table = getTextTable(qirahId);
+  const normWords = getNormalizedWords(qirahId);
+  const hits: QuranSearchHitDetailed[] = [];
+  let total = 0;
+  const surahsSeen = new Set<number>();
+  for (let s = 0; s < table.length; s++) {
+    const texts = table[s];
+    const wordsByAyah = normWords[s];
+    for (let i = 0; i < texts.length; i++) {
+      const words = wordsByAyah[i];
+      let occ = 0;
+      if (queryWords.length === 1) {
+        for (const w of words) if (matchWord(w, queryWords[0])) occ++;
+      } else {
+        for (let j = 0; j + queryWords.length <= words.length; j++) {
+          let ok = true;
+          for (let k = 0; k < queryWords.length; k++) {
+            if (!matchWord(words[j + k], queryWords[k])) { ok = false; break; }
+          }
+          if (ok) { occ++; j += queryWords.length - 1; }
+        }
+      }
+      if (occ > 0) {
+        total += occ;
+        surahsSeen.add(s + 1);
+        hits.push({ number: i + 1, numberInSurah: i + 1, text: texts[i], surahNumber: s + 1, occurrences: occ });
+      }
+    }
+  }
+  return { query: query.trim(), totalOccurrences: total, ayahCount: hits.length, surahCount: surahsSeen.size, hits };
+}
+
+export interface HighlightSegment {
+  text: string;
+  matched: boolean;
+}
+
+// Split an ayah's original (diacritic) text into segments, marking the
+// words that match the query — using the same word matching as
+// searchQuranDetailed, so the highlight always agrees with the count.
+// Normalisation never adds or removes spaces, so the n-th word of the
+// original text aligns with the n-th word of the normalised text.
+export function highlightSegments(text: string, query: string): HighlightSegment[] {
+  const q = normalizeArabic(query.trim());
+  const queryWords = q.split(/\s+/).filter(Boolean);
+  if (!queryWords.length) return [{ text, matched: false }];
+  const normWords = normalizeArabic(text).split(/\s+/);
+  const matched = new Array<boolean>(normWords.length).fill(false);
+  if (queryWords.length === 1) {
+    for (let i = 0; i < normWords.length; i++) matched[i] = matchWord(normWords[i], queryWords[0]);
+  } else {
+    for (let j = 0; j + queryWords.length <= normWords.length; j++) {
+      let ok = true;
+      for (let k = 0; k < queryWords.length; k++) {
+        if (!matchWord(normWords[j + k], queryWords[k])) { ok = false; break; }
+      }
+      if (ok) {
+        for (let k = 0; k < queryWords.length; k++) matched[j + k] = true;
+        j += queryWords.length - 1;
+      }
+    }
+  }
+  const parts = text.split(/(\s+)/);
+  const segments: HighlightSegment[] = [];
+  let wi = 0;
+  for (const part of parts) {
+    if (part === "") continue;
+    if (/^\s+$/.test(part)) { segments.push({ text: part, matched: false }); continue; }
+    segments.push({ text: part, matched: matched[wi] ?? false });
+    wi++;
+  }
+  return segments;
 }
 
 export interface QuranSearchHit {

@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef } from "react";
-import { Link } from "wouter";
-import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, RefreshCw, ScrollText } from "lucide-react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { Link, useLocation } from "wouter";
+import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash } from "lucide-react";
 import { SURAHS, QIRAAT } from "@/data/surahs";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
-import { searchQuran, getAyah } from "@/data/quran-text";
+import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
 
 interface SearchResult {
   number: number;
@@ -12,6 +12,7 @@ interface SearchResult {
   surahNumber: number;
   surahName: string;
   juz: number;
+  occurrences: number;
 }
 
 interface AthkarResult {
@@ -40,23 +41,35 @@ interface SearchPageProps {
 
 type SearchTab = "quran" | "athkar";
 
+const SUGGESTIONS = ["الله", "الرحمن", "الصلاة", "الجنة", "النار", "المؤمنون", "القرآن", "الدنيا", "الآخرة", "الرحيم"];
+
+const PAGE_SIZE = 60;
+
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
 }
 
-function highlight(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
-  return parts.map((part, i) =>
-    part.toLowerCase() === query.toLowerCase() ? (
-      <mark key={i} className="bg-amber-200 dark:bg-amber-800/60 text-foreground rounded px-0.5">
-        {part}
-      </mark>
-    ) : (
-      part
-    )
+// Highlight the matched words (diacritic-aware — the same word matching
+// the search uses, so the highlight always agrees with the count).
+function HighlightedAyah({ text, query }: { text: string; query: string }) {
+  const segments = useMemo(() => highlightSegments(text, query), [text, query]);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.matched ? (
+          <mark key={i} className="bg-amber-200 dark:bg-amber-800/60 text-foreground rounded px-0.5">
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+    </>
   );
+}
+
+function highlight(text: string, query: string): React.ReactNode {
+  return <HighlightedAyah text={text} query={query} />;
 }
 
 // Offline: ayah context comes from the bundled Uthmani text — no network.
@@ -78,13 +91,19 @@ async function fetchAyah(surahNum: number, ayahNum: number): Promise<ContextAyah
 }
 
 function ResultCard({ result, query }: { result: SearchResult; query: string }) {
+  const [, navigate] = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [context, setContext] = useState<SearchResultContext | null>(null);
 
   const surah = SURAHS.find((s) => s.number === result.surahNumber);
   const type = surah?.revelationType;
 
-  const loadContext = useCallback(async () => {
+  const goToAyah = useCallback(() => {
+    navigate(`/surah/${result.surahNumber}?ayah=${result.numberInSurah}`);
+  }, [navigate, result.surahNumber, result.numberInSurah]);
+
+  const loadContext = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (expanded) { setExpanded(false); return; }
     setExpanded(true);
     if (context) return;
@@ -97,7 +116,10 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
   }, [expanded, context, result.surahNumber, result.numberInSurah]);
 
   return (
-    <div className="bg-card border border-border rounded-2xl overflow-hidden hover:border-primary/40 transition-colors">
+    <div
+      onClick={goToAyah}
+      className="bg-card border border-border rounded-2xl overflow-hidden hover:border-primary/40 transition-colors cursor-pointer"
+    >
       <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-arabic text-sm text-primary">{result.surahName}</span>
@@ -107,6 +129,11 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
           <span className="text-xs text-muted-foreground sm:hidden">
             آية {toArabicNum(result.numberInSurah)}
           </span>
+          {result.occurrences > 1 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              ذُكرت {toArabicNum(result.occurrences)} مرات
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {type && (
@@ -120,11 +147,10 @@ function ResultCard({ result, query }: { result: SearchResult; query: string }) 
               {type === "Meccan" ? "مكية" : type === "Medinan" ? "مدنية" : "مختلف فيها"}
             </span>
           )}
-          <Link href={`/surah/${result.surahNumber}`}>
-            <button className="text-xs px-2.5 py-1 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors">
-              استمع
-            </button>
-          </Link>
+          <span className="text-xs px-2.5 py-1 bg-primary/10 text-primary rounded-lg flex items-center gap-0.5">
+            <ChevronLeft className="w-3.5 h-3.5" />
+            الذهاب إلى الآية
+          </span>
         </div>
       </div>
 
@@ -222,13 +248,15 @@ function AthkarResultCard({ result, query }: { result: AthkarResult; query: stri
 }
 
 function searchAthkar(query: string): AthkarResult[] {
-  const q = query.trim().toLowerCase();
+  // Diacritic-insensitive, like the Quran search: the athkar texts are
+  // fully vocalised, so a plain includes() misses «الله» in «لِلَّهِ».
+  const q = normalizeArabic(query.trim());
   if (!q) return [];
   const results: AthkarResult[] = [];
   for (const cat of ATHKAR_CATEGORIES) {
     for (const item of cat.items) {
       for (const content of item.content) {
-        if (content.type === "text" && content.text.includes(q)) {
+        if (content.type === "text" && normalizeArabic(content.text).includes(q)) {
           results.push({
             categoryId: cat.id,
             categoryName: cat.name,
@@ -247,23 +275,31 @@ function searchAthkar(query: string): AthkarResult[] {
 export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<SearchTab>("quran");
+  const [detailed, setDetailed] = useState<QuranSearchDetailed | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [athkarResults, setAthkarResults] = useState<AthkarResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const lastQueryRef = useRef<string>("");
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const doSearch = useCallback(async (q: string, currentTab: SearchTab) => {
     const trimmed = q.trim();
     if (!trimmed) return;
+    // Skip a repeat of the exact same search (live search + submit).
+    if (trimmed === lastQueryRef.current && currentTab === "quran" && detailed) return;
+    if (trimmed === lastQueryRef.current && currentTab === "athkar" && athkarResults.length > 0) return;
 
     lastQueryRef.current = trimmed;
     setLoading(true);
     setError(null);
     setSearched(true);
+    setDetailed(null);
     setResults([]);
     setAthkarResults([]);
+    setVisibleCount(PAGE_SIZE);
 
     if (currentTab === "athkar") {
       const ar = searchAthkar(trimmed);
@@ -272,11 +308,12 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
       return;
     }
 
-    // Offline search over the bundled Uthmani text (diacritic-insensitive),
-    // in the selected qira'ah's text.
-    const hits = searchQuran(trimmed, 30, getStoredQirahId());
-    const mapped: SearchResult[] = hits
-      .map((h) => {
+    // Offline search over the bundled Uthmani text — every matching ayah,
+    // with the number of occurrences in each ayah and the totals.
+    const d = searchQuranDetailed(trimmed, getStoredQirahId());
+    setDetailed(d);
+    const mapped: SearchResult[] = d.hits
+      .map((h: QuranSearchHitDetailed) => {
         const surah = SURAHS.find((s) => s.number === h.surahNumber);
         if (!surah) return null;
         return {
@@ -286,12 +323,45 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           surahNumber: h.surahNumber,
           surahName: surah.name,
           juz: 0,
+          occurrences: h.occurrences,
         };
       })
       .filter(Boolean) as SearchResult[];
     setResults(mapped);
     setLoading(false);
-  }, []);
+  }, [detailed, athkarResults.length]);
+
+  // Live search as the user types (debounced), so results appear while
+  // typing without a search on every keystroke.
+  useEffect(() => {
+    if (tab !== "quran") return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setDetailed(null);
+      setResults([]);
+      setSearched(false);
+      lastQueryRef.current = "";
+      return;
+    }
+    const t = setTimeout(() => { doSearch(query, "quran"); }, 600);
+    return () => clearTimeout(t);
+  }, [query, tab, doSearch]);
+
+  // Infinite scroll: load more results as the user reaches the end.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || results.length <= visibleCount) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => Math.min(c + 100, results.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [results.length, visibleCount]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,15 +375,30 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   const handleTabChange = (newTab: SearchTab) => {
     setTab(newTab);
     setSearched(false);
+    setDetailed(null);
     setResults([]);
     setAthkarResults([]);
     setError(null);
+    setVisibleCount(PAGE_SIZE);
     if (query.trim()) {
       doSearch(query, newTab);
     }
   };
 
+  const handleSuggestion = (word: string) => {
+    setQuery(word);
+    doSearch(word, "quran");
+  };
+
   const totalResults = tab === "quran" ? results.length : athkarResults.length;
+  const visibleResults = results.slice(0, visibleCount);
+
+  // Per-surah hit counts, for the surah group headers.
+  const perSurahCount = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of results) m.set(r.surahNumber, (m.get(r.surahNumber) ?? 0) + 1);
+    return m;
+  }, [results]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -368,7 +453,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mb-6">
+        <form onSubmit={handleSubmit} className="mb-4">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -390,6 +475,24 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
             </button>
           </div>
         </form>
+
+        {/* Popular words */}
+        {tab === "quran" && !searched && (
+          <div className="mb-6">
+            <div className="text-xs text-muted-foreground mb-2 text-center">كلمات يبحث عنها كثيرًا — اضغط للبحث مباشرة</div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map((w) => (
+                <button
+                  key={w}
+                  onClick={() => handleSuggestion(w)}
+                  className="px-3.5 py-1.5 bg-card border border-border rounded-full text-sm font-arabic text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-xl px-4 py-4 text-sm text-center mb-4">
@@ -413,7 +516,33 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </div>
         )}
 
-        {searched && !loading && !error && (
+        {/* Summary card: how many times the word occurs, and where */}
+        {searched && !loading && !error && tab === "quran" && detailed && detailed.totalOccurrences > 0 && (
+          <div className="mb-5 bg-primary/5 border border-primary/20 rounded-2xl px-5 py-4 text-center">
+            <div className="text-sm text-muted-foreground mb-1">
+              كلمة «<span className="text-primary font-arabic">{detailed.query}</span>» ذُكرت
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <Hash className="w-5 h-5 text-primary" />
+              <span className="text-4xl font-bold text-primary font-arabic">{toArabicNum(detailed.totalOccurrences)}</span>
+              <span className="text-lg text-primary font-arabic">مرة</span>
+            </div>
+            <div className="text-sm text-muted-foreground mt-2">
+              في {toArabicNum(detailed.ayahCount)} آية • في {toArabicNum(detailed.surahCount)} سورة
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              اضغط على أي آية للانتقال إليها في المصحف
+            </div>
+          </div>
+        )}
+
+        {searched && !loading && !error && tab === "quran" && detailed && detailed.totalOccurrences === 0 && (
+          <div className="mb-4 text-sm text-muted-foreground text-center">
+            لم يُعثر على نتائج لـ «{query}»
+          </div>
+        )}
+
+        {searched && !loading && !error && tab === "athkar" && (
           <div className="mb-4 text-sm text-muted-foreground">
             {totalResults > 0
               ? `وُجد ${toArabicNum(totalResults)} نتيجة لـ "${query}"`
@@ -421,11 +550,39 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </div>
         )}
 
-        {!loading && tab === "quran" && results.length > 0 && (
+        {!loading && tab === "quran" && visibleResults.length > 0 && (
           <div className="space-y-3">
-            {results.map((r) => (
-              <ResultCard key={r.number} result={r} query={query} />
-            ))}
+            {visibleResults.map((r, idx) => {
+              const prev = idx > 0 ? visibleResults[idx - 1] : null;
+              const showHeader = !prev || prev.surahNumber !== r.surahNumber;
+              return (
+                <div key={r.number}>
+                  {showHeader && (
+                    <div className="flex items-center justify-between px-1 pt-2 pb-1">
+                      <span className="font-arabic text-base text-primary">
+                        سورة {r.surahName}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {toArabicNum(perSurahCount.get(r.surahNumber) ?? 0)} آية فيها «{detailed?.query}»
+                      </span>
+                    </div>
+                  )}
+                  <ResultCard result={r} query={query} />
+                </div>
+              );
+            })}
+            {/* Infinite-scroll sentinel */}
+            {results.length > visibleCount && (
+              <div ref={sentinelRef} className="py-4 text-center text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin inline-block ml-2 text-primary" />
+                عرض {toArabicNum(visibleCount)} من {toArabicNum(results.length)} آية...
+              </div>
+            )}
+            {results.length > 0 && visibleCount >= results.length && (
+              <div className="py-4 text-center text-xs text-muted-foreground">
+                هذه كل الآيات — {toArabicNum(results.length)} آية
+              </div>
+            )}
           </div>
         )}
 

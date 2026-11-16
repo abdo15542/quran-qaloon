@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2 } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
@@ -62,6 +62,14 @@ export default function SurahPlayer({
   toggleDarkMode,
 }: SurahPlayerProps) {
   const [, navigate] = useLocation();
+  // الآية المطلوبة من رابط خارجي (مثل نتيجة بحث: ‎/surah/2?ayah=25) —
+  // ننتقل إليها ونظللها عند فتح السورة.
+  const search = useSearch();
+  const targetAyah = useMemo(() => {
+    const n = parseInt(new URLSearchParams(search).get("ayah") ?? "", 10);
+    return isNaN(n) ? null : n;
+  }, [search]);
+  const [highlightedAyah, setHighlightedAyah] = useState<number | null>(null);
   const [ayahs, setAyahs] = useState<Ayah[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -277,6 +285,7 @@ export default function SurahPlayer({
         return;
       }
       clearAyahStopTimer();
+      setHighlightedAyah(null);
       const audio = ayahAudioRef.current;
       if (!audio) return;
       // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
@@ -586,6 +595,16 @@ export default function SurahPlayer({
     }
     setLoading(false);
   }, [surahNumber, surah, selectedQirahId]);
+
+  // الانتقال إلى الآية المطلوبة من رابط (نتيجة بحث): مرّر إليها في
+  // النص وظلّلها حتى يضغط المستخدم على آية أخرى.
+  useEffect(() => {
+    if (!targetAyah || ayahs.length === 0) return;
+    if (targetAyah < 1 || targetAyah > ayahs.length) return;
+    setHighlightedAyah(targetAyah);
+    const el = document.querySelector(`[data-ayah="${targetAyah}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [ayahs, targetAyah]);
 
   if (!surah) {
     return (
@@ -964,9 +983,14 @@ export default function SurahPlayer({
                         {ayahs.map((ayah) => (
                           <span
                             key={ayah.number}
+                            data-ayah={ayah.numberInSurah}
                             onClick={() => playAyah(ayah.numberInSurah, true)}
                             className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
                               playingAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                            } ${
+                              highlightedAyah === ayah.numberInSurah
+                                ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
+                                : ""
                             }`}
                           >
                             {ayah.text}{" "}
