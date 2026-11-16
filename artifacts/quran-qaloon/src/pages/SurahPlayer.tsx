@@ -381,9 +381,20 @@ export default function SurahPlayer({
     };
     const onTimeUpdate = () => {
       const session = ayahSessionRef.current;
-      // أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر حتى لا
-      // تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
-      if (session && session.end != null && audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
+      if (!session || session.end == null) return;
+      // التشغيل المتواصل مطفأ: أوقف الصوت عند نهاية الآية تمامًا
+      // حتى لا يُسمع شيء من الآية التالية، ثم أنهِ الجلسة (تكرار
+      // أو إيقاف). الإيقاف الفوري هنا يسبق أي تقدّم للشارة.
+      if (!ayahContinuousRef.current) {
+        if (audio.currentTime >= session.end) {
+          audio.pause();
+          finishAyahRef.current();
+        }
+        return;
+      }
+      // المتواصل: أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر
+      // حتى لا تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
+      if (audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
         finishAyahRef.current();
       }
     };
