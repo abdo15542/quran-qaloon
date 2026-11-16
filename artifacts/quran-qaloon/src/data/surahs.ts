@@ -35,9 +35,9 @@ export const RECITERS: Reciter[] = [
   { id: "basit-hafs", name: "عبد الباسط عبد الصمد - مرتل", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/abdul_baset/murattal/", padded: false, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.abdulbasitmurattal/" },
   { id: "husary", name: "محمود خليل الحصري", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/khalil_al_husary/murattal/", padded: false, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.husary/" },
   { id: "suraim", name: "سعود الشريم", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/saud_ash-shuraym/murattal/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.saoodshuraym/" },
-  { id: "huthify", name: "علي الحذيفي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/ahmad_alhuthayfi//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.hudhaify/" },
+  { id: "huthify", name: "علي الحذيفي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/ali-hudhaifi/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.hudhaify/" },
   { id: "ajmy", name: "أحمد العجمي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/ahmed_ibn_3ali_al-3ajamy//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.ahmedajamy/" },
-  { id: "maher", name: "ماهر المعيقلي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/maher_almu3aiqly/year1422-1423//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.mahermuaiqly/" },
+  { id: "maher", name: "ماهر المعيقلي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/maher-muaiqly/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.mahermuaiqly/" },
   { id: "mishary", name: "مشاري العفاسي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/mishari_al_afasy/murattal/", padded: false, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.alafasy/" },
 ];
 
