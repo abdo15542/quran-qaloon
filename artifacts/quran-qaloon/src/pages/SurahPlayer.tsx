@@ -121,6 +121,10 @@ export default function SurahPlayer({
 
   // ---- تشغيل آية بالضغط عليها (مع تكرار للحفظ وتشغيل متواصل) ----
   const [playingAyah, setPlayingAyah] = useState<number | null>(null);
+  // الآية المحدّدة بالضغط — تبقى محدّدة حتى لو فشل صوتها (بلا إنترنت
+  // أو بلا تحميل)، حتى يبقى زر «التفسير» متاحًا دائمًا. التفسير
+  // مضمّن في التطبيق ولا يعتمد على الصوت ولا على تحميل المصحف.
+  const [selectedAyah, setSelectedAyah] = useState<number | null>(null);
   const [ayahRepeat, setAyahRepeat] = useState<number>(1);
   const [ayahContinuous, setAyahContinuous] = useState(false);
   const [ayahError, setAyahError] = useState<string | null>(null);
@@ -156,6 +160,14 @@ export default function SurahPlayer({
     setAyahStarted(false);
     setPlayingAyah(null);
   }, []);
+
+  // عند الانتقال إلى سورة أخرى ألغِ تحديد الآية (حتى لا تبقى لوحة
+  // سورة قديمة ظاهرة) وأوقف صوت الآية.
+  useEffect(() => {
+    setSelectedAyah(null);
+    stopAyah();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surahNumber]);
 
   // قفز موثوق في WebView أندرويد: تغيير currentTime قد يُتجاهل إن لم
   // تكن بيانات الصوت جاهزة (أو إن سبقه تشغيل)، فيبدأ الصوت من أول
@@ -282,13 +294,17 @@ export default function SurahPlayer({
 
   const playAyah = useCallback(
     (ayahNumberInSurah: number, fromTap = false) => {
-      // الضغط على الآية الجارية يوقفها.
+      // الضغط على الآية الجارية يوقفها ويغلق اللوحة.
       if (playingAyah === ayahNumberInSurah) {
         stopAyah();
+        setSelectedAyah(null);
         return;
       }
       clearAyahStopTimer();
       setHighlightedAyah(null);
+      // حدّد الآية فور الضغط — قبل محاولة تشغيل الصوت — حتى تبقى
+      // اللوحة وزر «التفسير» ظاهرين حتى لو فشل الصوت.
+      setSelectedAyah(ayahNumberInSurah);
       const audio = ayahAudioRef.current;
       if (!audio) return;
       // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
@@ -931,52 +947,62 @@ export default function SurahPlayer({
                           </span>
                         )}
                       </div>
-                      {playingAyah != null && (
+                      {/* اللوحة تظهر للآية المحدّدة (لا للجارية فقط) حتى يبقى
+                          زر «التفسير» متاحًا حتى لو فشل الصوت. أزرار التشغيل
+                          (تكرار/متواصل/إيقاف) تظهر فقط أثناء التشغيل فعلًا. */}
+                      {selectedAyah != null && (
                         <div className="mb-4 flex flex-wrap items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2">
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Repeat className="w-3.5 h-3.5" />
-                            تكرار الآية:
-                          </span>
-                          {[1, 3, 5].map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => {
-                                setAyahRepeat(n);
-                                if (ayahSessionRef.current) {
-                                  ayahSessionRef.current = {
-                                    ...ayahSessionRef.current,
-                                    totalRepeats: n,
-                                  };
-                                }
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                                ayahRepeat === n
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              ×{n}
-                            </button>
-                          ))}
+                          {playingAyah != null && (
+                            <>
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Repeat className="w-3.5 h-3.5" />
+                                تكرار الآية:
+                              </span>
+                              {[1, 3, 5].map((n) => (
+                                <button
+                                  key={n}
+                                  onClick={() => {
+                                    setAyahRepeat(n);
+                                    if (ayahSessionRef.current) {
+                                      ayahSessionRef.current = {
+                                        ...ayahSessionRef.current,
+                                        totalRepeats: n,
+                                      };
+                                    }
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                                    ayahRepeat === n
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  ×{n}
+                                </button>
+                              ))}
+                              <button
+                                onClick={() => setAyahContinuous((c) => !c)}
+                                className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                                  ayahContinuous
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                متواصل
+                              </button>
+                              <button
+                                onClick={() => {
+                                  stopAyah();
+                                  setSelectedAyah(null);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Square className="w-3 h-3" />
+                                إيقاف
+                              </button>
+                            </>
+                          )}
                           <button
-                            onClick={() => setAyahContinuous((c) => !c)}
-                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                              ayahContinuous
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            متواصل
-                          </button>
-                          <button
-                            onClick={stopAyah}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            <Square className="w-3 h-3" />
-                            إيقاف
-                          </button>
-                          <button
-                            onClick={() => playingAyah != null && setTafsirAyah(playingAyah)}
+                            onClick={() => selectedAyah != null && setTafsirAyah(selectedAyah)}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
                           >
                             <BookOpen className="w-3.5 h-3.5" />
@@ -996,7 +1022,7 @@ export default function SurahPlayer({
                             data-ayah={ayah.numberInSurah}
                             onClick={() => playAyah(ayah.numberInSurah, true)}
                             className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                              playingAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                              playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
                             } ${
                               highlightedAyah === ayah.numberInSurah
                                 ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
