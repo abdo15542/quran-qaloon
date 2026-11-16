@@ -1,22 +1,11 @@
 import { Link } from "wouter";
 import { ArrowRight, Moon, Sun } from "lucide-react";
-import { QIRAAT, RECITERS } from "@/data/surahs";
+import { RECITERS } from "@/data/surahs";
 
 interface RecitersListProps {
   darkMode: boolean;
   toggleDarkMode: () => void;
 }
-
-const qirahColors: Record<string, { bg: string; text: string; badge: string }> = {
-  hafs: { bg: "bg-blue-50 dark:bg-blue-950/30", text: "text-blue-700 dark:text-blue-400", badge: "bg-blue-100 dark:bg-blue-900/40" },
-  qaloon: { bg: "bg-emerald-50 dark:bg-emerald-950/30", text: "text-emerald-700 dark:text-emerald-400", badge: "bg-emerald-100 dark:bg-emerald-900/40" },
-  warsh: { bg: "bg-amber-50 dark:bg-amber-950/30", text: "text-amber-700 dark:text-amber-400", badge: "bg-amber-100 dark:bg-amber-900/40" },
-  "ibn-kathir": { bg: "bg-violet-50 dark:bg-violet-950/30", text: "text-violet-700 dark:text-violet-400", badge: "bg-violet-100 dark:bg-violet-900/40" },
-  "abu-amr": { bg: "bg-rose-50 dark:bg-rose-950/30", text: "text-rose-700 dark:text-rose-400", badge: "bg-rose-100 dark:bg-rose-900/40" },
-  "ibn-amir": { bg: "bg-pink-50 dark:bg-pink-950/30", text: "text-pink-700 dark:text-pink-400", badge: "bg-pink-100 dark:bg-pink-900/40" },
-  hamza: { bg: "bg-orange-50 dark:bg-orange-950/30", text: "text-orange-700 dark:text-orange-400", badge: "bg-orange-100 dark:bg-orange-900/40" },
-  kisai: { bg: "bg-cyan-50 dark:bg-cyan-950/30", text: "text-cyan-700 dark:text-cyan-400", badge: "bg-cyan-100 dark:bg-cyan-900/40" },
-};
 
 export default function RecitersList({ darkMode, toggleDarkMode }: RecitersListProps) {
   return (
@@ -43,42 +32,36 @@ export default function RecitersList({ darkMode, toggleDarkMode }: RecitersListP
           <p className="text-muted-foreground text-sm">اختر قارئك المفضل لاستماع القرآن الكريم</p>
         </div>
 
-        {QIRAAT.map((qirah) => {
-          const recitersList = RECITERS.filter((r) => r.qirahId === qirah.id);
-          const colors = qirahColors[qirah.id] || qirahColors.hafs;
+        {/* قسم واحد: كل القُرّاء في صفحة واحدة */}
+        <div className="rounded-2xl border border-border overflow-hidden bg-blue-50 dark:bg-blue-950/30">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-border/50 bg-blue-100 dark:bg-blue-900/40">
+            <div className="font-arabic text-lg font-semibold text-blue-700 dark:text-blue-400">القُرّاء</div>
+            <div className="text-sm text-muted-foreground mt-1">حفص عن عاصم</div>
+          </div>
 
-          return (
-            <div key={qirah.id} className={`rounded-2xl border border-border overflow-hidden ${colors.bg}`}>
-              {/* Header */}
-              <div className={`px-5 py-4 border-b border-border/50 ${colors.badge}`}>
-                <div className={`font-arabic text-lg font-semibold ${colors.text}`}>{qirah.name}</div>
-                <div className="text-sm text-muted-foreground mt-1">{qirah.description}</div>
-              </div>
-
-              {/* Reciters grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
-                {recitersList.map((reciter) => (
-                  <Link key={reciter.id} href={`/surah/1`}>
-                    <button
-                      className="w-full text-right p-4 rounded-xl bg-background/60 hover:bg-background border border-border/50 transition-all hover:border-current group"
-                      onClick={() => {
-                        localStorage.setItem("quran_qirah", qirah.id);
-                        localStorage.setItem("quran_reciter", reciter.id);
-                      }}
-                    >
-                      <div className={`font-arabic text-base font-semibold ${colors.text} group-hover:scale-105 transition-transform`}>
-                        {reciter.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {qirah.name}
-                      </div>
-                    </button>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+          {/* Reciters grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-5">
+            {RECITERS.map((reciter) => (
+              <Link key={reciter.id} href={`/surah/1`}>
+                <button
+                  className="w-full text-right p-4 rounded-xl bg-background/60 hover:bg-background border border-border/50 transition-all hover:border-current group"
+                  onClick={() => {
+                    localStorage.setItem("quran_qirah", reciter.qirahId);
+                    localStorage.setItem("quran_reciter", reciter.id);
+                  }}
+                >
+                  <div className="font-arabic text-base font-semibold text-blue-700 dark:text-blue-400 group-hover:scale-105 transition-transform">
+                    {reciter.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    حفص عن عاصم
+                  </div>
+                </button>
+              </Link>
+            ))}
+          </div>
+        </div>
 
         {/* Summary */}
         <div className="bg-card border border-border rounded-2xl p-5 text-center space-y-2">

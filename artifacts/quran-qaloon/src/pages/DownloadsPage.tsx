@@ -32,8 +32,10 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
 
   // ---- تحميل المصحف كاملاً دفعة واحدة ----
   const [selectedReciterId, setSelectedReciterId] = useState<string>(() => {
-    if (typeof window === "undefined") return "qaloon-nafi";
-    return localStorage.getItem("quran_reciter") ?? "qaloon-nafi";
+    if (typeof window === "undefined") return "mishary";
+    const stored = localStorage.getItem("quran_reciter");
+    if (stored && RECITERS.some((r) => r.id === stored)) return stored;
+    return "mishary";
   });
   const [bulk, setBulk] = useState<{
     status: "idle" | "running" | "done" | "cancelled";
@@ -46,7 +48,8 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
 
   const selectedReciter =
     RECITERS.find((r) => r.id === selectedReciterId) ??
-    RECITERS.find((r) => r.id === "qaloon-nafi")!;
+    RECITERS.find((r) => r.id === "mishary") ??
+    RECITERS[0];
   const alreadyCachedForReciter = SURAHS.filter((s) => isCached(s.number, selectedReciter.id)).length;
   const remainingForReciter = SURAHS.length - alreadyCachedForReciter;
 

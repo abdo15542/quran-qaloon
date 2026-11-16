@@ -28,7 +28,11 @@ function toArabicNum(n: number): string {
 }
 
 function getStoredQirahId(): string {
-  return localStorage.getItem("quran_qirah") ?? "qaloon";
+  const stored = localStorage.getItem("quran_qirah");
+  // A stored qira'ah from before the reciter cleanup (e.g. "qaloon")
+  // no longer exists — fall back to hafs instead of an empty list.
+  if (stored && QIRAAT.some((q) => q.id === stored)) return stored;
+  return "hafs";
 }
 
 function getStoredReciterId(qirahId: string): string {
@@ -37,7 +41,11 @@ function getStoredReciterId(qirahId: string): string {
     const reciter = RECITERS.find((r) => r.id === stored && r.qirahId === qirahId);
     if (reciter) return stored;
   }
-  return getRecitersForQirah(qirahId)[0]?.id ?? "qaloon-nafi";
+  return (
+    RECITERS.find((r) => r.id === "mishary" && r.qirahId === qirahId)?.id ??
+    getRecitersForQirah(qirahId)[0]?.id ??
+    RECITERS[0].id
+  );
 }
 
 // في WebView على أندرويد يخرج الصوت المسموع متأخرًا عن ساعة عنصر الصوت
@@ -726,22 +734,24 @@ export default function SurahPlayer({
               )}
 
               <div className="bg-card border border-border rounded-2xl p-4 text-sm space-y-3">
-                <div className="text-xs text-muted-foreground">اختيار القراءة والقارئ</div>
+                <div className="text-xs text-muted-foreground">{QIRAAT.length > 1 ? "اختيار القراءة والقارئ" : "اختيار القارئ"}</div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">القراءة</label>
-                  <select
-                    value={selectedQirahId}
-                    onChange={(e) => handleQirahChange(e.target.value)}
-                    className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    {QIRAAT.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {QIRAAT.length > 1 && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">القراءة</label>
+                    <select
+                      value={selectedQirahId}
+                      onChange={(e) => handleQirahChange(e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {QIRAAT.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <label className="text-xs text-muted-foreground">القارئ</label>

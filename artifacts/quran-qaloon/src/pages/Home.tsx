@@ -28,8 +28,12 @@ function formatDate(ts: number): string {
 }
 
 function getSelectedReciter() {
-  const reciterId = localStorage.getItem("quran_reciter") ?? "qaloon-nafi";
-  return RECITERS.find((r) => r.id === reciterId) ?? RECITERS.find((r) => r.id === "qaloon-nafi")!;
+  const reciterId = localStorage.getItem("quran_reciter") ?? "mishary";
+  return (
+    RECITERS.find((r) => r.id === reciterId) ??
+    RECITERS.find((r) => r.id === "mishary") ??
+    RECITERS[0]
+  );
 }
 
 export default function Home({ darkMode, toggleDarkMode }: HomeProps) {

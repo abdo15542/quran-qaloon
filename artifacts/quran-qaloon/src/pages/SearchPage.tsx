@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, RefreshCw, ScrollText } from "lucide-react";
-import { SURAHS } from "@/data/surahs";
+import { SURAHS, QIRAAT } from "@/data/surahs";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
 import { searchQuran, getAyah } from "@/data/quran-text";
 
@@ -60,11 +60,20 @@ function highlight(text: string, query: string): React.ReactNode {
 }
 
 // Offline: ayah context comes from the bundled Uthmani text — no network.
+// Search and context use the selected qira'ah's text (same key SurahPlayer
+// stores). Only hafs remains, so a stored qira'ah from before the
+// reciter cleanup falls back to hafs.
+function getStoredQirahId(): string {
+  const stored = localStorage.getItem("quran_qirah");
+  if (stored && QIRAAT.some((q) => q.id === stored)) return stored;
+  return "hafs";
+}
+
 async function fetchAyah(surahNum: number, ayahNum: number): Promise<ContextAyah | null> {
   if (ayahNum < 1) return null;
   const surah = SURAHS.find((s) => s.number === surahNum);
   if (!surah || ayahNum > surah.numberOfAyahs) return null;
-  const a = getAyah(surahNum, ayahNum);
+  const a = getAyah(surahNum, ayahNum, getStoredQirahId());
   return a ? { numberInSurah: a.numberInSurah, text: a.text } : null;
 }
 
@@ -263,8 +272,9 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
       return;
     }
 
-    // Offline search over the bundled Uthmani text (diacritic-insensitive).
-    const hits = searchQuran(trimmed, 30);
+    // Offline search over the bundled Uthmani text (diacritic-insensitive),
+    // in the selected qira'ah's text.
+    const hits = searchQuran(trimmed, 30, getStoredQirahId());
     const mapped: SearchResult[] = hits
       .map((h) => {
         const surah = SURAHS.find((s) => s.number === h.surahNumber);
