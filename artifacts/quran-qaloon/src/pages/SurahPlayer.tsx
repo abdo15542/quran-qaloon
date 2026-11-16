@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2 } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
@@ -654,6 +654,8 @@ export default function SurahPlayer({
         </div>
       )}
 
+      {/* الشريط العلوي منزَّل عن حافة الشاشة (قاعدة header.sticky في
+          index.css: حشوة علوية 2.25rem + مساحة آمنة) حتى يكون واضحًا. */}
       <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link href="/">
@@ -947,66 +949,56 @@ export default function SurahPlayer({
                           </span>
                         )}
                       </div>
-                      {/* اللوحة تظهر للآية المحدّدة (لا للجارية فقط) حتى يبقى
-                          زر «التفسير» متاحًا حتى لو فشل الصوت. أزرار التشغيل
-                          (تكرار/متواصل/إيقاف) تظهر فقط أثناء التشغيل فعلًا. */}
-                      {selectedAyah != null && (
+                      {/* لوحة أزرار التشغيل (تكرار/متواصل/إيقاف) — تظهر فقط
+                          أثناء التشغيل فعلًا. زر «التفسير» صار فوق الآية
+                          المضغوطة مباشرة (داخل نص السورة)، حتى لا يضطر
+                          المستخدم للرجوع إلى أول السورة ليجده. */}
+                      {selectedAyah != null && playingAyah != null && (
                         <div className="mb-4 flex flex-wrap items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2">
-                          {playingAyah != null && (
-                            <>
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Repeat className="w-3.5 h-3.5" />
-                                تكرار الآية:
-                              </span>
-                              {[1, 3, 5].map((n) => (
-                                <button
-                                  key={n}
-                                  onClick={() => {
-                                    setAyahRepeat(n);
-                                    if (ayahSessionRef.current) {
-                                      ayahSessionRef.current = {
-                                        ...ayahSessionRef.current,
-                                        totalRepeats: n,
-                                      };
-                                    }
-                                  }}
-                                  className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                                    ayahRepeat === n
-                                      ? "bg-primary text-primary-foreground"
-                                      : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                                  }`}
-                                >
-                                  ×{n}
-                                </button>
-                              ))}
-                              <button
-                                onClick={() => setAyahContinuous((c) => !c)}
-                                className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                                  ayahContinuous
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                متواصل
-                              </button>
-                              <button
-                                onClick={() => {
-                                  stopAyah();
-                                  setSelectedAyah(null);
-                                }}
-                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
-                              >
-                                <Square className="w-3 h-3" />
-                                إيقاف
-                              </button>
-                            </>
-                          )}
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Repeat className="w-3.5 h-3.5" />
+                            تكرار الآية:
+                          </span>
+                          {[1, 3, 5].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => {
+                                setAyahRepeat(n);
+                                if (ayahSessionRef.current) {
+                                  ayahSessionRef.current = {
+                                    ...ayahSessionRef.current,
+                                    totalRepeats: n,
+                                  };
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                                ayahRepeat === n
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              ×{n}
+                            </button>
+                          ))}
                           <button
-                            onClick={() => selectedAyah != null && setTafsirAyah(selectedAyah)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                            onClick={() => setAyahContinuous((c) => !c)}
+                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                              ayahContinuous
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                            }`}
                           >
-                            <BookOpen className="w-3.5 h-3.5" />
-                            التفسير
+                            متواصل
+                          </button>
+                          <button
+                            onClick={() => {
+                              stopAyah();
+                              setSelectedAyah(null);
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Square className="w-3 h-3" />
+                            إيقاف
                           </button>
                         </div>
                       )}
@@ -1017,23 +1009,37 @@ export default function SurahPlayer({
                       )}
                       <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
                         {ayahs.map((ayah) => (
-                          <span
-                            key={ayah.number}
-                            data-ayah={ayah.numberInSurah}
-                            onClick={() => playAyah(ayah.numberInSurah, true)}
-                            className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                              playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
-                            } ${
-                              highlightedAyah === ayah.numberInSurah
-                                ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
-                                : ""
-                            }`}
-                          >
-                            {ayah.text}{" "}
-                            <span className="text-primary inline-block mx-1 text-base">
-                              ﴿{toArabicNum(ayah.numberInSurah)}﴾
-                            </span>{" "}
-                          </span>
+                          <Fragment key={ayah.number}>
+                            {/* زر التفسير فوق الآية المضغوطة مباشرة — لا حاجة
+                                للرجوع إلى أول السورة للوصول إليه. */}
+                            {selectedAyah === ayah.numberInSurah && (
+                              <span className="block text-center my-2">
+                                <button
+                                  onClick={() => setTafsirAyah(ayah.numberInSurah)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5" />
+                                  التفسير
+                                </button>
+                              </span>
+                            )}
+                            <span
+                              data-ayah={ayah.numberInSurah}
+                              onClick={() => playAyah(ayah.numberInSurah, true)}
+                              className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
+                                playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                              } ${
+                                highlightedAyah === ayah.numberInSurah
+                                  ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
+                                  : ""
+                              }`}
+                            >
+                              {ayah.text}{" "}
+                              <span className="text-primary inline-block mx-1 text-base">
+                                ﴿{toArabicNum(ayah.numberInSurah)}﴾
+                              </span>{" "}
+                            </span>
+                          </Fragment>
                         ))}
                       </div>
                     </div>
