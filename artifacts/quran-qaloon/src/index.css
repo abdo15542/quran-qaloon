@@ -144,7 +144,9 @@
 }
 
 /* الشريط العلوي: إنزاله قليلًا ليظهر بوضوح أسفل شريط حالة الهاتف
-   (مساحة آمنة + حشوة إضافية فوق حشوة py-3 الافتراضية) */
+   (مساحة آمنة + حشوة إضافية فوق حشوة py-3 الافتراضية). في WebView
+   أندرويد تكون safe-area-inset-top صفرًا غالبًا، فالحشوة الأساسية
+   (2.25rem) هي التي تُبعد الشريط عن حافة الشاشة. */
 header.sticky {
-  padding-top: max(1.25rem, calc(env(safe-area-inset-top, 0px) + 0.75rem));
+  padding-top: max(2.25rem, calc(env(safe-area-inset-top, 0px) + 1.25rem));
 }

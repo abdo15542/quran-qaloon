@@ -59,10 +59,18 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
       {/* Body (scrollable) */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
-          {/* The ayah itself */}
+          {/* The ayah itself — fixed size, NOT the .quran-text class:
+              .quran-text reads the user's reading font-size variable
+              (--quran-font-size), which can be 36px and makes a long
+              ayah overflow the sheet. Here the ayah is a reference
+              header above the tafsir, so it stays a steady 20px. */}
           {ayah && (
             <div className="bg-primary/5 border border-primary/20 rounded-2xl p-5 text-center">
-              <div className="quran-text text-2xl leading-loose" dir="rtl">
+              <div
+                className="text-xl leading-loose"
+                style={{ fontFamily: "'Amiri Quran', 'Amiri', serif" }}
+                dir="rtl"
+              >
                 {ayah.text}{" "}
                 <span className="text-primary text-lg">﴿{toArabicNum(ayah.numberInSurah)}﴾</span>
               </div>
