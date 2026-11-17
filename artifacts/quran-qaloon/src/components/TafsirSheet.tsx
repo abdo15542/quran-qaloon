@@ -36,6 +36,21 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
   const translation = getTranslation(surahNumber, currentAyah);
   const totalAyahs = surah?.numberOfAyahs ?? 0;
 
+  // Lock the page behind the sheet while it is open, so the surah does not
+  // scroll away underneath it.
+  useEffect(() => {
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBody = body.style.overflow;
+    const prevHtml = html.style.overflow;
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    return () => {
+      body.style.overflow = prevBody;
+      html.style.overflow = prevHtml;
+    };
+  }, []);
+
   // Share preview sheet state (the sheet renders, saves and shares the image).
   const [showSharePreview, setShowSharePreview] = useState(false);
 

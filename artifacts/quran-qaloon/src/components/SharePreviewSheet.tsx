@@ -21,6 +21,22 @@ export default function SharePreviewSheet({
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "share" | null>(null);
 
+  // Lock the page behind the sheet while it is open: without this, swiping
+  // scrolls the surah page behind the sheet (and the bottom nav stays
+  // tappable under it).
+  useEffect(() => {
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBody = body.style.overflow;
+    const prevHtml = html.style.overflow;
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    return () => {
+      body.style.overflow = prevBody;
+      html.style.overflow = prevHtml;
+    };
+  }, []);
+
   // Render the image once, when the sheet opens.
   useEffect(() => {
     let alive = true;
@@ -77,7 +93,7 @@ export default function SharePreviewSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-3"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 p-3"
       onClick={onClose}
     >
       <div
