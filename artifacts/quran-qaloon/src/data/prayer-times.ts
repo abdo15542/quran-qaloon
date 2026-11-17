@@ -3,8 +3,9 @@
 // in Libya; Shafi Asr, as in the Maliki school). No network, no location
 // permission: the user picks their city from the list. Times are in the
 // device's local timezone, so they are correct on the user's phone.
-// Reminders are native local notifications (id range 100-134 = 7 days x
-// 5 prayers), re-scheduled whenever the app opens so the window never
+// Reminders are native local notifications (id ranges 100-134 adhan,
+// 200-234 five-minute pre-alert, 300-334 iqama — 7 days x 5 prayers
+// each), re-scheduled whenever the app opens so the window never
 // runs out.
 
 import { Coordinates, CalculationMethod, PrayerTimes } from "adhan";
@@ -61,6 +62,9 @@ const REMINDER_KEY = "quran_prayer_reminder";
 const REMINDER_SCHEDULED_KEY = "quran_prayer_reminder_scheduled";
 const MODE_KEY = "quran_prayer_mode";
 const COORDS_KEY = "quran_prayer_coords";
+const PRE_ALERT_KEY = "quran_prayer_pre_alert";
+const IQAMA_ENABLED_KEY = "quran_iqama_enabled";
+const IQAMA_DELAYS_KEY = "quran_iqama_delays";
 
 export type PrayerLocationMode = "auto" | "manual";
 
@@ -281,6 +285,97 @@ function setPrayerReminderEnabled(enabled: boolean): void {
   }
 }
 
+// ---- Pre-alert (5 minutes before) and iqama (الإقامة) ----
+
+// Minutes between the adhan and the iqama for each prayer, as practised
+// in Libyan mosques (Fajr 20, Dhuhr 15, Asr 15, Maghrib 10, Isha 15).
+// Adjustable from the prayer page, 0-30 minutes.
+export const DEFAULT_IQAMA_DELAYS: Record<PrayerKey, number> = {
+  fajr: 20,
+  dhuhr: 15,
+  asr: 15,
+  maghrib: 10,
+  isha: 15,
+};
+
+export function getIqamaDelays(): Record<PrayerKey, number> {
+  try {
+    const raw = localStorage.getItem(IQAMA_DELAYS_KEY);
+    if (!raw) return { ...DEFAULT_IQAMA_DELAYS };
+    const parsed = JSON.parse(raw) as Partial<Record<PrayerKey, unknown>>;
+    const out = { ...DEFAULT_IQAMA_DELAYS };
+    for (const key of PRAYER_ORDER) {
+      const v = parsed[key];
+      if (typeof v === "number" && v >= 0 && v <= 30) out[key] = v;
+    }
+    return out;
+  } catch {
+    return { ...DEFAULT_IQAMA_DELAYS };
+  }
+}
+
+export function setIqamaDelays(delays: Record<PrayerKey, number>): void {
+  try {
+    localStorage.setItem(IQAMA_DELAYS_KEY, JSON.stringify(delays));
+  } catch {
+    // storage unavailable
+  }
+}
+
+// Both default ON — the user asked for them. The key being absent
+// means "not chosen yet", which is ON.
+export function isPreAlertEnabled(): boolean {
+  try {
+    return localStorage.getItem(PRE_ALERT_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setPreAlertEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(PRE_ALERT_KEY, enabled ? "1" : "0");
+  } catch {
+    // storage unavailable
+  }
+}
+
+export function isIqamaEnabled(): boolean {
+  try {
+    return localStorage.getItem(IQAMA_ENABLED_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setIqamaEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(IQAMA_ENABLED_KEY, enabled ? "1" : "0");
+  } catch {
+    // storage unavailable
+  }
+}
+
+// Iqama time for one prayer on one day: adhan + the configured delay.
+export function getIqamaTime(date: Date, key: PrayerKey, lat: number, lng: number): Date {
+  const times = getPrayerTimesForCoords(date, lat, lng);
+  return new Date(times[key].getTime() + getIqamaDelays()[key] * 60000);
+}
+
+// The prayer whose adhan has passed but whose iqama has not come yet
+// (today), if any — for the live "الإقامة بعد X" countdown.
+export function getCurrentIqama(now: Date, lat: number, lng: number): { key: PrayerKey; time: Date } | null {
+  const times = getPrayerTimesForCoords(now, lat, lng);
+  const delays = getIqamaDelays();
+  for (const key of PRAYER_ORDER) {
+    const iqama = new Date(times[key].getTime() + delays[key] * 60000);
+    if (times[key].getTime() <= now.getTime() && iqama.getTime() > now.getTime()) {
+      return { key, time: iqama };
+    }
+  }
+  return null;
+}
+
 export interface DayPrayerTimes {
   fajr: Date;
   sunrise: Date;
@@ -351,6 +446,11 @@ export function formatCountdown(ms: number): string {
 // (android/app/src/main/res/raw/adhan.mp3, 75s) before scheduling.
 export const ADHAN_CHANNEL_ID = "prayer-adhan";
 
+// The pre-alert (5 minutes before) and the iqama use a second channel
+// with the system default sound — a short alert, not the 75s adhan.
+// Both channels vibrate, so the phone alerts in vibrate mode too.
+export const REMINDER_CHANNEL_ID = "prayer-reminder";
+
 export async function createPrayerChannel(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   try {
@@ -368,21 +468,56 @@ export async function createPrayerChannel(): Promise<void> {
   }
 }
 
+export async function createReminderChannel(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: REMINDER_CHANNEL_ID,
+      name: "تذكير الصلوات",
+      description: "تنبيه قبل الصلاة بخمس دقائق وتنبيه الإقامة",
+      importance: 4,
+      vibration: true,
+      lights: true,
+    });
+  } catch {
+    // channel creation is best-effort; scheduling still proceeds
+  }
+}
+
+// Open one channel's system settings page, so the user can allow the
+// notification to bypass Do Not Disturb / silent mode for that channel.
+// Android itself silences app sounds in silent mode — this system
+// switch is the way to let the adhan through. Uses an intent: URL,
+// like openLocationSettings; on web it is a no-op.
+export function openNotificationChannelSettings(channelId: string): void {
+  if (!Capacitor.isNativePlatform()) return;
+  window.location.href =
+    "intent:#Intent;action=android.settings.CHANNEL_NOTIFICATION_SETTINGS" +
+    `;S.android.provider.extra.CHANNEL_ID=${channelId}` +
+    ";S.android.provider.extra.APP_PACKAGE=ly.quran.qaloon;end";
+}
+
 const NOTIF_BASE_ID = 100;
+const PRE_ALERT_BASE_ID = 200;
+const IQAMA_BASE_ID = 300;
 const NOTIF_DAYS = 7;
 
-function notificationIds(): Array<{ id: number }> {
+function allNotificationIds(): Array<{ id: number }> {
   const ids: Array<{ id: number }> = [];
-  for (let d = 0; d < NOTIF_DAYS; d++) {
-    for (let i = 0; i < PRAYER_ORDER.length; i++) {
-      ids.push({ id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i });
+  for (const base of [NOTIF_BASE_ID, PRE_ALERT_BASE_ID, IQAMA_BASE_ID]) {
+    for (let d = 0; d < NOTIF_DAYS; d++) {
+      for (let i = 0; i < PRAYER_ORDER.length; i++) {
+        ids.push({ id: base + d * PRAYER_ORDER.length + i });
+      }
     }
   }
   return ids;
 }
 
 // Schedule the next 7 days of prayer notifications (5 per day) for the
-// given coordinates, on the adhan channel. Returns a short status
+// given coordinates: the adhan at prayer time (ids 100-134), a short
+// alert 5 minutes before each prayer (ids 200-234, when enabled), and
+// the iqama alert (ids 300-334, when enabled). Returns a short status
 // message in Arabic, or null on the web.
 export async function schedulePrayerRemindersForCoords(lat: number, lng: number): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
@@ -393,7 +528,11 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
     await createPrayerChannel();
-    await LocalNotifications.cancel({ notifications: notificationIds() }).catch(() => {});
+    await createReminderChannel();
+    await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
+    const preAlert = isPreAlertEnabled();
+    const iqamaOn = isIqamaEnabled();
+    const delays = getIqamaDelays();
     const notifications = [];
     const now = new Date();
     for (let d = 0; d < NOTIF_DAYS; d++) {
@@ -403,14 +542,39 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       for (let i = 0; i < PRAYER_ORDER.length; i++) {
         const key = PRAYER_ORDER[i];
         const at = times[key];
-        if (at.getTime() <= now.getTime()) continue; // already passed
-        notifications.push({
-          id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i,
-          title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
-          body: `صلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
-          schedule: { at, allowWhileIdle: true },
-          channelId: ADHAN_CHANNEL_ID,
-        });
+        if (at.getTime() > now.getTime()) {
+          notifications.push({
+            id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i,
+            title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
+            body: `صلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
+            schedule: { at, allowWhileIdle: true },
+            channelId: ADHAN_CHANNEL_ID,
+          });
+        }
+        if (preAlert) {
+          const preAt = new Date(at.getTime() - 5 * 60000);
+          if (preAt.getTime() > now.getTime()) {
+            notifications.push({
+              id: PRE_ALERT_BASE_ID + d * PRAYER_ORDER.length + i,
+              title: `بعد 5 دقائق: صلاة ${PRAYER_NAMES[key]} 🕌`,
+              body: `استعد لصلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
+              schedule: { at: preAt, allowWhileIdle: true },
+              channelId: REMINDER_CHANNEL_ID,
+            });
+          }
+        }
+        if (iqamaOn) {
+          const iqamaAt = new Date(at.getTime() + delays[key] * 60000);
+          if (iqamaAt.getTime() > now.getTime()) {
+            notifications.push({
+              id: IQAMA_BASE_ID + d * PRAYER_ORDER.length + i,
+              title: `حان وقت إقامة صلاة ${PRAYER_NAMES[key]} 🕌`,
+              body: `أقيمت الصلاة — صلاة ${PRAYER_NAMES[key]}`,
+              schedule: { at: iqamaAt, allowWhileIdle: true },
+              channelId: REMINDER_CHANNEL_ID,
+            });
+          }
+        }
       }
     }
     if (notifications.length > 0) {
@@ -422,7 +586,10 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     } catch {
       // storage unavailable
     }
-    return "التذكير مفعّل — ستصلك إشعارات الصلوات بصوت الأذان";
+    const parts = ["أذان عند وقت كل صلاة"];
+    if (preAlert) parts.push("تنبيه قبلها بـ 5 دقائق");
+    if (iqamaOn) parts.push("تنبيه الإقامة");
+    return "التذكير مفعّل — " + parts.join("، ");
   } catch {
     return "تعذّر ضبط التذكير — حاول مجددًا";
   }
@@ -480,7 +647,7 @@ export async function cancelPrayerReminders(): Promise<void> {
   setPrayerReminderEnabled(false);
   if (!Capacitor.isNativePlatform()) return;
   try {
-    await LocalNotifications.cancel({ notifications: notificationIds() }).catch(() => {});
+    await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
   } catch {
     // ignore
   }

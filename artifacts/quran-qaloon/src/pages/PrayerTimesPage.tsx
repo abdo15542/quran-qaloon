@@ -22,9 +22,19 @@ import {
   getCity,
   getPrayerTimesForCoords,
   getNextPrayerForCoords,
+  getIqamaTime,
+  getCurrentIqama,
   formatPrayerTime,
   formatCountdown,
   isPrayerReminderEnabled,
+  isPreAlertEnabled,
+  setPreAlertEnabled,
+  isIqamaEnabled,
+  setIqamaEnabled,
+  getIqamaDelays,
+  setIqamaDelays,
+  openNotificationChannelSettings,
+  ADHAN_CHANNEL_ID,
   schedulePrayerReminders,
   schedulePrayerRemindersForCoords,
   cancelPrayerReminders,
@@ -39,6 +49,7 @@ import {
   scheduleTestAdhanNotification,
   enableReminderIfFirstRun,
   type PrayerLocationMode,
+  type PrayerKey,
   type StoredCoords,
 } from "@/data/prayer-times";
 import { formatHijriDate } from "@/data/hijri";
@@ -59,6 +70,9 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [reminderEnabled, setReminderEnabled] = useState<boolean>(isPrayerReminderEnabled);
   const [reminderStatus, setReminderStatus] = useState<string | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [preAlert, setPreAlert] = useState<boolean>(isPreAlertEnabled);
+  const [iqamaOn, setIqamaOn] = useState<boolean>(isIqamaEnabled);
+  const [iqamaDelays, setIqamaDelaysState] = useState<Record<PrayerKey, number>>(getIqamaDelays);
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testBusy, setTestBusy] = useState(false);
 
@@ -135,6 +149,11 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     () => getNextPrayerForCoords(now, active.lat, active.lng),
     [now, active.lat, active.lng]
   );
+  // The prayer whose adhan passed but whose iqama has not come yet.
+  const currentIqama = useMemo(
+    () => (iqamaOn ? getCurrentIqama(now, active.lat, active.lng) : null),
+    [now, active.lat, active.lng, iqamaOn, iqamaDelays]
+  );
   const todayLabel = new Intl.DateTimeFormat("ar-LY", {
     weekday: "long",
     day: "numeric",
@@ -202,6 +221,38 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     } finally {
       setReminderBusy(false);
     }
+  };
+
+  // Re-schedule all three notification sets after a pre-alert / iqama
+  // change (the scheduler cancels everything and rebuilds it).
+  const reschedule = async () => {
+    if (!reminderEnabled) return;
+    const msg = await schedulePrayerRemindersForCoords(active.lat, active.lng);
+    if (msg) setReminderStatus(msg);
+  };
+
+  const handlePreAlertToggle = async () => {
+    const nextVal = !preAlert;
+    setPreAlert(nextVal);
+    setPreAlertEnabled(nextVal);
+    await reschedule();
+  };
+
+  const handleIqamaToggle = async () => {
+    const nextVal = !iqamaOn;
+    setIqamaOn(nextVal);
+    setIqamaEnabled(nextVal);
+    await reschedule();
+  };
+
+  const handleIqamaDelay = async (key: PrayerKey, delta: number) => {
+    const nextDelays = {
+      ...iqamaDelays,
+      [key]: Math.min(30, Math.max(0, iqamaDelays[key] + delta)),
+    };
+    setIqamaDelaysState(nextDelays);
+    setIqamaDelays(nextDelays);
+    await reschedule();
   };
 
   return (
@@ -331,6 +382,11 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
           <div className="text-sm text-muted-foreground mt-1">
             متبقٍّ {formatCountdown(next.time.getTime() - now.getTime())}
           </div>
+          {currentIqama && (
+            <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-2">
+              الإقامة بعد {formatCountdown(currentIqama.time.getTime() - now.getTime())} — صلاة {PRAYER_NAMES[currentIqama.key]}
+            </div>
+          )}
         </div>
 
         {/* Today's prayers */}
@@ -339,6 +395,8 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
             const time = times[key];
             const isNext = next.key === key && next.time.getTime() === time.getTime();
             const passed = time.getTime() <= now.getTime();
+            const iqamaTime = getIqamaTime(now, key, active.lat, active.lng);
+            const iqamaNow = currentIqama?.key === key;
             return (
               <div
                 key={key}
@@ -353,6 +411,14 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   )}
                   {passed && !isNext && (
                     <span className="text-xs text-muted-foreground">انتهت</span>
+                  )}
+                  {iqamaOn && !iqamaNow && (
+                    <span className="text-xs text-muted-foreground">الإقامة {formatPrayerTime(iqamaTime)}</span>
+                  )}
+                  {iqamaNow && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                      الإقامة بعد {formatCountdown(currentIqama.time.getTime() - now.getTime())}
+                    </span>
                   )}
                 </div>
                 <span className={`text-lg font-bold tabular-nums ${isNext ? "text-primary" : "text-foreground"}`}>
@@ -398,6 +464,96 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
           <p className="text-xs text-muted-foreground">
             إشعار بصوت الأذان عند وقت كل صلاة، حتى والتطبيق مغلق. تُحسب الأوقات على جهازك دون إنترنت.
           </p>
+
+          {/* Pre-alert: 5 minutes before each prayer */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+            <div>
+              <div className="text-sm font-arabic text-foreground">تنبيه قبل الصلاة بـ 5 دقائق</div>
+              <div className="text-xs text-muted-foreground">إشعار قصير قبل كل صلاة لتستعد لها</div>
+            </div>
+            <button
+              onClick={handlePreAlertToggle}
+              disabled={!reminderEnabled}
+              className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                preAlert && reminderEnabled ? "bg-primary" : "bg-muted"
+              }`}
+              aria-label="تفعيل التنبيه قبل الصلاة أو إيقافه"
+            >
+              <span
+                className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                  preAlert && reminderEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Iqama */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+            <div>
+              <div className="text-sm font-arabic text-foreground">تنبيه الإقامة</div>
+              <div className="text-xs text-muted-foreground">إشعار عند وقت إقامة كل صلاة</div>
+            </div>
+            <button
+              onClick={handleIqamaToggle}
+              disabled={!reminderEnabled}
+              className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                iqamaOn && reminderEnabled ? "bg-primary" : "bg-muted"
+              }`}
+              aria-label="تفعيل تنبيه الإقامة أو إيقافه"
+            >
+              <span
+                className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                  iqamaOn && reminderEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                }`}
+              />
+            </button>
+          </div>
+          {iqamaOn && (
+            <div className="mt-3 space-y-2">
+              {PRAYER_ORDER.map((key) => (
+                <div key={key} className="flex items-center justify-between text-sm">
+                  <span className="font-arabic text-foreground">إقامة صلاة {PRAYER_NAMES[key]}</span>
+                  <span className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleIqamaDelay(key, -5)}
+                      disabled={!reminderEnabled || iqamaDelays[key] <= 0}
+                      className="w-7 h-7 rounded-full bg-muted text-foreground disabled:opacity-40"
+                      aria-label="تقليل وقت الإقامة"
+                    >
+                      −
+                    </button>
+                    <span className="w-12 text-center tabular-nums text-foreground">{iqamaDelays[key]} د</span>
+                    <button
+                      onClick={() => handleIqamaDelay(key, 5)}
+                      disabled={!reminderEnabled || iqamaDelays[key] >= 30}
+                      className="w-7 h-7 rounded-full bg-muted text-foreground disabled:opacity-40"
+                      aria-label="زيادة وقت الإقامة"
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">وقت الإقامة بعد الأذان — عدّله لكل صلاة كما في مسجدك.</p>
+            </div>
+          )}
+
+          {/* Silent / vibrate mode */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="text-sm font-arabic text-foreground">التنبيه في الوضع الصامت</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              في وضع الاهتزاز يهتز الهاتف عند كل تنبيه. أما في الوضع الصامت فيمنع أندرويد صوت التطبيقات — فعّل «تجاوز
+              عدم الإزعاج» لقناة الأذان من الإعدادات ليصلك التنبيه حتى في الوضع الصامت.
+            </p>
+            <button
+              onClick={() => openNotificationChannelSettings(ADHAN_CHANNEL_ID)}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              فتح إعدادات قناة الأذان
+            </button>
+          </div>
+
           <button
             onClick={handleTestAdhan}
             disabled={testBusy}
