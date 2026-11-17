@@ -163,15 +163,16 @@ export async function detectPrayerLocation(): Promise<{
   via: "gps" | "network";
 }> {
   // 1. Permission — explicit, so the user sees the system dialog.
-  // On native, requestPermissions shows the dialog and returns the
-  // result; on the web it only reports the state, and the prompt is
-  // triggered by getCurrentPosition below — so only an explicit
-  // 'denied' stops here, a 'prompt' state proceeds.
+  // IMPORTANT: requestPermissions() must be called whenever the
+  // permission is not granted yet — checkPermissions() returns
+  // 'denied' for the never-asked state too, and throwing there
+  // (as 1.0.50 did) means the dialog NEVER appears. Only a
+  // 'denied' result FROM requestPermissions() itself stops here.
+  // On the web requestPermissions only reports the state, and the
+  // prompt is triggered by getCurrentPosition below — so a 'prompt'
+  // result proceeds as well.
   try {
     const status = await Geolocation.checkPermissions();
-    if (status.location === "denied") {
-      throw new Error("denied");
-    }
     if (status.location !== "granted") {
       const asked = await Geolocation.requestPermissions();
       if (asked.location === "denied") {
