@@ -4,7 +4,7 @@ import { SURAHS } from "@/data/surahs";
 import { getAyah } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
 import { getTranslation, TRANSLATION_EDITION_NAME } from "@/data/translation-en";
-import { shareAyahImage } from "@/lib/shareAyah";
+import SharePreviewSheet from "@/components/SharePreviewSheet";
 import { useFavourites } from "@/hooks/useFavourites";
 
 function toArabicNum(n: number): string {
@@ -36,24 +36,8 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
   const translation = getTranslation(surahNumber, currentAyah);
   const totalAyahs = surah?.numberOfAyahs ?? 0;
 
-  const [shareStatus, setShareStatus] = useState<string | null>(null);
-
-  const handleShare = async () => {
-    if (!ayah || !surah) return;
-    try {
-      const result = await shareAyahImage({
-        ayahText: ayah.text,
-        surahName: surah.name,
-        surahNumber,
-        ayahNumber: currentAyah,
-        translation,
-      });
-      setShareStatus(result === "shared" ? "تمت المشاركة ✓" : result === "downloaded" ? "تم تنزيل الصورة ✓" : null);
-    } catch {
-      setShareStatus("تعذّرت المشاركة");
-    }
-    setTimeout(() => setShareStatus(null), 3000);
-  };
+  // Share preview sheet state (the sheet renders, saves and shares the image).
+  const [showSharePreview, setShowSharePreview] = useState(false);
 
   const goPrev = () => {
     if (currentAyah > 1) setCurrentAyah(currentAyah - 1);
@@ -127,29 +111,29 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
         </div>
       </div>
 
-      {/* Footer: prev / play / next */}
-      <div className="border-t border-border bg-background/95 px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+      {/* Footer: prev / play / next — compact so all five controls fit one row */}
+      <div className="border-t border-border bg-background/95 px-2 py-2">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-1.5">
           <button
             onClick={goPrev}
             disabled={currentAyah <= 1}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 transition-colors"
+            className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg bg-card border border-border text-xs whitespace-nowrap disabled:opacity-40 hover:border-primary/40 transition-colors"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-3.5 h-3.5" />
             الآية السابقة
           </button>
           {onPlayAyah && (
             <button
               onClick={() => onPlayAyah(currentAyah)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs whitespace-nowrap hover:bg-primary/90 transition-colors"
             >
-              <Volume2 className="w-4 h-4" />
+              <Volume2 className="w-3.5 h-3.5" />
               استمع للآية
             </button>
           )}
           <button
             onClick={() => toggleFavourite(surahNumber, currentAyah)}
-            className={`p-2.5 rounded-xl border transition-colors ${
+            className={`p-2 rounded-lg border transition-colors ${
               isFavourite(surahNumber, currentAyah)
                 ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
                 : "bg-card border-border text-muted-foreground hover:text-rose-600"
@@ -157,31 +141,42 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
             aria-label="حفظ في المفضلة"
           >
             <Heart
-              className={`w-4 h-4 ${
+              className={`w-3.5 h-3.5 ${
                 isFavourite(surahNumber, currentAyah) ? "fill-rose-500 text-rose-500" : ""
               }`}
             />
           </button>
           <button
-            onClick={handleShare}
-            className="p-2.5 rounded-xl bg-card border border-border text-muted-foreground hover:text-primary transition-colors"
+            onClick={() => setShowSharePreview(true)}
+            className="p-2 rounded-lg bg-card border border-border text-muted-foreground hover:text-primary transition-colors"
             aria-label="مشاركة الآية كصورة"
           >
-            <Share2 className="w-4 h-4" />
+            <Share2 className="w-3.5 h-3.5" />
           </button>
-          {shareStatus && (
-            <span className="text-xs text-emerald-600 whitespace-nowrap">{shareStatus}</span>
-          )}
           <button
             onClick={goNext}
             disabled={currentAyah >= totalAyahs}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 transition-colors"
+            className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg bg-card border border-border text-xs whitespace-nowrap disabled:opacity-40 hover:border-primary/40 transition-colors"
           >
             الآية التالية
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* Share preview sheet for the current ayah */}
+      {showSharePreview && ayah && surah && (
+        <SharePreviewSheet
+          ayah={{
+            ayahText: ayah.text,
+            surahName: surah.name,
+            surahNumber,
+            ayahNumber: currentAyah,
+            translation,
+          }}
+          onClose={() => setShowSharePreview(false)}
+        />
+      )}
     </div>
   );
 }

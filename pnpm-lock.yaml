@@ -401,6 +401,9 @@ importers:
 
   artifacts/quran-qaloon:
     dependencies:
+      '@capacitor-community/media':
+        specifier: ^8.0.1
+        version: 8.0.1(@capacitor/core@7.6.10)
       '@capacitor-community/speech-recognition':
         specifier: 7.0.1
         version: 7.0.1(@capacitor/core@7.6.10)
@@ -744,6 +747,11 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@capacitor-community/media@8.0.1':
+    resolution: {integrity: sha512-u4+f7iVQV6BdsDi0MeQigJpwRztfuzsRTskwp1YS6nAS+6Gg5zLFOW/vnQgnpPIJQBO54plb4UZQYE9Wv/1Yxw==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor-community/speech-recognition@7.0.1':
     resolution: {integrity: sha512-ykpBZziR575X0eURO5vXaD9gVrXXC/7Ra2qql/2KP6/jxWOqAFuw4eKjSPjwdAgGE6a/Z+v8FJm4SVh57MVwDA==}
@@ -3586,6 +3594,10 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@capacitor-community/media@8.0.1(@capacitor/core@7.6.10)':
+    dependencies:
+      '@capacitor/core': 7.6.10
 
   '@capacitor-community/speech-recognition@7.0.1(@capacitor/core@7.6.10)':
     dependencies:

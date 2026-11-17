@@ -6,10 +6,10 @@ import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
 import { getTranslation } from "@/data/translation-en";
 import { getPageOfAyah } from "@/data/mushaf-pages";
-import { shareAyahImage } from "@/lib/shareAyah";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
 import TafsirSheet from "@/components/TafsirSheet";
+import SharePreviewSheet from "@/components/SharePreviewSheet";
 import DownloadButton from "@/components/DownloadButton";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
@@ -203,7 +203,8 @@ export default function SurahPlayer({
       return false;
     }
   });
-  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  // Ayah whose share preview sheet is open (null = closed).
+  const [sharePreviewAyah, setSharePreviewAyah] = useState<number | null>(null);
 
   const toggleTranslation = () => {
     setShowTranslation((v) => {
@@ -216,26 +217,20 @@ export default function SurahPlayer({
     });
   };
 
-  // Share the tapped ayah as a PNG image (Web Share sheet, or a download).
-  const handleShareAyah = async (ayahNumberInSurah: number) => {
-    const ayah = ayahs.find((a) => a.numberInSurah === ayahNumberInSurah);
-    if (!ayah || !surah) return;
-    try {
-      const result = await shareAyahImage({
-        ayahText: ayah.text,
-        surahName: surah.name,
-        surahNumber,
-        ayahNumber: ayahNumberInSurah,
-        translation: getTranslation(surahNumber, ayahNumberInSurah),
-      });
-      if (result === "shared") setShareStatus("تمت المشاركة ✓");
-      else if (result === "downloaded") setShareStatus("تم تنزيل الصورة ✓");
-      else setShareStatus(null);
-    } catch {
-      setShareStatus("تعذّرت المشاركة");
-    }
-    setTimeout(() => setShareStatus(null), 3000);
-  };
+  // The share preview sheet handles rendering, saving and sharing — the
+  // player only opens it for the tapped ayah.
+  const sharePreviewData = (() => {
+    if (sharePreviewAyah == null || !surah) return null;
+    const ayah = ayahs.find((a) => a.numberInSurah === sharePreviewAyah);
+    if (!ayah) return null;
+    return {
+      ayahText: ayah.text,
+      surahName: surah.name,
+      surahNumber,
+      ayahNumber: sharePreviewAyah,
+      translation: getTranslation(surahNumber, sharePreviewAyah),
+    };
+  })();
   const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
   const [ayahBuffering, setAyahBuffering] = useState(false);
   // هل بدأ صوت الآية يتحرك فعلًا (وليس مجرد ضغطة بانتظار البيانات).
@@ -1056,11 +1051,6 @@ export default function SurahPlayer({
                           <BookOpen className="w-3.5 h-3.5" />
                           المصحف
                         </button>
-                        {shareStatus && (
-                          <span className="flex items-center gap-1 bg-emerald-500/10 text-emerald-600 px-2 py-1 rounded-full">
-                            {shareStatus}
-                          </span>
-                        )}
                         {/* شارة الآية تظهر فقط عندما يتحرك الصوت فعلًا،
                             لا من لحظة الضغط — حتى لا يُحسب زمن انتظار
                             الشبكة ضمن مدة الآية. */}
@@ -1169,7 +1159,7 @@ export default function SurahPlayer({
                                   isFav={isFavourite(surahNumber, ayah.numberInSurah)}
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
-                                  onShare={() => handleShareAyah(ayah.numberInSurah)}
+                                  onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
                                 />
                               )}
                             </div>
@@ -1189,7 +1179,7 @@ export default function SurahPlayer({
                                   isFav={isFavourite(surahNumber, ayah.numberInSurah)}
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
-                                  onShare={() => handleShareAyah(ayah.numberInSurah)}
+                                  onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
                                 />
                               )}
                               <span
@@ -1236,6 +1226,11 @@ export default function SurahPlayer({
           </div>
         </div>
       </div>
+
+      {/* Share preview sheet for the tapped ayah */}
+      {sharePreviewData && (
+        <SharePreviewSheet ayah={sharePreviewData} onClose={() => setSharePreviewAyah(null)} />
+      )}
 
       {/* Tafsir sheet for the selected ayah */}
       {tafsirAyah != null && surah && (

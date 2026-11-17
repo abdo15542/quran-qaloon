@@ -1,10 +1,16 @@
-// Renders an ayah as a shareable PNG image and shares it.
-// No new dependencies: plain canvas + the Web Share API, with a download
+// Renders an ayah as a shareable PNG image.
+// Fully offline: the ayah text, the translation and the Amiri Quran font
+// are all bundled in the app — no internet is needed to draw the image.
+// Save: on the real app the image is written straight to the phone's photo
+// gallery with the Media plugin (no share sheet, no internet); in a browser
+// it downloads the PNG. Share: the Web Share API, with the same download
 // fallback when file sharing is unavailable (desktop browser / headless).
-// The ayah is drawn in the bundled Amiri Quran font on the app's deep-green
-// brand gradient, with the surah name and ayah number in gold.
+
+import { Capacitor } from "@capacitor/core";
+import { Media } from "@capacitor-community/media";
 
 export type ShareAyahResult = "shared" | "downloaded" | "cancelled";
+export type SaveAyahResult = "saved_gallery" | "downloaded" | "failed";
 
 export interface ShareAyahOptions {
   ayahText: string;
@@ -35,7 +41,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines.length > 0 ? lines : [text];
 }
 
-export async function renderAyahImage(opts: ShareAyahOptions): Promise<Blob> {
+async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement> {
   const W = 1080;
   const PAD = 90;
   const ARABIC_FONT = '64px "Amiri Quran", "Amiri", serif';
@@ -44,9 +50,15 @@ export async function renderAyahImage(opts: ShareAyahOptions): Promise<Blob> {
   const TRANS_LINE = 48;
 
   // Load the bundled Amiri Quran font for the canvas (falls back to serif).
+  // Never wait forever: if the font is not ready in 1.5s, draw with the
+  // serif fallback — the image must render even when offline.
   try {
-    if (typeof document !== "undefined" && (document as Document & { fonts?: FontFaceSet }).fonts) {
-      await (document as Document & { fonts: FontFaceSet }).fonts.load('64px "Amiri Quran"');
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (fonts) {
+      await Promise.race([
+        fonts.load('64px "Amiri Quran"'),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
     }
   } catch {
     // font not ready — canvas falls back to serif, still renders Arabic.
@@ -131,9 +143,74 @@ export async function renderAyahImage(opts: ShareAyahOptions): Promise<Blob> {
   ctx.direction = "rtl";
   ctx.fillText(`سورة ${opts.surahName} — الآية ${toArabicNum(opts.ayahNumber)}`, W / 2, H - 90);
 
+  return canvas;
+}
+
+export async function renderAyahImage(opts: ShareAyahOptions): Promise<Blob> {
+  const canvas = await drawAyahCanvas(opts);
   return await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas.toBlob returned null"))), "image/png");
   });
+}
+
+export async function renderAyahImageDataUrl(opts: ShareAyahOptions): Promise<string> {
+  const canvas = await drawAyahCanvas(opts);
+  return canvas.toDataURL("image/png");
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Which gallery album to save into: the Pictures album when it exists,
+// otherwise Camera / Download, otherwise the first album the phone reports.
+function pickAlbum(albums: { identifier: string; name: string }[]): { identifier: string; name: string } | null {
+  if (!albums || albums.length === 0) return null;
+  const byName = (re: RegExp) => albums.find((a) => re.test(a.name));
+  return byName(/pictures|صور/i) ?? byName(/camera|dcim|الكاميرا/i) ?? byName(/download|تنزيل/i) ?? albums[0];
+}
+
+// Native gallery save: the Media plugin writes the PNG straight into the
+// phone's photo gallery (it asks for the photo permission itself on first
+// use). Works fully offline. Returns false when anything goes wrong, so the
+// caller can fall back to the download.
+async function saveToGallery(dataUrl: string, fileName: string): Promise<boolean> {
+  try {
+    const { albums } = await Media.getAlbums();
+    const album = pickAlbum(albums);
+    if (!album) return false;
+    await Media.savePhoto({
+      path: dataUrl,
+      albumIdentifier: album.identifier,
+      fileName: fileName.replace(/\.png$/i, ""),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveAyahImage(opts: ShareAyahOptions): Promise<SaveAyahResult> {
+  const fileName = `ayah-${opts.surahNumber}-${opts.ayahNumber}.png`;
+  try {
+    if (Capacitor.isNativePlatform()) {
+      const dataUrl = await renderAyahImageDataUrl(opts);
+      if (await saveToGallery(dataUrl, fileName)) return "saved_gallery";
+      // Gallery save failed — fall through to the download below.
+    }
+    const blob = await renderAyahImage(opts);
+    downloadBlob(blob, fileName);
+    return "downloaded";
+  } catch {
+    return "failed";
+  }
 }
 
 export async function shareAyahImage(opts: ShareAyahOptions): Promise<ShareAyahResult> {
@@ -156,13 +233,8 @@ export async function shareAyahImage(opts: ShareAyahOptions): Promise<ShareAyahR
   }
 
   // Download fallback (desktop browser, headless, or share unavailable).
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  // Note: in the Android WebView a plain download may be ignored, which is
+  // why the preview sheet's Save button (gallery save) is the reliable path.
+  downloadBlob(blob, fileName);
   return "downloaded";
 }
