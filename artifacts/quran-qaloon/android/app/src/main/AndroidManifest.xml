@@ -33,12 +33,37 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Native adhan alarm: exact alarms that start a foreground
+             service playing the full adhan. The alarm receiver is only
+             ever triggered by our own PendingIntents; the boot receiver
+             re-registers the stored alarm set after a reboot. -->
+        <receiver android:name=".AdhanAlarmReceiver" android:exported="false" />
+        <receiver android:name=".AdhanBootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".AdhanPlayerService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Exact alarms (Android 12+): without this, AlarmManager falls
+         back to INEXACT alarms and Doze can delay or skip the adhan —
+         the reason the adhan sometimes came late or not at all. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Foreground service that plays the full adhan (media playback
+         type, required on Android 14+). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Location (prayer times): the Geolocation plugin's own manifest
          entries are NOT merged into the built APK, so without these the
          app can never show the location permission dialog at all. -->

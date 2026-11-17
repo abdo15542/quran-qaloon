@@ -12,6 +12,14 @@ import { Coordinates, CalculationMethod, PrayerTimes } from "adhan";
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Geolocation } from "@capacitor/geolocation";
+import {
+  canScheduleExactAdhanAlarms,
+  openExactAlarmSettings,
+  scheduleNativeAdhanAlarms,
+  cancelNativeAdhanAlarms,
+  testNativeAdhan,
+  type AdhanAlarmItem,
+} from "@/lib/adhan-alarm";
 
 export type PrayerKey = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
 
@@ -440,10 +448,15 @@ export function formatCountdown(ms: number): string {
 
 // ---- Reminders (native only) ----
 
-// Prayer notifications play the adhan: on Android 8+ the sound lives
-// on the notification CHANNEL, so the channel is created (once —
-// Android keeps the first creation) with the bundled adhan.mp3
-// (android/app/src/main/res/raw/adhan.mp3, 75s) before scheduling.
+// The adhan itself is played by the native alarm (see adhan-alarm.ts):
+// an exact AlarmManager alarm starts a foreground service whose
+// MediaPlayer plays the whole adhan.mp3 on the ALARM stream. The
+// notification channel below is only the FALLBACK, used when the
+// exact-alarm permission is not granted: on Android 8+ a
+// notification's sound lives on its channel, so the channel is
+// created (once — Android keeps the first creation) with the bundled
+// adhan.mp3 (android/app/src/main/res/raw/adhan.mp3, 75s) before
+// scheduling.
 export const ADHAN_CHANNEL_ID = "prayer-adhan";
 
 // The pre-alert (5 minutes before) and the iqama use a second channel
@@ -514,6 +527,49 @@ function allNotificationIds(): Array<{ id: number }> {
   return ids;
 }
 
+// ---- Native adhan alarms (the full adhan) ----
+
+// The adhan itself is NOT a notification sound any more: a
+// notification's sound stops when it is dismissed, is silenced in
+// silent / DND mode, and — without the exact-alarm permission — is
+// scheduled with an inexact alarm that Doze can delay or skip. The
+// native alarm plays the whole adhan on the ALARM stream instead.
+// Returns true when the native path is in use (exact-alarm permission
+// granted); false means the app falls back to the sounding
+// notification channel (the old behaviour).
+async function scheduleNativeAlarmsForCoords(lat: number, lng: number): Promise<boolean> {
+  if (!(await canScheduleExactAdhanAlarms())) return false;
+  const alarms: AdhanAlarmItem[] = [];
+  const now = new Date();
+  for (let d = 0; d < NOTIF_DAYS; d++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + d);
+    const times = getPrayerTimesForCoords(date, lat, lng);
+    for (let i = 0; i < PRAYER_ORDER.length; i++) {
+      const key = PRAYER_ORDER[i];
+      const at = times[key];
+      if (at.getTime() > now.getTime()) {
+        alarms.push({
+          id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i,
+          at: at.getTime(),
+          title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
+        });
+      }
+    }
+  }
+  return scheduleNativeAdhanAlarms(alarms);
+}
+
+// For the prayer page: is the full-adhan native path active right now?
+export async function isExactAlarmGranted(): Promise<boolean> {
+  return canScheduleExactAdhanAlarms();
+}
+
+// For the prayer page: open the system "Alarms & reminders" settings.
+export async function openExactAlarmSettingsPage(): Promise<void> {
+  await openExactAlarmSettings();
+}
+
 // Schedule the next 7 days of prayer notifications (5 per day) for the
 // given coordinates: the adhan at prayer time (ids 100-134), a short
 // alert 5 minutes before each prayer (ids 200-234, when enabled), and
@@ -533,6 +589,10 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     const preAlert = isPreAlertEnabled();
     const iqamaOn = isIqamaEnabled();
     const delays = getIqamaDelays();
+    // The adhan itself: native exact alarms when the exact-alarm
+    // permission is granted (full adhan, on time, even in silent
+    // mode); otherwise the sounding notification channel below.
+    const nativeAdhan = await scheduleNativeAlarmsForCoords(lat, lng);
     const notifications = [];
     const now = new Date();
     for (let d = 0; d < NOTIF_DAYS; d++) {
@@ -542,7 +602,11 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       for (let i = 0; i < PRAYER_ORDER.length; i++) {
         const key = PRAYER_ORDER[i];
         const at = times[key];
-        if (at.getTime() > now.getTime()) {
+        // Only as a fallback: when the native alarms are in use, the
+        // foreground service already plays the adhan AND shows its
+        // own notification — posting this one too would play the
+        // adhan twice at once.
+        if (!nativeAdhan && at.getTime() > now.getTime()) {
           notifications.push({
             id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i,
             title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
@@ -586,7 +650,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     } catch {
       // storage unavailable
     }
-    const parts = ["أذان عند وقت كل صلاة"];
+    const parts = [nativeAdhan ? "أذان كامل عند وقت كل صلاة" : "أذان عند وقت كل صلاة"];
     if (preAlert) parts.push("تنبيه قبلها بـ 5 دقائق");
     if (iqamaOn) parts.push("تنبيه الإقامة");
     return "التذكير مفعّل — " + parts.join("، ");
@@ -595,15 +659,22 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
   }
 }
 
-// Fire a real prayer notification in 5 seconds, so the user can hear
-// the adhan and see the notification without waiting for a prayer time.
-// Returns a status message, or null on the web.
+// Fire a real adhan in 5 seconds, so the user can hear the FULL
+// adhan without waiting for a prayer time. Prefers the native player
+// (the whole 75s file); falls back to the notification sound when the
+// exact-alarm permission is not granted. Returns a status message,
+// or null on the web.
 export async function scheduleTestAdhanNotification(): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   try {
     const perm = await LocalNotifications.requestPermissions();
     if (perm.display !== "granted") {
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
+    }
+    if (await canScheduleExactAdhanAlarms()) {
+      if (await testNativeAdhan()) {
+        return "سيُسمَع الأذان كاملًا خلال ٥ ثوانٍ — أوقفْه من زر «إيقاف الأذان» في الإشعار";
+      }
     }
     await createPrayerChannel();
     const at = new Date(Date.now() + 5000);
@@ -645,6 +716,7 @@ export async function schedulePrayerReminders(cityId: string): Promise<string | 
 
 export async function cancelPrayerReminders(): Promise<void> {
   setPrayerReminderEnabled(false);
+  await cancelNativeAdhanAlarms();
   if (!Capacitor.isNativePlatform()) return;
   try {
     await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
@@ -656,15 +728,18 @@ export async function cancelPrayerReminders(): Promise<void> {
 // Keep the 7-day window fresh: re-schedule once a day when the app opens
 // (only if the reminder is enabled). Uses the active location — the
 // stored GPS coordinates in auto mode, the selected city otherwise.
-// Cheap and idempotent.
+// The native adhan alarms are re-registered on EVERY app open (cheap
+// and idempotent): a force-stop cancels all alarms, and this heals
+// them as soon as the app opens again instead of waiting for tomorrow.
 export async function ensurePrayerRemindersScheduled(): Promise<void> {
   if (!isPrayerReminderEnabled()) return;
+  const loc = getActiveLocation();
+  await scheduleNativeAlarmsForCoords(loc.lat, loc.lng).catch(() => {});
   try {
     const last = localStorage.getItem(REMINDER_SCHEDULED_KEY);
     if (last === new Date().toDateString()) return;
   } catch {
     // storage unavailable
   }
-  const loc = getActiveLocation();
   await schedulePrayerRemindersForCoords(loc.lat, loc.lng);
 }
