@@ -131,7 +131,7 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
               style={{ transform: `rotate(${qibla.bearing}deg)` }}
             >
               <div
-                className="absolute -translate-x-1/2 -translate-y-[8.5rem] text-3xl"
+                className="absolute text-3xl"
                 style={{
                   transform: `translate(-50%, -8.5rem) rotate(${-(qibla.bearing - (heading ?? 0))}deg)`,
                 }}
