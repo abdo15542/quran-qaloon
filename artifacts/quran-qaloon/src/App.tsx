@@ -16,6 +16,8 @@ import MushafPage from "@/pages/MushafPage";
 import WirdPage from "@/pages/WirdPage";
 import PrayerTimesPage from "@/pages/PrayerTimesPage";
 import StatsPage from "@/pages/StatsPage";
+import QiblaPage from "@/pages/QiblaPage";
+import AsmaAlHusnaPage from "@/pages/AsmaAlHusnaPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 
@@ -66,6 +68,8 @@ function AppRoutes() {
           <Route path="/wird" component={() => <WirdPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/prayer-times" component={() => <PrayerTimesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/stats" component={() => <StatsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/qibla" component={() => <QiblaPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/asma" component={() => <AsmaAlHusnaPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>

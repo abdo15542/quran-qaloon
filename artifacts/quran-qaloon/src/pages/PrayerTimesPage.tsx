@@ -41,6 +41,7 @@ import {
   type PrayerLocationMode,
   type StoredCoords,
 } from "@/data/prayer-times";
+import { formatHijriDate } from "@/data/hijri";
 
 interface PrayerTimesPageProps {
   darkMode: boolean;
@@ -301,7 +302,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </button>
                 </div>
               )}
-              <div className="text-xs text-muted-foreground mt-2">{todayLabel}</div>
+              <div className="text-xs text-muted-foreground mt-2">{todayLabel} • {formatHijriDate(now)}</div>
             </div>
           ) : (
             <div>
@@ -317,7 +318,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </option>
                 ))}
               </select>
-              <div className="text-xs text-muted-foreground mt-2">{todayLabel}</div>
+              <div className="text-xs text-muted-foreground mt-2">{todayLabel} • {formatHijriDate(now)}</div>
             </div>
           )}
         </div>

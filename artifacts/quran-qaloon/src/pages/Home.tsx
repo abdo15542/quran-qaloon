@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3 } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3, Compass, Sparkles } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
+import { formatHijriDate } from "@/data/hijri";
+import { getQibla } from "@/data/qibla";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
@@ -156,6 +158,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           <p className="text-muted-foreground text-sm">
             اختر سورة للاستماع إليها بصوت قالون عن نافع
           </p>
+          <p className="text-muted-foreground text-sm mt-1">
+            {formatHijriDate(now)} — التاريخ الهجري اليوم
+          </p>
         </div>
 
         {/* Khatma Progress Card */}
@@ -276,6 +281,26 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               <div className="text-xs text-muted-foreground">
                 {totalCompleted}/١١٤ سورة مكتملة — وسلسلة الورد {streak} {streak === 1 ? "يوم" : streak === 2 ? "يومين" : "أيام"}
               </div>
+            </div>
+          </Link>
+          <Link href="/qibla">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Compass className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">اتجاه القبلة</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                القبلة {getQibla(activeLoc.lat, activeLoc.lng).bearing.toFixed(1)}° من الشمال — {getQibla(activeLoc.lat, activeLoc.lng).distanceKm.toLocaleString("ar-EG")} كم من مكة
+              </div>
+            </div>
+          </Link>
+          <Link href="/asma">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">أسماء الله الحسنى</span>
+              </div>
+              <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
             </div>
           </Link>
         </div>
