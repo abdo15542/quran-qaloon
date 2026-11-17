@@ -15,7 +15,7 @@ function toArabicNum(n: number): string {
 
 // النص المضمّن يسبق البسملةَ بنص الآية الأولى من كل سورة (ما عدا التوبة)؛
 // نخفيها في المعاينة حتى تظهر بداية الآية الحقيقية.
-const BASMALA_PREFIX = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+const BASMALA_PREFIX = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
 function previewText(text: string): string {
   const t = text.startsWith(BASMALA_PREFIX) ? text.slice(BASMALA_PREFIX.length).trim() : text;
   return t.length > 70 ? t.slice(0, 70) + "…" : t;

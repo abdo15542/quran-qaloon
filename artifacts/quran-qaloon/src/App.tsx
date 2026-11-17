@@ -12,6 +12,7 @@ import TasbeehPage from "@/pages/TasbeehPage";
 import RecitersList from "@/pages/RecitersList";
 import FavouritesPage from "@/pages/FavouritesPage";
 import JuzPage from "@/pages/JuzPage";
+import MushafPage from "@/pages/MushafPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 
@@ -57,6 +58,8 @@ function AppRoutes() {
           <Route path="/reciters" component={() => <RecitersList darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/favourites" component={() => <FavouritesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/juz" component={() => <JuzPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/mushaf" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/mushaf/:page" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>

@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart, Share2 } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { getAyah } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
+import { getTranslation, TRANSLATION_EDITION_NAME } from "@/data/translation-en";
+import { shareAyahImage } from "@/lib/shareAyah";
 import { useFavourites } from "@/hooks/useFavourites";
 
 function toArabicNum(n: number): string {
@@ -31,7 +33,27 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
   const surah = SURAHS.find((s) => s.number === surahNumber);
   const ayah = getAyah(surahNumber, currentAyah);
   const tafsir = getTafsir(surahNumber, currentAyah);
+  const translation = getTranslation(surahNumber, currentAyah);
   const totalAyahs = surah?.numberOfAyahs ?? 0;
+
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+
+  const handleShare = async () => {
+    if (!ayah || !surah) return;
+    try {
+      const result = await shareAyahImage({
+        ayahText: ayah.text,
+        surahName: surah.name,
+        surahNumber,
+        ayahNumber: currentAyah,
+        translation,
+      });
+      setShareStatus(result === "shared" ? "تمت المشاركة ✓" : result === "downloaded" ? "تم تنزيل الصورة ✓" : null);
+    } catch {
+      setShareStatus("تعذّرت المشاركة");
+    }
+    setTimeout(() => setShareStatus(null), 3000);
+  };
 
   const goPrev = () => {
     if (currentAyah > 1) setCurrentAyah(currentAyah - 1);
@@ -82,6 +104,14 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
                 {ayah.text}{" "}
                 <span className="text-primary text-lg">﴿{toArabicNum(ayah.numberInSurah)}﴾</span>
               </div>
+              {translation && (
+                <div className="mt-3 pt-3 border-t border-primary/10">
+                  <div className="text-xs text-muted-foreground mb-1">{TRANSLATION_EDITION_NAME}</div>
+                  <p className="text-sm text-muted-foreground leading-relaxed" dir="ltr">
+                    {translation}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -132,6 +162,16 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
               }`}
             />
           </button>
+          <button
+            onClick={handleShare}
+            className="p-2.5 rounded-xl bg-card border border-border text-muted-foreground hover:text-primary transition-colors"
+            aria-label="مشاركة الآية كصورة"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+          {shareStatus && (
+            <span className="text-xs text-emerald-600 whitespace-nowrap">{shareStatus}</span>
+          )}
           <button
             onClick={goNext}
             disabled={currentAyah >= totalAyahs}

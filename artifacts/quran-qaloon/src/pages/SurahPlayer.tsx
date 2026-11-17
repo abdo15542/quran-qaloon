@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2 } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
+import { getTranslation } from "@/data/translation-en";
+import { getPageOfAyah } from "@/data/mushaf-pages";
+import { shareAyahImage } from "@/lib/shareAyah";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
 import TafsirSheet from "@/components/TafsirSheet";
@@ -27,6 +30,67 @@ interface SurahPlayerProps {
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
+}
+
+// Action buttons shown above a tapped ayah: التفسير / حفظ في المفضلة / مشاركة
+// كصورة. Shared by the continuous-text layout and the translation layout.
+function AyahActions({
+  surahNumber,
+  ayahNumber,
+  isFav,
+  onToggleFavourite,
+  onTafsir,
+  onShare,
+}: {
+  surahNumber: number;
+  ayahNumber: number;
+  isFav: boolean;
+  onToggleFavourite: () => void;
+  onTafsir: () => void;
+  onShare: () => void;
+}) {
+  // In the translation layout the buttons sit inside the clickable ayah
+  // block, so stop the click from bubbling up and re-triggering playback.
+  return (
+    <span className="flex items-center justify-center gap-2 my-2">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onTafsir();
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+      >
+        <BookOpen className="w-3.5 h-3.5" />
+        التفسير
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleFavourite();
+        }}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors ${
+          isFav
+            ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
+            : "bg-background border-border text-muted-foreground hover:text-rose-600"
+        }`}
+        aria-label="حفظ في المفضلة"
+      >
+        <Heart className={`w-3.5 h-3.5 ${isFav ? "fill-rose-500 text-rose-500" : ""}`} />
+        {isFav ? "محفوظة" : "حفظ"}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onShare();
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors"
+        aria-label="مشاركة الآية كصورة"
+      >
+        <Share2 className="w-3.5 h-3.5" />
+        مشاركة
+      </button>
+    </span>
+  );
 }
 
 function getStoredQirahId(): string {
@@ -131,6 +195,47 @@ export default function SurahPlayer({
   const [ayahContinuous, setAyahContinuous] = useState(false);
   const [ayahError, setAyahError] = useState<string | null>(null);
   const [pauseSignal, setPauseSignal] = useState(0);
+  // English translation (Sahih International) under each ayah — persisted.
+  const [showTranslation, setShowTranslation] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("quran_show_translation") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+
+  const toggleTranslation = () => {
+    setShowTranslation((v) => {
+      try {
+        localStorage.setItem("quran_show_translation", v ? "0" : "1");
+      } catch {
+        // storage unavailable
+      }
+      return !v;
+    });
+  };
+
+  // Share the tapped ayah as a PNG image (Web Share sheet, or a download).
+  const handleShareAyah = async (ayahNumberInSurah: number) => {
+    const ayah = ayahs.find((a) => a.numberInSurah === ayahNumberInSurah);
+    if (!ayah || !surah) return;
+    try {
+      const result = await shareAyahImage({
+        ayahText: ayah.text,
+        surahName: surah.name,
+        surahNumber,
+        ayahNumber: ayahNumberInSurah,
+        translation: getTranslation(surahNumber, ayahNumberInSurah),
+      });
+      if (result === "shared") setShareStatus("تمت المشاركة ✓");
+      else if (result === "downloaded") setShareStatus("تم تنزيل الصورة ✓");
+      else setShareStatus(null);
+    } catch {
+      setShareStatus("تعذّرت المشاركة");
+    }
+    setTimeout(() => setShareStatus(null), 3000);
+  };
   const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
   const [ayahBuffering, setAyahBuffering] = useState(false);
   // هل بدأ صوت الآية يتحرك فعلًا (وليس مجرد ضغطة بانتظار البيانات).
@@ -692,8 +797,16 @@ export default function SurahPlayer({
             >
               <Mic className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1" title="حجم الخط">
-              <button
+            <button
+              onClick={toggleTranslation}
+              className={`p-2 rounded-full transition-colors ${
+                showTranslation ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
+              }`}
+              title="الترجمة الإنجليزية"
+            >
+              <Languages className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1" title="حجم الخط">              <button
                 onClick={decreaseFontSize}
                 disabled={fontSize <= 14}
                 className="p-1 rounded hover:bg-background transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30"
@@ -935,6 +1048,19 @@ export default function SurahPlayer({
                     <div className="p-6">
                       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-muted-foreground">اضغط على أي آية لسماعها</span>
+                        <button
+                          onClick={() => navigate(`/mushaf/${getPageOfAyah(surahNumber, selectedAyah ?? 1)}`)}
+                          className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full hover:bg-primary/20 transition-colors"
+                          title="افتح هذه الآية في المصحف"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          المصحف
+                        </button>
+                        {shareStatus && (
+                          <span className="flex items-center gap-1 bg-emerald-500/10 text-emerald-600 px-2 py-1 rounded-full">
+                            {shareStatus}
+                          </span>
+                        )}
                         {/* شارة الآية تظهر فقط عندما يتحرك الصوت فعلًا،
                             لا من لحظة الضغط — حتى لا يُحسب زمن انتظار
                             الشبكة ضمن مدة الآية. */}
@@ -1009,58 +1135,83 @@ export default function SurahPlayer({
                           {ayahError}
                         </div>
                       )}
-                      <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
-                        {ayahs.map((ayah) => (
-                          <Fragment key={ayah.number}>
-                            {/* زر التفسير فوق الآية المضغوطة مباشرة — لا حاجة
-                                للرجوع إلى أول السورة للوصول إليه. بجانبه زر
-                                القلب لحفظ الآية في المفضلة. */}
-                            {selectedAyah === ayah.numberInSurah && (
-                              <span className="flex items-center justify-center gap-2 my-2">
-                                <button
-                                  onClick={() => setTafsirAyah(ayah.numberInSurah)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
-                                >
-                                  <BookOpen className="w-3.5 h-3.5" />
-                                  التفسير
-                                </button>
-                                <button
-                                  onClick={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
-                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors ${
-                                    isFavourite(surahNumber, ayah.numberInSurah)
-                                      ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
-                                      : "bg-background border-border text-muted-foreground hover:text-rose-600"
-                                  }`}
-                                  aria-label="حفظ في المفضلة"
-                                >
-                                  <Heart
-                                    className={`w-3.5 h-3.5 ${
-                                      isFavourite(surahNumber, ayah.numberInSurah) ? "fill-rose-500 text-rose-500" : ""
-                                    }`}
-                                  />
-                                  {isFavourite(surahNumber, ayah.numberInSurah) ? "محفوظة" : "حفظ"}
-                                </button>
-                              </span>
-                            )}
-                            <span
+                      {/* عند تشغيل الترجمة: آية آية، كل آية في بلوك مستقل
+                          وتحتها ترجمتها الإنجليزية. بدونها: النص المتصل
+                          المعتاد مثل المصحف. */}
+                      {showTranslation ? (
+                        <div className="space-y-5" dir="rtl">
+                          {ayahs.map((ayah) => (
+                            <div
+                              key={ayah.number}
                               data-ayah={ayah.numberInSurah}
                               onClick={() => playAyah(ayah.numberInSurah, true)}
-                              className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                                playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                              className={`cursor-pointer rounded-xl px-3 py-2 transition-colors hover:bg-primary/5 ${
+                                playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/10" : ""
                               } ${
                                 highlightedAyah === ayah.numberInSurah
                                   ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
                                   : ""
                               }`}
                             >
-                              {ayah.text}{" "}
-                              <span className="text-primary inline-block mx-1 text-base">
-                                ﴿{toArabicNum(ayah.numberInSurah)}﴾
-                              </span>{" "}
-                            </span>
-                          </Fragment>
-                        ))}
-                      </div>
+                              <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
+                                {ayah.text}{" "}
+                                <span className="text-primary inline-block mx-1 text-base">
+                                  ﴿{toArabicNum(ayah.numberInSurah)}﴾
+                                </span>
+                              </div>
+                              <p className="text-sm text-muted-foreground leading-relaxed mt-1.5" dir="ltr">
+                                {getTranslation(surahNumber, ayah.numberInSurah)}
+                              </p>
+                              {selectedAyah === ayah.numberInSurah && (
+                                <AyahActions
+                                  surahNumber={surahNumber}
+                                  ayahNumber={ayah.numberInSurah}
+                                  isFav={isFavourite(surahNumber, ayah.numberInSurah)}
+                                  onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
+                                  onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
+                                  onShare={() => handleShareAyah(ayah.numberInSurah)}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
+                          {ayahs.map((ayah) => (
+                            <Fragment key={ayah.number}>
+                              {/* أزرار الآية المضغوطة مباشرة فوقها — التفسير /
+                                  حفظ في المفضلة / مشاركة كصورة — حتى لا يضطر
+                                  المستخدم للرجوع إلى أول السورة ليجدها. */}
+                              {selectedAyah === ayah.numberInSurah && (
+                                <AyahActions
+                                  surahNumber={surahNumber}
+                                  ayahNumber={ayah.numberInSurah}
+                                  isFav={isFavourite(surahNumber, ayah.numberInSurah)}
+                                  onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
+                                  onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
+                                  onShare={() => handleShareAyah(ayah.numberInSurah)}
+                                />
+                              )}
+                              <span
+                                data-ayah={ayah.numberInSurah}
+                                onClick={() => playAyah(ayah.numberInSurah, true)}
+                                className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
+                                  playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                                } ${
+                                  highlightedAyah === ayah.numberInSurah
+                                    ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
+                                    : ""
+                                }`}
+                              >
+                                {ayah.text}{" "}
+                                <span className="text-primary inline-block mx-1 text-base">
+                                  ﴿{toArabicNum(ayah.numberInSurah)}﴾
+                                </span>{" "}
+                              </span>
+                            </Fragment>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

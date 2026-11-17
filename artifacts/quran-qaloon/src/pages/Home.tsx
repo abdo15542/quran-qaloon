@@ -4,6 +4,7 @@ import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
+import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
 import { Link } from "wouter";
@@ -58,6 +59,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   } = useKhatma();
 
   const { count: favouritesCount } = useFavourites();
+
+  const lastMushafPage = getLastMushafPage();
 
   const reciter = getSelectedReciter();
 
@@ -233,6 +236,22 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
         </div>
+
+        {/* المصحف — قراءة صفحة صفحة مثل المصحف الورقي */}
+        <Link href={`/mushaf/${lastMushafPage}`}>
+          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-2xl p-4 mb-6 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="flex items-center gap-2 mb-1.5">
+              <BookOpen className="w-5 h-5 text-primary" />
+              <span className="font-arabic text-base text-foreground">المصحف</span>
+              <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">٦٠٤ صفحات</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {lastMushafPage > 1
+                ? `متابعة القراءة — صفحة ${lastMushafPage}`
+                : "اقرأ صفحة صفحة مثل المصحف الورقي"}
+            </div>
+          </div>
+        </Link>
 
         {/* Resume Listening */}
         {inProgressSurahs.length > 0 && (
