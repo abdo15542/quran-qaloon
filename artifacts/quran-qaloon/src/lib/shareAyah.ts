@@ -3,13 +3,18 @@
 // are all bundled in the app — no internet is needed to draw the image.
 // Save: on the real app the image is written straight to the phone's photo
 // gallery with the Media plugin (no share sheet, no internet); in a browser
-// it downloads the PNG. Share: the Web Share API, with the same download
-// fallback when file sharing is unavailable (desktop browser / headless).
+// it downloads the PNG. Share: on the real app the NATIVE Android share
+// sheet opens (Capacitor Share plugin, file attached) — it lists WhatsApp,
+// Facebook, Telegram, Messenger and every other app that takes an image;
+// in a browser it is the Web Share API, with the same download fallback
+// when file sharing is unavailable (desktop browser / headless).
 
 import { Capacitor } from "@capacitor/core";
 import { Media } from "@capacitor-community/media";
+import { Share } from "@capacitor/share";
+import { Filesystem, Directory } from "@capacitor/filesystem";
 
-export type ShareAyahResult = "shared" | "downloaded" | "cancelled";
+export type ShareAyahResult = "shared" | "downloaded" | "cancelled" | "failed";
 export type SaveAyahResult = "saved_gallery" | "downloaded" | "failed";
 
 export interface ShareAyahOptions {
@@ -213,9 +218,52 @@ export async function saveAyahImage(opts: ShareAyahOptions): Promise<SaveAyahRes
   }
 }
 
+// Native share (real app): write the PNG to the cache dir, then open the
+// NATIVE Android share sheet with the file attached — the sheet lists every
+// app that can take an image (WhatsApp, Facebook, Telegram, Messenger...).
+// This is the reliable path: the Web Share API is unreliable inside the
+// Capacitor WebView, and a plain download is ignored there. The Share
+// plugin resolves when the user picks an app, and rejects with
+// "Share canceled" when the sheet is dismissed without choosing.
+async function shareNative(opts: ShareAyahOptions, dataUrl: string, fileName: string): Promise<ShareAyahResult> {
+  try {
+    const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+    await Filesystem.writeFile({
+      path: fileName,
+      data: base64,
+      directory: Directory.Cache,
+    });
+    const { uri } = await Filesystem.getUri({
+      path: fileName,
+      directory: Directory.Cache,
+    });
+    await Share.share({
+      title: `سورة ${opts.surahName} — الآية ${opts.ayahNumber}`,
+      text: `سورة ${opts.surahName} — الآية ${opts.ayahNumber}`,
+      files: [uri],
+      dialogTitle: "مشاركة الآية كصورة",
+    });
+    return "shared";
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e).toLowerCase();
+    if (msg.includes("cancel")) return "cancelled";
+    return "failed";
+  }
+}
+
 export async function shareAyahImage(opts: ShareAyahOptions): Promise<ShareAyahResult> {
-  const blob = await renderAyahImage(opts);
   const fileName = `ayah-${opts.surahNumber}-${opts.ayahNumber}.png`;
+
+  if (Capacitor.isNativePlatform()) {
+    // On the phone the native sheet is the only working path — a download
+    // fallback would silently do nothing in the WebView, so a failure is
+    // reported as "failed" instead of a false "downloaded".
+    const dataUrl = await renderAyahImageDataUrl(opts);
+    return await shareNative(opts, dataUrl, fileName);
+  }
+
+  // Web path: Web Share API, then download fallback.
+  const blob = await renderAyahImage(opts);
   const file = new File([blob], fileName, { type: "image/png" });
 
   const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void>; canShare?: (data: ShareData) => boolean };
@@ -233,8 +281,6 @@ export async function shareAyahImage(opts: ShareAyahOptions): Promise<ShareAyahR
   }
 
   // Download fallback (desktop browser, headless, or share unavailable).
-  // Note: in the Android WebView a plain download may be ignored, which is
-  // why the preview sheet's Save button (gallery save) is the reliable path.
   downloadBlob(blob, fileName);
   return "downloaded";
 }

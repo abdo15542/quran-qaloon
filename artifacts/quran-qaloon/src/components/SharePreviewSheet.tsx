@@ -84,6 +84,8 @@ export default function SharePreviewSheet({
       const result = await shareAyahImage(ayah);
       if (result === "shared") flash("تمت المشاركة ✓");
       else if (result === "downloaded") flash("تم تنزيل الصورة ✓");
+      else if (result === "failed") flash("تعذّرت المشاركة — حاول مجددًا");
+      // "cancelled": the user dismissed the share sheet — no message needed.
     } catch {
       flash("تعذّرت المشاركة");
     } finally {
