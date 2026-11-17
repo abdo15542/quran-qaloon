@@ -4,11 +4,30 @@
 // fully offline. The compass comes from the device orientation
 // sensor; when it is unavailable the page still shows the bearing
 // and distance, so it is never empty.
+//
+// Heading sources, in priority order (this is what makes the dial
+// consistent across phones — they do NOT all report the same north):
+//   1. deviceorientationabsolute alpha — TRUE north (Android Chrome).
+//   2. webkitCompassHeading — TRUE north (iOS Safari; needs a
+//      one-time permission tap on iOS 13+).
+//   3. plain deviceorientation alpha — MAGNETIC north, used only when
+//      neither of the above ever fires, and corrected by the local
+//      magnetic declination (getMagneticDeclination).
+// Chrome fires BOTH absolute and plain orientation events; the plain
+// one is ignored once absolute has been seen, otherwise the heading
+// would flicker between true and magnetic north (they differ by the
+// ~3.5 deg declination in Libya). The displayed heading is also
+// smoothed (angle-aware exponential moving average) so the dial and
+// the turn hint do not jitter degree by degree.
+// The dial size is min(74vw, 18rem) on every screen and the Kaaba
+// marker offset is derived from that same size, so the marker sits
+// on the rim on any phone.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Compass, MapPin, RefreshCw } from "lucide-react";
-import { getQibla } from "@/data/qibla";
+import { getQibla, getMagneticDeclination } from "@/data/qibla";
 import {
   getActiveLocation,
   setStoredCoords,
@@ -20,31 +39,98 @@ interface QiblaPageProps {
   toggleDarkMode: () => void;
 }
 
+type HeadingSource = "true" | "magnetic";
+type CompassPermission = "na" | "needed" | "granted" | "denied";
+
+const norm360 = (d: number) => ((d % 360) + 360) % 360;
+// Shortest signed delta from `from` to `to`, in (-180, 180].
+const angleDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180;
+
 export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) {
   const [loc, setLoc] = useState(() => getActiveLocation());
   const [heading, setHeading] = useState<number | null>(null);
+  const [headingSource, setHeadingSource] = useState<HeadingSource | null>(null);
+  const [compassAccuracy, setCompassAccuracy] = useState<number | null>(null);
+  const [permission, setPermission] = useState<CompassPermission>(() =>
+    typeof (DeviceOrientationEvent as unknown as { requestPermission?: unknown })
+      .requestPermission === "function"
+      ? "needed"
+      : "na",
+  );
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
+  const smoothedRef = useRef<number | null>(null);
+  const absoluteSeenRef = useRef(false);
+  const magneticAllowedRef = useRef(false);
+
   const qibla = useMemo(() => getQibla(loc.lat, loc.lng), [loc.lat, loc.lng]);
+  const declination = useMemo(
+    () => getMagneticDeclination(loc.lat, loc.lng),
+    [loc.lat, loc.lng],
+  );
+
+  // Feed one raw heading (true-north referenced) into the smoother.
+  const feedHeading = (raw: number, source: HeadingSource) => {
+    const prev = smoothedRef.current;
+    const next =
+      prev == null ? norm360(raw) : norm360(prev + 0.25 * angleDelta(prev, raw));
+    smoothedRef.current = next;
+    setHeading(next);
+    setHeadingSource(source);
+  };
 
   useEffect(() => {
-    const onOri = (e: DeviceOrientationEvent) => {
+    if (permission === "needed" || permission === "denied") return;
+    // Give the absolute event a second to appear before trusting the
+    // plain (magnetic) orientation event.
+    const timer = window.setTimeout(() => {
+      magneticAllowedRef.current = true;
+    }, 1000);
+
+    const onAbsolute = (e: DeviceOrientationEvent) => {
+      if (e.alpha == null) return;
+      absoluteSeenRef.current = true;
+      feedHeading(e.alpha, "true");
+    };
+    const onOrientation = (e: DeviceOrientationEvent) => {
       const h = (e as DeviceOrientationEvent & { webkitCompassHeading?: number })
         .webkitCompassHeading;
+      const acc = (e as DeviceOrientationEvent & { webkitCompassAccuracy?: number })
+        .webkitCompassAccuracy;
+      if (acc != null) setCompassAccuracy(acc);
       if (h != null) {
-        setHeading(h);
-      } else if (e.alpha != null) {
-        setHeading(e.alpha);
+        // iOS Safari: true-north heading.
+        feedHeading(h, "true");
+        return;
       }
+      // Magnetic north: only once absolute has had its chance, and
+      // only while absolute has never fired.
+      if (e.alpha == null || absoluteSeenRef.current || !magneticAllowedRef.current)
+        return;
+      feedHeading(norm360(e.alpha + declination), "magnetic");
     };
-    window.addEventListener("deviceorientationabsolute", onOri);
-    window.addEventListener("deviceorientation", onOri);
+    window.addEventListener("deviceorientationabsolute", onAbsolute);
+    window.addEventListener("deviceorientation", onOrientation);
     return () => {
-      window.removeEventListener("deviceorientationabsolute", onOri);
-      window.removeEventListener("deviceorientation", onOri);
+      window.clearTimeout(timer);
+      window.removeEventListener("deviceorientationabsolute", onAbsolute);
+      window.removeEventListener("deviceorientation", onOrientation);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permission, declination]);
+
+  const enableCompass = async () => {
+    const doe = DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<string>;
+    };
+    try {
+      const res = await doe.requestPermission?.();
+      setPermission(res === "granted" ? "granted" : "denied");
+    } catch {
+      setPermission("denied");
+    }
+  };
 
   const refreshLocation = async () => {
     setLocating(true);
@@ -116,8 +202,13 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
 
         {/* Compass dial: north-up (rotates with the heading), the Kaaba
             marker sits at the bearing on the rim, and the fixed arrow
-            at the top is the direction the phone faces. */}
-        <div className="relative mx-auto w-72 h-72 rounded-full border-2 border-primary/30 bg-card shadow-sm mb-6">
+            at the top is the direction the phone faces. The dial size
+            is --dial on every screen; the marker offset is derived
+            from the same variable, so it stays on the rim anywhere. */}
+        <div
+          className="relative mx-auto w-[var(--dial)] h-[var(--dial)] rounded-full border-2 border-primary/30 bg-card shadow-sm mb-6"
+          style={{ "--dial": "min(74vw, 18rem)" } as CSSProperties}
+        >
           <div
             className="absolute inset-0 transition-transform duration-200 ease-linear"
             style={{ transform: `rotate(${heading == null ? 0 : -heading}deg)` }}
@@ -133,7 +224,7 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
               <div
                 className="absolute text-3xl"
                 style={{
-                  transform: `translate(-50%, -8.5rem) rotate(${-(qibla.bearing - (heading ?? 0))}deg)`,
+                  transform: `translate(-50%, calc(-1 * var(--dial) / 2 + 8px)) rotate(${-(qibla.bearing - (heading ?? 0))}deg)`,
                 }}
               >
                 🕋
@@ -149,7 +240,27 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
         </div>
 
         <div className="text-center">
-          {heading == null ? (
+          {permission === "needed" ? (
+            <div>
+              <button
+                onClick={enableCompass}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-arabic hover:opacity-90 transition-opacity"
+              >
+                <Compass className="w-4 h-4" />
+                تفعيل البوصلة
+              </button>
+              <div className="text-xs text-muted-foreground mt-2">
+                جهازك يطلب إذن البوصلة مرة واحدة — اضغط الزر ثم اسمح
+              </div>
+            </div>
+          ) : permission === "denied" ? (
+            <div>
+              <div className="font-arabic text-base text-foreground">البوصلة غير مفعّلة</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                فعّل إذن البوصلة من إعدادات المتصفح — والقبلة من موقعك {qibla.bearing.toFixed(1)}° من الشمال
+              </div>
+            </div>
+          ) : heading == null ? (
             <div>
               <div className="font-arabic text-base text-foreground">بانتظار البوصلة…</div>
               <div className="text-xs text-muted-foreground mt-1">
@@ -157,10 +268,22 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
               </div>
             </div>
           ) : (
-            <div
-              className={`font-arabic text-lg ${facingQibla ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}
-            >
-              {turnText}
+            <div>
+              <div
+                className={`font-arabic text-lg ${facingQibla ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}
+              >
+                {turnText}
+              </div>
+              {headingSource === "magnetic" && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  البوصلة مغناطيسية — تم تصحيح الانحراف المغناطيسي ({declination.toFixed(1)}°)
+                </div>
+              )}
+              {compassAccuracy != null && compassAccuracy > 25 && (
+                <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  دقة البوصلة منخفضة — حرّك هاتفك في شكل 8 لمعايرتها
+                </div>
+              )}
             </div>
           )}
           <div className="text-xs text-muted-foreground mt-3">

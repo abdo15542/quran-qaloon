@@ -29,3 +29,19 @@ export function getQibla(lat: number, lng: number): QiblaInfo {
   const distanceKm = 2 * 6371 * Math.asin(Math.sqrt(a));
   return { bearing: Math.round(bearing * 10) / 10, distanceKm: Math.round(distanceKm) };
 }
+
+// Magnetic declination (east positive, degrees) for a point in Libya.
+//
+// The compass sensor on most phones reports the heading relative to
+// MAGNETIC north, while the qibla bearing is measured from TRUE
+// north — so a magnetic heading must be corrected by +declination.
+// This linear model was fitted (least squares) to 8 WMM2020 values
+// computed for 2026-11-17 (Ghadames 2.66, Ghat 2.34, Tripoli 3.44,
+// Sabha 3.16, Zliten 3.61, Benghazi 4.34, Kufra 4.16, Tobruk 4.80):
+// max residual 0.06 deg over Libya. It drifts slowly (~0.1 deg/year),
+// so it stays good for years. Only used for the magnetic fallback;
+// deviceorientationabsolute and webkitCompassHeading already report
+// true north and are used uncorrected.
+export function getMagneticDeclination(lat: number, lng: number): number {
+  return -1.023 + 0.1392 * lng + 0.0793 * lat;
+}
