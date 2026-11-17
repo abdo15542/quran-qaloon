@@ -40,8 +40,14 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-background" dir="rtl">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/95">
+      {/* Header — pushed down like the main player header: the sheet is
+          full-screen (fixed inset-0), so without top padding its bar
+          sits right under the phone's status bar / notch and is not
+          clearly visible. Same safe-area-aware value as header.sticky. */}
+      <div
+        className="flex items-center justify-between px-4 pb-3 border-b border-border bg-background/95"
+        style={{ paddingTop: "max(2.25rem, calc(env(safe-area-inset-top, 0px) + 1.25rem))" }}
+      >
         <div className="flex items-center gap-2">
           <BookOpen className="w-4 h-4 text-primary" />
           <span className="font-arabic text-lg text-primary">تفسير الآية</span>
