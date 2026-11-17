@@ -220,6 +220,15 @@ export function locationErrorMessage(reason: string): string {
   return "تعذّر تحديد موقعك — تأكد من تفعيل الموقع في الهاتف وحاول مجددًا، أو اختر مدينتك يدويًا";
 }
 
+// Open the Android system Location settings, so the user can switch
+// Location on with one tap when detection fails. Uses an intent:
+// URL, which the Capacitor WebView hands to the system; on web it
+// is a no-op (there are no system location settings to open).
+export function openLocationSettings(): void {
+  if (!Capacitor.isNativePlatform()) return;
+  window.location.href = "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end";
+}
+
 // The location the app should use right now: in auto mode the stored
 // GPS coordinates (or the manual city when nothing was detected yet),
 // in manual mode the selected city.

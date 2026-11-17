@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link } from "wouter";
-import { ArrowRight, Moon, Sun, Bell, BellOff, Clock, MapPin, RefreshCw } from "lucide-react";
+import { ArrowRight, Moon, Sun, Bell, BellOff, Clock, MapPin, RefreshCw, Settings } from "lucide-react";
 import {
   LIBYAN_CITIES,
   PRAYER_NAMES,
@@ -35,6 +35,7 @@ import {
   setStoredCoords,
   detectPrayerLocation,
   locationErrorMessage,
+  openLocationSettings,
   scheduleTestAdhanNotification,
   enableReminderIfFirstRun,
   type PrayerLocationMode,
@@ -289,7 +290,16 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                 </div>
               )}
               {locationError && (
-                <div className="text-xs text-amber-600 dark:text-amber-400 mt-3">{locationError}</div>
+                <div>
+                  <div className="text-xs text-amber-600 dark:text-amber-400 mt-3">{locationError}</div>
+                  <button
+                    onClick={openLocationSettings}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    فتح إعدادات الموقع
+                  </button>
+                </div>
               )}
               <div className="text-xs text-muted-foreground mt-2">{todayLabel}</div>
             </div>
