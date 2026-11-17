@@ -5,7 +5,7 @@ import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
-import { getNextPrayer, getStoredCityId, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
+import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
@@ -65,13 +65,18 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   const { startPage, endPage, streak, todayDone } = useWird();
 
   // Next prayer for the Home card (live countdown, 30s tick) + keep the
-  // prayer-reminder window fresh whenever the app opens.
+  // prayer-reminder window fresh whenever the app opens. The location is
+  // the active one: stored GPS coordinates in auto mode, the selected
+  // city otherwise (detected on the prayer page).
   const [now, setNow] = useState(() => new Date());
-  const cityId = getStoredCityId();
-  const nextPrayer = useMemo(() => getNextPrayer(now, cityId), [now, cityId]);
+  const activeLoc = getActiveLocation();
+  const nextPrayer = useMemo(
+    () => getNextPrayerForCoords(now, activeLoc.lat, activeLoc.lng),
+    [now, activeLoc.lat, activeLoc.lng]
+  );
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 30000);
-    ensurePrayerRemindersScheduled(cityId).catch(() => {});
+    ensurePrayerRemindersScheduled().catch(() => {});
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -258,7 +263,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-base text-foreground">أوقات الصلاة</span>
               </div>
               <div className="text-xs text-muted-foreground">
-                {PRAYER_NAMES[nextPrayer.key]} {formatPrayerTime(nextPrayer.time)} — متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())}
+                {PRAYER_NAMES[nextPrayer.key]} {formatPrayerTime(nextPrayer.time)} — متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())} · {activeLoc.label}
               </div>
             </div>
           </Link>

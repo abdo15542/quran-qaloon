@@ -419,6 +419,9 @@ importers:
       '@capacitor/filesystem':
         specifier: 7.1.9
         version: 7.1.9(@capacitor/core@7.6.10)
+      '@capacitor/geolocation':
+        specifier: 7.1.8
+        version: 7.1.8(@capacitor/core@7.6.10)
       '@capacitor/local-notifications':
         specifier: 7.0.7
         version: 7.0.7(@capacitor/core@7.6.10)
@@ -785,6 +788,11 @@ packages:
 
   '@capacitor/filesystem@7.1.9':
     resolution: {integrity: sha512-HBr3NwENo/Fm7Cmm6Cvps255OIdgQ2VXtSNZK+2Nkw0Y7EMid9y5AS9XfEzGmsC7MXbC6Hx2yXV/hvnuifsSXA==}
+    peerDependencies:
+      '@capacitor/core': '>=7.0.0'
+
+  '@capacitor/geolocation@7.1.8':
+    resolution: {integrity: sha512-x/rJieD2N2zlGvXFRD3ru4ArJWTwXAIYmyhfo5zg4F1DKGos7mCCOvIOSVMdfQmt14SCsmJeO9Qe8EtDGNGCrw==}
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
@@ -3667,6 +3675,11 @@ snapshots:
       tslib: 2.8.1
 
   '@capacitor/filesystem@7.1.9(@capacitor/core@7.6.10)':
+    dependencies:
+      '@capacitor/core': 7.6.10
+      '@capacitor/synapse': 1.0.4
+
+  '@capacitor/geolocation@7.1.8(@capacitor/core@7.6.10)':
     dependencies:
       '@capacitor/core': 7.6.10
       '@capacitor/synapse': 1.0.4

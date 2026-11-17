@@ -10,6 +10,7 @@
 import { Coordinates, CalculationMethod, PrayerTimes } from "adhan";
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { Geolocation } from "@capacitor/geolocation";
 
 export type PrayerKey = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
 
@@ -58,6 +59,110 @@ export const LIBYAN_CITIES: LibyanCity[] = [
 const CITY_KEY = "quran_prayer_city";
 const REMINDER_KEY = "quran_prayer_reminder";
 const REMINDER_SCHEDULED_KEY = "quran_prayer_reminder_scheduled";
+const MODE_KEY = "quran_prayer_mode";
+const COORDS_KEY = "quran_prayer_coords";
+
+export type PrayerLocationMode = "auto" | "manual";
+
+export interface StoredCoords {
+  lat: number;
+  lng: number;
+  /** Nearest Libyan city at the time of detection (for display). */
+  cityId: string;
+  updatedAt: number;
+}
+
+export function getStoredMode(): PrayerLocationMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "manual" ? "manual" : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function setStoredMode(mode: PrayerLocationMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // storage unavailable
+  }
+}
+
+export function getStoredCoords(): StoredCoords | null {
+  try {
+    const raw = localStorage.getItem(COORDS_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as StoredCoords;
+    if (typeof c.lat !== "number" || typeof c.lng !== "number") return null;
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredCoords(lat: number, lng: number): StoredCoords {
+  const city = findNearestCity(lat, lng);
+  const coords: StoredCoords = { lat, lng, cityId: city.id, updatedAt: Date.now() };
+  try {
+    localStorage.setItem(COORDS_KEY, JSON.stringify(coords));
+  } catch {
+    // storage unavailable
+  }
+  return coords;
+}
+
+// Haversine distance in km between two points.
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+export function findNearestCity(lat: number, lng: number): LibyanCity {
+  let best = LIBYAN_CITIES[0];
+  let bestD = Infinity;
+  for (const city of LIBYAN_CITIES) {
+    const d = haversineKm(lat, lng, city.lat, city.lng);
+    if (d < bestD) {
+      bestD = d;
+      best = city;
+    }
+  }
+  return best;
+}
+
+// The device's current position (GPS on the phone, browser geolocation
+// on the web). Throws when the permission is denied or no fix is
+// available — callers fall back to the manual city.
+export async function getCurrentPosition(): Promise<{ lat: number; lng: number }> {
+  const pos = await Geolocation.getCurrentPosition({
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 300000, // a fix up to 5 minutes old is fine for prayer times
+  });
+  return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+}
+
+// The location the app should use right now: in auto mode the stored
+// GPS coordinates (or the manual city when nothing was detected yet),
+// in manual mode the selected city.
+export function getActiveLocation(): { lat: number; lng: number; label: string; cityId: string } {
+  if (getStoredMode() === "auto") {
+    const coords = getStoredCoords();
+    if (coords) {
+      return { lat: coords.lat, lng: coords.lng, label: getCity(coords.cityId).name, cityId: coords.cityId };
+    }
+  }
+  const city = getCity(getStoredCityId());
+  return { lat: city.lat, lng: city.lng, label: city.name, cityId: city.id };
+}
 
 export function getStoredCityId(): string {
   try {
@@ -106,10 +211,9 @@ export interface DayPrayerTimes {
   isha: Date;
 }
 
-export function getPrayerTimes(date: Date, cityId: string): DayPrayerTimes {
-  const city = getCity(cityId);
+export function getPrayerTimesForCoords(date: Date, lat: number, lng: number): DayPrayerTimes {
   const params = CalculationMethod.MuslimWorldLeague();
-  const pt = new PrayerTimes(new Coordinates(city.lat, city.lng), date, params);
+  const pt = new PrayerTimes(new Coordinates(lat, lng), date, params);
   return {
     fajr: pt.fajr,
     sunrise: pt.sunrise,
@@ -120,17 +224,27 @@ export function getPrayerTimes(date: Date, cityId: string): DayPrayerTimes {
   };
 }
 
+export function getPrayerTimes(date: Date, cityId: string): DayPrayerTimes {
+  const city = getCity(cityId);
+  return getPrayerTimesForCoords(date, city.lat, city.lng);
+}
+
 // Next prayer from now (among the 5 prayers only — sunrise is not a
 // prayer). After Isha, the next prayer is tomorrow's Fajr.
-export function getNextPrayer(now: Date, cityId: string): { key: PrayerKey; time: Date } {
-  const today = getPrayerTimes(now, cityId);
+export function getNextPrayerForCoords(now: Date, lat: number, lng: number): { key: PrayerKey; time: Date } {
+  const today = getPrayerTimesForCoords(now, lat, lng);
   for (const key of PRAYER_ORDER) {
     if (today[key].getTime() > now.getTime()) return { key, time: today[key] };
   }
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const t = getPrayerTimes(tomorrow, cityId);
+  const t = getPrayerTimesForCoords(tomorrow, lat, lng);
   return { key: "fajr", time: t.fajr };
+}
+
+export function getNextPrayer(now: Date, cityId: string): { key: PrayerKey; time: Date } {
+  const city = getCity(cityId);
+  return getNextPrayerForCoords(now, city.lat, city.lng);
 }
 
 export function formatPrayerTime(d: Date): string {
@@ -165,9 +279,10 @@ function notificationIds(): Array<{ id: number }> {
   return ids;
 }
 
-// Schedule the next 7 days of prayer notifications (5 per day).
-// Returns a short status message in Arabic, or null on the web.
-export async function schedulePrayerReminders(cityId: string): Promise<string | null> {
+// Schedule the next 7 days of prayer notifications (5 per day) for the
+// given coordinates. Returns a short status message in Arabic, or null
+// on the web.
+export async function schedulePrayerRemindersForCoords(lat: number, lng: number): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   try {
     const perm = await LocalNotifications.requestPermissions();
@@ -181,7 +296,7 @@ export async function schedulePrayerReminders(cityId: string): Promise<string | 
     for (let d = 0; d < NOTIF_DAYS; d++) {
       const date = new Date(now);
       date.setDate(date.getDate() + d);
-      const times = getPrayerTimes(date, cityId);
+      const times = getPrayerTimesForCoords(date, lat, lng);
       for (let i = 0; i < PRAYER_ORDER.length; i++) {
         const key = PRAYER_ORDER[i];
         const at = times[key];
@@ -209,6 +324,11 @@ export async function schedulePrayerReminders(cityId: string): Promise<string | 
   }
 }
 
+export async function schedulePrayerReminders(cityId: string): Promise<string | null> {
+  const city = getCity(cityId);
+  return schedulePrayerRemindersForCoords(city.lat, city.lng);
+}
+
 export async function cancelPrayerReminders(): Promise<void> {
   setPrayerReminderEnabled(false);
   if (!Capacitor.isNativePlatform()) return;
@@ -220,8 +340,10 @@ export async function cancelPrayerReminders(): Promise<void> {
 }
 
 // Keep the 7-day window fresh: re-schedule once a day when the app opens
-// (only if the reminder is enabled). Cheap and idempotent.
-export async function ensurePrayerRemindersScheduled(cityId: string): Promise<void> {
+// (only if the reminder is enabled). Uses the active location — the
+// stored GPS coordinates in auto mode, the selected city otherwise.
+// Cheap and idempotent.
+export async function ensurePrayerRemindersScheduled(): Promise<void> {
   if (!isPrayerReminderEnabled()) return;
   try {
     const last = localStorage.getItem(REMINDER_SCHEDULED_KEY);
@@ -229,5 +351,6 @@ export async function ensurePrayerRemindersScheduled(cityId: string): Promise<vo
   } catch {
     // storage unavailable
   }
-  await schedulePrayerReminders(cityId);
+  const loc = getActiveLocation();
+  await schedulePrayerRemindersForCoords(loc.lat, loc.lng);
 }
