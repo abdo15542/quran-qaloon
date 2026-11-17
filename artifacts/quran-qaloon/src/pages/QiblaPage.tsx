@@ -46,6 +46,44 @@ const norm360 = (d: number) => ((d % 360) + 360) % 360;
 // Shortest signed delta from `from` to `to`, in (-180, 180].
 const angleDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180;
 
+// The direction the user is FACING, from a deviceorientation event.
+// Raw alpha alone is only the heading of the TOP edge of the phone
+// when it lies flat. Held upright (the normal way to look at the
+// screen), alpha is the rotation about the screen-normal axis, so a
+// natural roll of the phone (gamma) shifts it degree for degree:
+// upright with a 10 deg roll, raw alpha is 10 deg off the true
+// facing direction. Derived from the rotation matrix
+// R = Rz(-alpha) Rx(beta) Ry(gamma) (Earth: X east, Y north, Z up):
+//   top edge  -> atan2(sin a * cos b, cos a * cos b)
+//   back of phone (the way the user faces when upright)
+//             -> atan2(-cos a * sin g + sin a * sin b * cos g,
+//                      sin a * sin g + cos a * sin b * cos g)
+// When the phone is flat the back points at the floor, so the top
+// direction is used; when upright the back direction is used; in
+// between (|beta| 30..60 deg) the two are blended, so there is no
+// jump while tilting. Verified: flat (100,0,0) -> 100; upright
+// (100,90,0) -> 100; upright rolled (100,90,10) -> 90; tilted
+// (100,70,10) -> 89.4. webkitCompassHeading (iOS) already accounts
+// for the attitude, so it is used as-is and never passes through here.
+const computeFacing = (alpha: number, beta: number | null, gamma: number | null): number => {
+  if (beta == null || gamma == null) return norm360(alpha);
+  const a = (alpha * Math.PI) / 180;
+  const b = (beta * Math.PI) / 180;
+  const g = (gamma * Math.PI) / 180;
+  const sA = Math.sin(a);
+  const cA = Math.cos(a);
+  const sB = Math.sin(b);
+  const cB = Math.cos(b);
+  const sG = Math.sin(g);
+  const cG = Math.cos(g);
+  const top = norm360((Math.atan2(sA * cB, cA * cB) * 180) / Math.PI);
+  const back = norm360(
+    (Math.atan2(-cA * sG + sA * sB * cG, sA * sG + cA * sB * cG) * 180) / Math.PI,
+  );
+  const w = Math.min(1, Math.max(0, (Math.abs(beta) - 30) / 30));
+  return norm360(top + w * angleDelta(top, back));
+};
+
 export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) {
   const [loc, setLoc] = useState(() => getActiveLocation());
   const [heading, setHeading] = useState<number | null>(null);
@@ -91,7 +129,7 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
     const onAbsolute = (e: DeviceOrientationEvent) => {
       if (e.alpha == null) return;
       absoluteSeenRef.current = true;
-      feedHeading(e.alpha, "true");
+      feedHeading(computeFacing(e.alpha, e.beta, e.gamma), "true");
     };
     const onOrientation = (e: DeviceOrientationEvent) => {
       const h = (e as DeviceOrientationEvent & { webkitCompassHeading?: number })
@@ -108,7 +146,10 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
       // only while absolute has never fired.
       if (e.alpha == null || absoluteSeenRef.current || !magneticAllowedRef.current)
         return;
-      feedHeading(norm360(e.alpha + declination), "magnetic");
+      feedHeading(
+        norm360(computeFacing(e.alpha, e.beta, e.gamma) + declination),
+        "magnetic",
+      );
     };
     window.addEventListener("deviceorientationabsolute", onAbsolute);
     window.addEventListener("deviceorientation", onOrientation);
@@ -269,8 +310,11 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
             </div>
           ) : (
             <div>
+              <div className="text-sm text-muted-foreground">
+                اتجاهك الآن: {Math.round(heading)}° من الشمال
+              </div>
               <div
-                className={`font-arabic text-lg ${facingQibla ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}
+                className={`font-arabic text-lg mt-1 ${facingQibla ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}
               >
                 {turnText}
               </div>
@@ -288,6 +332,9 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
           )}
           <div className="text-xs text-muted-foreground mt-3">
             N = الشمال · E = الشرق · S = الجنوب · W = الغرب — أدر هاتفك حتى يصل مؤشر الكعبة 🕋 إلى السهم ▲
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            إذا كان الاتجاه غير صحيح: حرّك هاتفك في شكل 8 عدة مرات لمعايرة البوصلة، وابتعد عن المعادن والمغناطيس
           </div>
         </div>
       </div>
