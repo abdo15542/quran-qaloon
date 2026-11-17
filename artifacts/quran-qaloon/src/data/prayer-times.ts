@@ -183,11 +183,14 @@ export async function detectPrayerLocation(): Promise<{
     if (e instanceof Error && e.message === "denied") throw e;
     // check/request not supported (old web) — fall through and try anyway
   }
-  // 2. GPS (high accuracy).
+  // 2. GPS (high accuracy). Works WITHOUT internet (satellites
+  // directly) — but a cold GPS fix offline can take up to ~30s
+  // (no A-GPS assistance), so the timeout is generous; the cached
+  // fix (up to 5 min old) makes repeat updates instant.
   try {
     const pos = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
-      timeout: 10000,
+      timeout: 30000,
       maximumAge: 300000,
     });
     return { lat: pos.coords.latitude, lng: pos.coords.longitude, via: "gps" };
