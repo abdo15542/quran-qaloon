@@ -27,6 +27,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Compass, MapPin, RefreshCw } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { getQibla, getMagneticDeclination } from "@/data/qibla";
 import {
   getActiveLocation,
@@ -89,7 +90,15 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
   const [heading, setHeading] = useState<number | null>(null);
   const [headingSource, setHeadingSource] = useState<HeadingSource | null>(null);
   const [compassAccuracy, setCompassAccuracy] = useState<number | null>(null);
+  // Permission: iOS Safari is the only platform that truly gates the
+  // compass behind a tap (DeviceOrientationEvent.requestPermission).
+  // The Android WebView exposes the same function but needs no tap,
+  // so on Android the listeners attach at once and the permission is
+  // tried once on mount, falling back to the button only if that fails.
+  // (1.0.57 showed the button on Android — one extra tap on every
+  // visit — because the gate only checked for the function's existence.)
   const [permission, setPermission] = useState<CompassPermission>(() =>
+    Capacitor.getPlatform() === "ios" &&
     typeof (DeviceOrientationEvent as unknown as { requestPermission?: unknown })
       .requestPermission === "function"
       ? "needed"
@@ -117,6 +126,29 @@ export default function QiblaPage({ darkMode, toggleDarkMode }: QiblaPageProps) 
     setHeading(next);
     setHeadingSource(source);
   };
+
+  // Android: try the permission once on mount so the compass starts
+  // with no tap. If the call fails or does not grant, fall back to
+  // the button, which calls it again from a real tap.
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== "android") return;
+    const doe = DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<string>;
+    };
+    if (typeof doe.requestPermission !== "function") return;
+    let cancelled = false;
+    doe
+      .requestPermission()
+      .then((res) => {
+        if (!cancelled && res !== "granted") setPermission("needed");
+      })
+      .catch(() => {
+        if (!cancelled) setPermission("needed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (permission === "needed" || permission === "denied") return;
