@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2 } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
@@ -32,8 +32,10 @@ function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
 }
 
-// Action buttons shown above a tapped ayah: التفسير / حفظ في المفضلة / مشاركة
-// كصورة. Shared by the continuous-text layout and the translation layout.
+// Action buttons shown above a tapped ayah: التفسير / حفظ في المفضلة /
+// مشاركة كصورة / نسخ نص الآية. In memorization mode an إظهار/إخفاء
+// button is added, to reveal the hidden ayah text. Shared by the
+// continuous-text layout and the translation layout.
 function AyahActions({
   surahNumber,
   ayahNumber,
@@ -41,6 +43,11 @@ function AyahActions({
   onToggleFavourite,
   onTafsir,
   onShare,
+  onCopy,
+  copied,
+  memorization,
+  revealed,
+  onToggleReveal,
 }: {
   surahNumber: number;
   ayahNumber: number;
@@ -48,17 +55,22 @@ function AyahActions({
   onToggleFavourite: () => void;
   onTafsir: () => void;
   onShare: () => void;
+  onCopy: () => void;
+  copied: boolean;
+  memorization: boolean;
+  revealed: boolean;
+  onToggleReveal: () => void;
 }) {
   // In the translation layout the buttons sit inside the clickable ayah
   // block, so stop the click from bubbling up and re-triggering playback.
   return (
-    <span className="flex items-center justify-center gap-2 my-2">
+    <span className="flex flex-wrap items-center justify-center gap-2 my-2">
       <button
         onClick={(e) => {
           e.stopPropagation();
           onTafsir();
         }}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors whitespace-nowrap"
       >
         <BookOpen className="w-3.5 h-3.5" />
         التفسير
@@ -68,7 +80,7 @@ function AyahActions({
           e.stopPropagation();
           onToggleFavourite();
         }}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors ${
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors whitespace-nowrap ${
           isFav
             ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
             : "bg-background border-border text-muted-foreground hover:text-rose-600"
@@ -83,14 +95,65 @@ function AyahActions({
           e.stopPropagation();
           onShare();
         }}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
         aria-label="مشاركة الآية كصورة"
       >
         <Share2 className="w-3.5 h-3.5" />
         مشاركة
       </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onCopy();
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
+        aria-label="نسخ نص الآية"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? "تم النسخ ✓" : "نسخ"}
+      </button>
+      {memorization && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleReveal();
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors whitespace-nowrap"
+          aria-label={revealed ? "إخفاء الآية" : "إظهار الآية"}
+        >
+          {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          {revealed ? "إخفاء" : "إظهار"}
+        </button>
+      )}
     </span>
   );
+}
+
+// Copy text to the clipboard. The Clipboard API needs a secure context and
+// a user gesture; the textarea + execCommand fallback covers the Android
+// WebView when it is unavailable.
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the textarea fallback
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function getStoredQirahId(): string {
@@ -205,6 +268,66 @@ export default function SurahPlayer({
   });
   // Ayah whose share preview sheet is open (null = closed).
   const [sharePreviewAyah, setSharePreviewAyah] = useState<number | null>(null);
+  // Memorization mode (وضع الحفظ): the ayah text is blurred until the
+  // reader reveals it — listen first, recite from memory, then check.
+  // Persisted, so the mode survives reopening the app.
+  const [memorization, setMemorization] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("quran_memorization_mode") === "1";
+    } catch {
+      return false;
+    }
+  });
+  // Ayahs revealed in this surah while memorization is on (numbers in
+  // surah). Cleared when the surah changes.
+  const [revealedAyahs, setRevealedAyahs] = useState<Set<number>>(new Set());
+  // Ayah whose «تم النسخ ✓» feedback is showing (null = none).
+  const [copiedAyah, setCopiedAyah] = useState<number | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  const toggleMemorization = () => {
+    setMemorization((v) => {
+      try {
+        localStorage.setItem("quran_memorization_mode", v ? "0" : "1");
+      } catch {
+        // storage unavailable
+      }
+      return !v;
+    });
+  };
+
+  const toggleReveal = useCallback((ayahNumber: number) => {
+    setRevealedAyahs((prev) => {
+      const next = new Set(prev);
+      if (next.has(ayahNumber)) next.delete(ayahNumber);
+      else next.add(ayahNumber);
+      return next;
+    });
+  }, []);
+
+  const revealAll = useCallback(() => {
+    setRevealedAyahs(new Set(ayahs.map((a) => a.numberInSurah)));
+  }, [ayahs]);
+
+  const hideAll = useCallback(() => {
+    setRevealedAyahs(new Set());
+  }, []);
+
+  const handleCopyAyah = useCallback(
+    async (ayahNumber: number) => {
+      if (!surah) return;
+      const ayah = ayahs.find((a) => a.numberInSurah === ayahNumber);
+      if (!ayah) return;
+      const text = `${ayah.text} ﴿${toArabicNum(ayahNumber)}﴾\nسورة ${surah.name} — الآية ${toArabicNum(ayahNumber)}`;
+      const ok = await copyTextToClipboard(text);
+      if (ok) {
+        setCopiedAyah(ayahNumber);
+        if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = window.setTimeout(() => setCopiedAyah(null), 2000);
+      }
+    },
+    [ayahs, surah]
+  );
 
   const toggleTranslation = () => {
     setShowTranslation((v) => {
@@ -264,9 +387,11 @@ export default function SurahPlayer({
   }, []);
 
   // عند الانتقال إلى سورة أخرى ألغِ تحديد الآية (حتى لا تبقى لوحة
-  // سورة قديمة ظاهرة) وأوقف صوت الآية.
+  // سورة قديمة ظاهرة) وأوقف صوت الآية، وأخفِ الآيات المكشوفة في
+  // وضع الحفظ.
   useEffect(() => {
     setSelectedAyah(null);
+    setRevealedAyahs(new Set());
     stopAyah();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber]);
@@ -801,6 +926,15 @@ export default function SurahPlayer({
             >
               <Languages className="w-4 h-4" />
             </button>
+            <button
+              onClick={toggleMemorization}
+              className={`p-2 rounded-full transition-colors ${
+                memorization ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
+              }`}
+              title="وضع الحفظ — إخفاء نص الآيات لتسميعها"
+            >
+              <EyeOff className="w-4 h-4" />
+            </button>
             <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1" title="حجم الخط">              <button
                 onClick={decreaseFontSize}
                 disabled={fontSize <= 14}
@@ -1041,6 +1175,30 @@ export default function SurahPlayer({
 
                   {!loading && !error && ayahs.length > 0 && (
                     <div className="p-6">
+                      {/* وضع الحفظ: النص مخفي حتى يُكشف — استمع للآية ثم
+                          اضغط «إظهار» لتتأكد منها. */}
+                      {memorization && (
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2">
+                          <span className="flex items-center gap-1.5 text-xs text-primary font-arabic">
+                            <EyeOff className="w-3.5 h-3.5" />
+                            وضع الحفظ مفعّل — استمع للآية ثم اضغط «إظهار» لتتأكد
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <button
+                              onClick={revealAll}
+                              className="px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              إظهار الكل
+                            </button>
+                            <button
+                              onClick={hideAll}
+                              className="px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              إخفاء الكل
+                            </button>
+                          </span>
+                        </div>
+                      )}
                       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-muted-foreground">اضغط على أي آية لسماعها</span>
                         <button
@@ -1144,7 +1302,9 @@ export default function SurahPlayer({
                               }`}
                             >
                               <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
-                                {ayah.text}{" "}
+                                <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
+                                  {ayah.text}
+                                </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
                                 </span>
@@ -1160,6 +1320,11 @@ export default function SurahPlayer({
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
                                   onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
+                                  onCopy={() => handleCopyAyah(ayah.numberInSurah)}
+                                  copied={copiedAyah === ayah.numberInSurah}
+                                  memorization={memorization}
+                                  revealed={revealedAyahs.has(ayah.numberInSurah)}
+                                  onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
                                 />
                               )}
                             </div>
@@ -1180,6 +1345,11 @@ export default function SurahPlayer({
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
                                   onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
+                                  onCopy={() => handleCopyAyah(ayah.numberInSurah)}
+                                  copied={copiedAyah === ayah.numberInSurah}
+                                  memorization={memorization}
+                                  revealed={revealedAyahs.has(ayah.numberInSurah)}
+                                  onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
                                 />
                               )}
                               <span
@@ -1193,7 +1363,9 @@ export default function SurahPlayer({
                                     : ""
                                 }`}
                               >
-                                {ayah.text}{" "}
+                                <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
+                                  {ayah.text}
+                                </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
                                 </span>{" "}

@@ -4,6 +4,7 @@ import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
+import { useWird } from "@/hooks/useWird";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
@@ -59,6 +60,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   } = useKhatma();
 
   const { count: favouritesCount } = useFavourites();
+
+  const { startPage, endPage, streak, todayDone } = useWird();
 
   const lastMushafPage = getLastMushafPage();
 
@@ -236,6 +239,31 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
         </div>
+
+        {/* وردي اليومي */}
+        <Link href="/wird">
+          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-2xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-lg">📖</span>
+              <span className="font-arabic text-base text-foreground">وردي اليومي</span>
+              {todayDone ? (
+                <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">✓ أُكمل اليوم</span>
+              ) : (
+                <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
+                  {startPage === endPage ? `صفحة ${startPage}` : `الصفحات ${startPage} – ${endPage}`}
+                </span>
+              )}
+              {streak > 0 && (
+                <span className="text-xs text-muted-foreground">🔥 {streak} {streak === 1 ? "يوم" : streak === 2 ? "يومين" : "أيام"}</span>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {todayDone
+                ? "أحسنت! ورد الغد بانتظارك"
+                : "وردك اليومي بانتظارك — اضغط لتبدأ القراءة"}
+            </div>
+          </div>
+        </Link>
 
         {/* المصحف — قراءة صفحة صفحة مثل المصحف الورقي */}
         <Link href={`/mushaf/${lastMushafPage}`}>
