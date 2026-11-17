@@ -33,7 +33,10 @@ import {
   setStoredMode,
   getStoredCoords,
   setStoredCoords,
-  getCurrentPosition,
+  detectPrayerLocation,
+  locationErrorMessage,
+  scheduleTestAdhanNotification,
+  enableReminderIfFirstRun,
   type PrayerLocationMode,
   type StoredCoords,
 } from "@/data/prayer-times";
@@ -47,12 +50,15 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [mode, setMode] = useState<PrayerLocationMode>(getStoredMode);
   const [cityId, setCityId] = useState<string>(getStoredCityId);
   const [coords, setCoords] = useState<StoredCoords | null>(getStoredCoords);
+  const [locatedVia, setLocatedVia] = useState<"gps" | "network" | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [reminderEnabled, setReminderEnabled] = useState<boolean>(isPrayerReminderEnabled);
   const [reminderStatus, setReminderStatus] = useState<string | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
+  const [testStatus, setTestStatus] = useState<string | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
 
   // Live clock for the countdown (updates every 30 seconds — enough for
   // a minute-level countdown and cheap on battery).
@@ -62,21 +68,33 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   }, []);
 
   // Detect the position (auto mode): on open, and whenever the user
-  // taps «تحديث الموقع». On success the coordinates are stored, so the
-  // Home card and the reminders keep using them until the next detection.
+  // taps «تحديد موقعي» / «تحديث الموقع». GPS first, then the network
+  // location (cell / Wi-Fi) which needs no GPS. On success the
+  // coordinates are stored, so the Home card and the reminders keep
+  // using them until the next detection.
   const detectLocation = useCallback(async () => {
     setLocating(true);
     setLocationError(null);
     try {
-      const pos = await getCurrentPosition();
+      const pos = await detectPrayerLocation();
       const stored = setStoredCoords(pos.lat, pos.lng);
       setCoords(stored);
+      setLocatedVia(pos.via);
       // Re-schedule the reminders for the new location if they are on.
       if (isPrayerReminderEnabled()) {
         await schedulePrayerRemindersForCoords(pos.lat, pos.lng);
+      } else {
+        // First run: the user asked for notifications with the adhan —
+        // turn the reminder on now (the system dialog is the consent).
+        const msg = await enableReminderIfFirstRun(pos.lat, pos.lng);
+        if (msg) {
+          setReminderEnabled(isPrayerReminderEnabled());
+          setReminderStatus(msg);
+        }
       }
-    } catch {
-      setLocationError("تعذّر تحديد موقعك — تحقق من إذن الموقع ومن تفعيل GPS، أو اختر مدينتك يدويًا");
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : "unavailable";
+      setLocationError(locationErrorMessage(reason));
     } finally {
       setLocating(false);
     }
@@ -123,6 +141,13 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   }).format(now);
 
   const handleModeChange = (m: PrayerLocationMode) => {
+    // Tapping the already-active «الموقع الحالي» button must re-detect
+    // (React bails out on an unchanged mode, so the effect would not
+    // re-run — that was the «ضغطت ولم يظهر شيء» bug).
+    if (m === mode && m === "auto") {
+      detectLocation();
+      return;
+    }
     setMode(m);
     setStoredMode(m);
     setLocationError(null);
@@ -144,6 +169,17 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
       schedulePrayerReminders(id).then((msg) => {
         if (msg) setReminderStatus(msg);
       });
+    }
+  };
+
+  const handleTestAdhan = async () => {
+    if (testBusy) return;
+    setTestBusy(true);
+    try {
+      const msg = await scheduleTestAdhanNotification();
+      setTestStatus(msg ?? "اختبار الأذان يعمل على الهاتف فقط — سيصلك الإشعار بعد تثبيت النسخة");
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -223,7 +259,9 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                     موقعك الحالي: قرب {active.label}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    الأوقات محسوبة من إحداثيات جهازك — تتغير تلقائيًا عند السفر لمدينة أخرى
+                    الأوقات محسوبة من إحداثيات جهازك
+                    {locatedVia === "network" ? " عبر الشبكة (بدون GPS)" : " عبر GPS"}
+                    {" "}— تتغير تلقائيًا عند السفر لمدينة أخرى
                   </div>
                   <button
                     onClick={detectLocation}
@@ -235,7 +273,20 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </button>
                 </div>
               ) : (
-                <div className="text-sm text-muted-foreground">لم يُحدَّد موقعك بعد</div>
+                <div>
+                  <div className="text-sm text-muted-foreground">لم يُحدَّد موقعك بعد</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    تُعرض حاليًا أوقات {active.label} (مدينتك المحفوظة) — حدّد موقعك لتظهر أوقات مكانك الحقيقي
+                  </div>
+                  <button
+                    onClick={detectLocation}
+                    disabled={locating}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    تحديد موقعي
+                  </button>
+                </div>
               )}
               {locationError && (
                 <div className="text-xs text-amber-600 dark:text-amber-400 mt-3">{locationError}</div>
@@ -334,8 +385,18 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
             </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            إشعار عند وقت كل صلاة، حتى والتطبيق مغلق. تُحسب الأوقات على جهازك دون إنترنت.
+            إشعار بصوت الأذان عند وقت كل صلاة، حتى والتطبيق مغلق. تُحسب الأوقات على جهازك دون إنترنت.
           </p>
+          <button
+            onClick={handleTestAdhan}
+            disabled={testBusy}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+          >
+            🔊 جرّب صوت الأذان
+          </button>
+          {testStatus && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">{testStatus}</p>
+          )}
           {reminderStatus && (
             <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-3">{reminderStatus}</p>
           )}

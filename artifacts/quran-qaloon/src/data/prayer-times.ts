@@ -150,6 +150,72 @@ export async function getCurrentPosition(): Promise<{ lat: number; lng: number }
   return { lat: pos.coords.latitude, lng: pos.coords.longitude };
 }
 
+export type LocationFailureReason = "denied" | "unavailable" | "timeout";
+
+// Detect the position, asking for the location permission first (so the
+// system dialog actually appears), then trying GPS and — if that fails
+// — the network location (cell towers / Wi-Fi), which works WITHOUT
+// turning GPS on. Returns how the position was found, so the UI can say
+// so. Throws a reason code the UI turns into a clear message.
+export async function detectPrayerLocation(): Promise<{
+  lat: number;
+  lng: number;
+  via: "gps" | "network";
+}> {
+  // 1. Permission — explicit, so the user sees the system dialog.
+  // On native, requestPermissions shows the dialog and returns the
+  // result; on the web it only reports the state, and the prompt is
+  // triggered by getCurrentPosition below — so only an explicit
+  // 'denied' stops here, a 'prompt' state proceeds.
+  try {
+    const status = await Geolocation.checkPermissions();
+    if (status.location === "denied") {
+      throw new Error("denied");
+    }
+    if (status.location !== "granted") {
+      const asked = await Geolocation.requestPermissions();
+      if (asked.location === "denied") {
+        throw new Error("denied");
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === "denied") throw e;
+    // check/request not supported (old web) — fall through and try anyway
+  }
+  // 2. GPS (high accuracy).
+  try {
+    const pos = await Geolocation.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 300000,
+    });
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude, via: "gps" };
+  } catch {
+    // 3. Network location — no GPS needed (cell / Wi-Fi).
+    try {
+      const pos = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: false,
+        timeout: 15000,
+        maximumAge: 600000,
+      });
+      return { lat: pos.coords.latitude, lng: pos.coords.longitude, via: "network" };
+    } catch (e2) {
+      const msg = e2 instanceof Error ? e2.message : "";
+      if (/denied|permission/i.test(msg)) throw new Error("denied");
+      if (/timeout/i.test(msg)) throw new Error("timeout");
+      throw new Error("unavailable");
+    }
+  }
+}
+
+export function locationErrorMessage(reason: string): string {
+  if (reason === "denied")
+    return "لم يُمنح إذن الموقع — فعّله من إعدادات الهاتف (التطبيق ← الأذونات ← الموقع)، أو اختر مدينتك يدويًا";
+  if (reason === "timeout")
+    return "انتهت مهلة تحديد الموقع — تأكد من تشغيل الموقع أو الإنترنت وحاول مجددًا، أو اختر مدينتك يدويًا";
+  return "تعذّر تحديد موقعك — تأكد من تفعيل الموقع في الهاتف وحاول مجددًا، أو اختر مدينتك يدويًا";
+}
+
 // The location the app should use right now: in auto mode the stored
 // GPS coordinates (or the manual city when nothing was detected yet),
 // in manual mode the selected city.
@@ -266,6 +332,29 @@ export function formatCountdown(ms: number): string {
 
 // ---- Reminders (native only) ----
 
+// Prayer notifications play the adhan: on Android 8+ the sound lives
+// on the notification CHANNEL, so the channel is created (once —
+// Android keeps the first creation) with the bundled adhan.mp3
+// (android/app/src/main/res/raw/adhan.mp3, 75s) before scheduling.
+export const ADHAN_CHANNEL_ID = "prayer-adhan";
+
+export async function createPrayerChannel(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: ADHAN_CHANNEL_ID,
+      name: "أوقات الصلاة",
+      description: "تذكير بصوت الأذان عند وقت كل صلاة",
+      sound: "adhan.mp3",
+      importance: 5,
+      vibration: true,
+      lights: true,
+    });
+  } catch {
+    // channel creation is best-effort; scheduling still proceeds
+  }
+}
+
 const NOTIF_BASE_ID = 100;
 const NOTIF_DAYS = 7;
 
@@ -280,8 +369,8 @@ function notificationIds(): Array<{ id: number }> {
 }
 
 // Schedule the next 7 days of prayer notifications (5 per day) for the
-// given coordinates. Returns a short status message in Arabic, or null
-// on the web.
+// given coordinates, on the adhan channel. Returns a short status
+// message in Arabic, or null on the web.
 export async function schedulePrayerRemindersForCoords(lat: number, lng: number): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   try {
@@ -290,6 +379,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       setPrayerReminderEnabled(false);
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
+    await createPrayerChannel();
     await LocalNotifications.cancel({ notifications: notificationIds() }).catch(() => {});
     const notifications = [];
     const now = new Date();
@@ -306,6 +396,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
           title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
           body: `صلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
           schedule: { at, allowWhileIdle: true },
+          channelId: ADHAN_CHANNEL_ID,
         });
       }
     }
@@ -318,10 +409,53 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     } catch {
       // storage unavailable
     }
-    return "التذكير مفعّل — ستصلك إشعارات الصلوات";
+    return "التذكير مفعّل — ستصلك إشعارات الصلوات بصوت الأذان";
   } catch {
     return "تعذّر ضبط التذكير — حاول مجددًا";
   }
+}
+
+// Fire a real prayer notification in 5 seconds, so the user can hear
+// the adhan and see the notification without waiting for a prayer time.
+// Returns a status message, or null on the web.
+export async function scheduleTestAdhanNotification(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const perm = await LocalNotifications.requestPermissions();
+    if (perm.display !== "granted") {
+      return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
+    }
+    await createPrayerChannel();
+    const at = new Date(Date.now() + 5000);
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: 999,
+          title: "اختبار الأذان 🕌",
+          body: "هذا صوت الأذان الذي سيسمع عند وقت كل صلاة",
+          schedule: { at, allowWhileIdle: true },
+          channelId: ADHAN_CHANNEL_ID,
+        },
+      ],
+    });
+    return "سيصلك إشعار اختبار بصوت الأذان خلال ٥ ثوانٍ";
+  } catch {
+    return "تعذّر إرسال إشعار الاختبار — حاول مجددًا";
+  }
+}
+
+// First-run auto-enable: the user asked for prayer notifications with
+// the adhan. The first time a location is detected successfully, turn
+// the reminder on (the system permission dialog is the consent gate).
+// A manual choice afterwards is respected: once the reminder key exists
+// ("1" or "0"), this never runs again.
+export async function enableReminderIfFirstRun(lat: number, lng: number): Promise<string | null> {
+  try {
+    if (localStorage.getItem(REMINDER_KEY) !== null) return null;
+  } catch {
+    return null;
+  }
+  return schedulePrayerRemindersForCoords(lat, lng);
 }
 
 export async function schedulePrayerReminders(cityId: string): Promise<string | null> {
