@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
-import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3 } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
+import { getNextPrayer, getStoredCityId, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
@@ -62,6 +63,18 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   const { count: favouritesCount } = useFavourites();
 
   const { startPage, endPage, streak, todayDone } = useWird();
+
+  // Next prayer for the Home card (live countdown, 30s tick) + keep the
+  // prayer-reminder window fresh whenever the app opens.
+  const [now, setNow] = useState(() => new Date());
+  const cityId = getStoredCityId();
+  const nextPrayer = useMemo(() => getNextPrayer(now, cityId), [now, cityId]);
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 30000);
+    ensurePrayerRemindersScheduled(cityId).catch(() => {});
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const lastMushafPage = getLastMushafPage();
 
@@ -214,7 +227,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           )}
         </div>
 
-        {/* المفضلة والأجزاء */}
+        {/* المفضلة والأجزاء وأوقات الصلاة والإحصائيات */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <Link href="/favourites">
             <div className="bg-card border border-border rounded-2xl p-4 hover:border-rose-400/60 hover:shadow-sm transition-all cursor-pointer">
@@ -236,6 +249,28 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-base text-foreground">الأجزاء</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالجزء — ٣٠ جزءًا</div>
+            </div>
+          </Link>
+          <Link href="/prayer-times">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Clock className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">أوقات الصلاة</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {PRAYER_NAMES[nextPrayer.key]} {formatPrayerTime(nextPrayer.time)} — متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())}
+              </div>
+            </div>
+          </Link>
+          <Link href="/stats">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <BarChart3 className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">إحصائياتي</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {totalCompleted}/١١٤ سورة مكتملة — وسلسلة الورد {streak} {streak === 1 ? "يوم" : streak === 2 ? "يومين" : "أيام"}
+              </div>
             </div>
           </Link>
         </div>

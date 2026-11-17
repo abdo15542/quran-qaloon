@@ -3,6 +3,7 @@ import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart, Share2 } from "
 import { SURAHS } from "@/data/surahs";
 import { getAyah } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
+import { getTafsirJalalayn, TAFSIR_JALALAYN_EDITION_NAME } from "@/data/tafsir-jalalayn";
 import { getTranslation, TRANSLATION_EDITION_NAME } from "@/data/translation-en";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import { useFavourites } from "@/hooks/useFavourites";
@@ -25,6 +26,24 @@ interface TafsirSheetProps {
 export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAyah }: TafsirSheetProps) {
   const [currentAyah, setCurrentAyah] = useState(ayahNumber);
   const { isFavourite, toggleFavourite } = useFavourites();
+  // Tafsir edition: Muyassar (default) or Jalalayn — persisted, so the
+  // choice survives reopening the sheet.
+  const [edition, setEdition] = useState<"muyassar" | "jalalayn">(() => {
+    try {
+      return localStorage.getItem("quran_tafsir_edition") === "jalalayn" ? "jalalayn" : "muyassar";
+    } catch {
+      return "muyassar";
+    }
+  });
+
+  const setTafsirEdition = (e: "muyassar" | "jalalayn") => {
+    setEdition(e);
+    try {
+      localStorage.setItem("quran_tafsir_edition", e);
+    } catch {
+      // storage unavailable
+    }
+  };
 
   useEffect(() => {
     setCurrentAyah(ayahNumber);
@@ -32,7 +51,12 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
 
   const surah = SURAHS.find((s) => s.number === surahNumber);
   const ayah = getAyah(surahNumber, currentAyah);
-  const tafsir = getTafsir(surahNumber, currentAyah);
+  const tafsir =
+    edition === "jalalayn"
+      ? getTafsirJalalayn(surahNumber, currentAyah)
+      : getTafsir(surahNumber, currentAyah);
+  const editionName =
+    edition === "jalalayn" ? TAFSIR_JALALAYN_EDITION_NAME : TAFSIR_EDITION_NAME;
   const translation = getTranslation(surahNumber, currentAyah);
   const totalAyahs = surah?.numberOfAyahs ?? 0;
 
@@ -114,9 +138,31 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
             </div>
           )}
 
-          {/* The tafsir */}
+          {/* The tafsir — two editions, both bundled offline */}
           <div>
-            <div className="text-xs text-muted-foreground mb-2 text-center">{TAFSIR_EDITION_NAME}</div>
+            <div className="flex items-center justify-center gap-1.5 mb-3">
+              <button
+                onClick={() => setTafsirEdition("muyassar")}
+                className={`px-3 py-1.5 rounded-full text-xs font-arabic transition-colors ${
+                  edition === "muyassar"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {TAFSIR_EDITION_NAME}
+              </button>
+              <button
+                onClick={() => setTafsirEdition("jalalayn")}
+                className={`px-3 py-1.5 rounded-full text-xs font-arabic transition-colors ${
+                  edition === "jalalayn"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {TAFSIR_JALALAYN_EDITION_NAME}
+              </button>
+            </div>
+            <div className="text-xs text-muted-foreground mb-2 text-center">{editionName}</div>
             {tafsir ? (
               <p className="text-base leading-loose text-right whitespace-pre-line">{tafsir}</p>
             ) : (
