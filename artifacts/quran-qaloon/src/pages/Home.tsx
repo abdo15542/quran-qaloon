@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
-import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
+import { useFavourites } from "@/hooks/useFavourites";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
 import { Link } from "wouter";
@@ -55,6 +56,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     isCompleted,
     resetKhatma,
   } = useKhatma();
+
+  const { count: favouritesCount } = useFavourites();
 
   const reciter = getSelectedReciter();
 
@@ -203,6 +206,32 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               </div>
             </div>
           )}
+        </div>
+
+        {/* المفضلة والأجزاء */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <Link href="/favourites">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-rose-400/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                <span className="font-arabic text-base text-foreground">المفضلة</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {favouritesCount > 0
+                  ? `${favouritesCount} آية محفوظة`
+                  : "احفظ آياتك المفضلة هنا"}
+              </div>
+            </div>
+          </Link>
+          <Link href="/juz">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <BookOpen className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">الأجزاء</span>
+              </div>
+              <div className="text-xs text-muted-foreground">تصفح المصحف بالجزء — ٣٠ جزءًا</div>
+            </div>
+          </Link>
         </div>
 
         {/* Resume Listening */}

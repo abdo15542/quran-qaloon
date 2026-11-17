@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2 } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
@@ -10,6 +10,7 @@ import TafsirSheet from "@/components/TafsirSheet";
 import DownloadButton from "@/components/DownloadButton";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
+import { useFavourites } from "@/hooks/useFavourites";
 import { useOffline } from "@/context/OfflineContext";
 
 interface Ayah {
@@ -92,6 +93,7 @@ export default function SurahPlayer({
 
   const { getProgress, saveProgress, clearProgress } = useListeningProgress();
   const { isCompleted, markCompleted, markUncompleted } = useKhatma();
+  const { isFavourite, toggleFavourite } = useFavourites();
   const { isCached, getCachedBlobUrl } = useOffline();
 
 
@@ -1011,15 +1013,32 @@ export default function SurahPlayer({
                         {ayahs.map((ayah) => (
                           <Fragment key={ayah.number}>
                             {/* زر التفسير فوق الآية المضغوطة مباشرة — لا حاجة
-                                للرجوع إلى أول السورة للوصول إليه. */}
+                                للرجوع إلى أول السورة للوصول إليه. بجانبه زر
+                                القلب لحفظ الآية في المفضلة. */}
                             {selectedAyah === ayah.numberInSurah && (
-                              <span className="block text-center my-2">
+                              <span className="flex items-center justify-center gap-2 my-2">
                                 <button
                                   onClick={() => setTafsirAyah(ayah.numberInSurah)}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
                                 >
                                   <BookOpen className="w-3.5 h-3.5" />
                                   التفسير
+                                </button>
+                                <button
+                                  onClick={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors ${
+                                    isFavourite(surahNumber, ayah.numberInSurah)
+                                      ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
+                                      : "bg-background border-border text-muted-foreground hover:text-rose-600"
+                                  }`}
+                                  aria-label="حفظ في المفضلة"
+                                >
+                                  <Heart
+                                    className={`w-3.5 h-3.5 ${
+                                      isFavourite(surahNumber, ayah.numberInSurah) ? "fill-rose-500 text-rose-500" : ""
+                                    }`}
+                                  />
+                                  {isFavourite(surahNumber, ayah.numberInSurah) ? "محفوظة" : "حفظ"}
                                 </button>
                               </span>
                             )}

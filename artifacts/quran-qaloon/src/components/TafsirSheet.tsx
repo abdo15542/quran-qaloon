@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { X, ChevronRight, ChevronLeft, Volume2, BookOpen } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { getAyah } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
+import { useFavourites } from "@/hooks/useFavourites";
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
@@ -21,6 +22,7 @@ interface TafsirSheetProps {
 // surah, so the user can read the tafsir ayah by ayah without closing.
 export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAyah }: TafsirSheetProps) {
   const [currentAyah, setCurrentAyah] = useState(ayahNumber);
+  const { isFavourite, toggleFavourite } = useFavourites();
 
   useEffect(() => {
     setCurrentAyah(ayahNumber);
@@ -115,6 +117,21 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
               استمع للآية
             </button>
           )}
+          <button
+            onClick={() => toggleFavourite(surahNumber, currentAyah)}
+            className={`p-2.5 rounded-xl border transition-colors ${
+              isFavourite(surahNumber, currentAyah)
+                ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
+                : "bg-card border-border text-muted-foreground hover:text-rose-600"
+            }`}
+            aria-label="حفظ في المفضلة"
+          >
+            <Heart
+              className={`w-4 h-4 ${
+                isFavourite(surahNumber, currentAyah) ? "fill-rose-500 text-rose-500" : ""
+              }`}
+            />
+          </button>
           <button
             onClick={goNext}
             disabled={currentAyah >= totalAyahs}

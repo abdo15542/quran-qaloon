@@ -10,6 +10,8 @@ import SearchPage from "@/pages/SearchPage";
 import DownloadsPage from "@/pages/DownloadsPage";
 import TasbeehPage from "@/pages/TasbeehPage";
 import RecitersList from "@/pages/RecitersList";
+import FavouritesPage from "@/pages/FavouritesPage";
+import JuzPage from "@/pages/JuzPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 
@@ -53,6 +55,8 @@ function AppRoutes() {
           <Route path="/downloads" component={() => <DownloadsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/tasbeeh" component={() => <TasbeehPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/reciters" component={() => <RecitersList darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/favourites" component={() => <FavouritesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/juz" component={() => <JuzPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>
