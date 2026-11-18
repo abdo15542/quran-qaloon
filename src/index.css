@@ -1,0 +1,207 @@
+@import "./fonts.css";
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --font-sans: var(--app-font-sans);
+  --font-arabic: var(--app-font-arabic);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* التصميم الجديد (1.0.69): عاجي دافئ + زمردي عميق + ذهبي.
+   الخطوط: Tajawal للواجهة كلها، وScheherazade New لنص القرآن. */
+:root {
+  --background: 40 40% 96%;
+  --foreground: 160 30% 12%;
+  --border: 40 22% 86%;
+  --input: 40 22% 90%;
+  --ring: 160 55% 24%;
+  --card: 40 45% 100%;
+  --card-foreground: 160 30% 12%;
+  --primary: 160 58% 24%;
+  --primary-foreground: 40 40% 97%;
+  --secondary: 40 35% 92%;
+  --secondary-foreground: 160 30% 18%;
+  --muted: 40 30% 94%;
+  --muted-foreground: 40 14% 42%;
+  --accent: 43 78% 42%;
+  --accent-foreground: 40 40% 97%;
+  --destructive: 0 70% 50%;
+  --destructive-foreground: 40 40% 97%;
+  --app-font-sans: 'Tajawal', system-ui, sans-serif;
+  --app-font-arabic: 'Tajawal', system-ui, sans-serif;
+  --radius: 1rem;
+}
+
+.dark {
+  --background: 160 28% 7%;
+  --foreground: 40 22% 92%;
+  --border: 160 20% 18%;
+  --input: 160 20% 16%;
+  --ring: 160 50% 45%;
+  --card: 160 24% 10%;
+  --card-foreground: 40 22% 92%;
+  --primary: 160 55% 46%;
+  --primary-foreground: 160 30% 8%;
+  --secondary: 160 20% 16%;
+  --secondary-foreground: 40 22% 85%;
+  --muted: 160 20% 13%;
+  --muted-foreground: 160 12% 62%;
+  --accent: 43 85% 56%;
+  --accent-foreground: 160 30% 8%;
+  --destructive: 0 65% 55%;
+  --destructive-foreground: 40 40% 97%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Tajawal', system-ui, sans-serif;
+    direction: rtl;
+  }
+}
+
+.font-arabic {
+  font-family: 'Tajawal', system-ui, sans-serif;
+}
+
+.quran-text {
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+  font-size: var(--quran-font-size, 24px);
+  line-height: 2.6;
+  letter-spacing: 0.01em;
+}
+
+.bismillah-text {
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+}
+
+/* اسم السورة في بطاقات الرئيسية: خط قرآني بحجم عنوان. */
+.surah-name {
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+  font-size: 1.5rem;
+  line-height: 1.7;
+}
+
+/* بطاقة البطل في الرئيسية: تدرج زمردي مع لمسة ذهبية. */
+.hero-gradient {
+  background:
+    radial-gradient(120% 140% at 85% 0%, hsl(43 85% 55% / 0.35) 0%, transparent 55%),
+    linear-gradient(135deg, hsl(160 62% 20%) 0%, hsl(160 58% 26%) 55%, hsl(158 55% 32%) 100%);
+  color: hsl(40 40% 97%);
+}
+
+.hero-gradient .hero-muted {
+  color: hsl(40 30% 82%);
+}
+
+/* نمط نجمة إسلامية شفاف فوق بطاقة البطل (1.0.70). */
+.hero-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23FFFFFF' stroke-opacity='0.09' stroke-width='1'%3E%3Cpath d='M36 8 L44 28 L64 36 L44 44 L36 64 L28 44 L8 36 L28 28 Z'/%3E%3Ccircle cx='36' cy='36' r='6'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 72px 72px;
+}
+
+/* دخول ناعم للأقسام (1.0.70): ظهور تدريجي مع صعود خفيف. */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.5s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up { animation: none; }
+}
+
+.geometric-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%230B6B4F' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.surah-card {
+  transition: all 0.2s ease;
+}
+.surah-card:hover {
+  transform: translateY(-2px);
+}
+
+/* بطاقة حديثة: زوايا أكبر وظل ناعم. */
+.card-modern {
+  @apply bg-card border border-border rounded-3xl shadow-[0_1px_2px_hsl(160_30%_12%/0.05),0_8px_24px_-12px_hsl(160_30%_12%/0.18)];
+}
+
+/* عنوان قسم صغير فوق البطاقات. */
+.section-label {
+  @apply text-xs font-bold text-primary tracking-wide;
+}
+
+.audio-progress::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  cursor: pointer;
+}
+.audio-progress::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  cursor: pointer;
+  border: none;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(160 58% 24% / 0.4); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px hsl(160 58% 24% / 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(160 58% 24% / 0); }
+}
+
+.playing-pulse {
+  animation: pulse-ring 2s ease infinite;
+}
+
+.ayah-highlight {
+  background: hsl(160 58% 24% / 0.08);
+  border-radius: 8px;
+  transition: background 0.3s ease;
+}
+
+/* الشريط العلوي: إنزاله قليلًا ليظهر بوضوح أسفل شريط حالة الهاتف
+   (مساحة آمنة + حشوة إضافية فوق حشوة py-3 الافتراضية). في WebView
+   أندرويد تكون safe-area-inset-top صفرًا غالبًا، فالحشوة الأساسية
+   (2.25rem) هي التي تُبعد الشريط عن حافة الشاشة. */
+header.sticky {
+  padding-top: max(2.25rem, calc(env(safe-area-inset-top, 0px) + 1.25rem));
+}
+
+/* A long-press on a link must not show the link callout with the raw
+   internal URL (the cards are navigation, not links to copy). */
+a {
+  -webkit-touch-callout: none;
+}
