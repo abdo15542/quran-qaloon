@@ -208,7 +208,10 @@ export async function saveAyahImage(opts: ShareAyahOptions): Promise<SaveAyahRes
     if (Capacitor.isNativePlatform()) {
       const dataUrl = await renderAyahImageDataUrl(opts);
       if (await saveToGallery(dataUrl, fileName)) return "saved_gallery";
-      // Gallery save failed — fall through to the download below.
+      // Gallery save failed — on native there is no working download
+      // fallback (anchor downloads are ignored inside the WebView),
+      // so report the failure instead of a false success.
+      return "failed";
     }
     const blob = await renderAyahImage(opts);
     downloadBlob(blob, fileName);

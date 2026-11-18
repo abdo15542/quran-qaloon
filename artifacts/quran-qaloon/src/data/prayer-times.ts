@@ -247,7 +247,10 @@ export function openLocationSettings(): void {
 export function getActiveLocation(): { lat: number; lng: number; label: string; cityId: string } {
   if (getStoredMode() === "auto") {
     const coords = getStoredCoords();
-    if (coords) {
+    // Stored GPS coordinates expire after 24h: if he travels and
+    // detection keeps failing, the times must fall back to his saved
+    // city instead of using the old city's position forever.
+    if (coords && typeof coords.updatedAt === "number" && Date.now() - coords.updatedAt < 24 * 3600 * 1000) {
       return { lat: coords.lat, lng: coords.lng, label: getCity(coords.cityId).name, cityId: coords.cityId };
     }
   }
@@ -515,6 +518,18 @@ const PRE_ALERT_BASE_ID = 200;
 const IQAMA_BASE_ID = 300;
 const NOTIF_DAYS = 7;
 
+// The adhan notification ids (100-134) only, for cancelling the
+// fallback adhan without touching the pre-alert / iqama sets.
+function adhanNotificationIds(): Array<{ id: number }> {
+  const ids: Array<{ id: number }> = [];
+  for (let d = 0; d < NOTIF_DAYS; d++) {
+    for (let i = 0; i < PRAYER_ORDER.length; i++) {
+      ids.push({ id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i });
+    }
+  }
+  return ids;
+}
+
 function allNotificationIds(): Array<{ id: number }> {
   const ids: Array<{ id: number }> = [];
   for (const base of [NOTIF_BASE_ID, PRE_ALERT_BASE_ID, IQAMA_BASE_ID]) {
@@ -580,7 +595,13 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
   try {
     const perm = await LocalNotifications.requestPermissions();
     if (perm.display !== "granted") {
-      setPrayerReminderEnabled(false);
+      // Denying notifications must also stop what is already armed:
+      // native adhan alarms (ids 100-134) are NOT blocked by the
+      // notification permission, so without cancelling them the full
+      // adhan would keep firing for up to 7 days while the reminder
+      // shows as off — and with notifications disabled its stop
+      // button would not even appear.
+      await cancelPrayerReminders();
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
     await createPrayerChannel();
@@ -734,10 +755,20 @@ export async function cancelPrayerReminders(): Promise<void> {
 export async function ensurePrayerRemindersScheduled(): Promise<void> {
   if (!isPrayerReminderEnabled()) return;
   const loc = getActiveLocation();
-  await scheduleNativeAlarmsForCoords(loc.lat, loc.lng).catch(() => {});
+  const nativeOn = await scheduleNativeAlarmsForCoords(loc.lat, loc.lng).catch(() => false);
+  if (nativeOn) {
+    // The native alarms are registered now, but a fallback adhan
+    // notification (ids 100-134) from an earlier denied-state schedule
+    // may still be pending — cancel it so the adhan never plays twice.
+    await LocalNotifications.cancel({ notifications: adhanNotificationIds() }).catch(() => {});
+  }
   try {
     const last = localStorage.getItem(REMINDER_SCHEDULED_KEY);
-    if (last === new Date().toDateString()) return;
+    // When the native path is unavailable (permission revoked),
+    // Android has already deleted all exact alarms, so the fallback
+    // must be scheduled NOW — waiting for tomorrow would leave a
+    // whole day with no adhan at all.
+    if (last === new Date().toDateString() && nativeOn) return;
   } catch {
     // storage unavailable
   }

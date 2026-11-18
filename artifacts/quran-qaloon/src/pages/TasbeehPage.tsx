@@ -235,7 +235,7 @@ export default function TasbeehPage({ darkMode, toggleDarkMode }: TasbeehPagePro
 
           {isCompleted && (
             <div className={`text-sm font-arabic ${selected.textColor} animate-pulse`}>
-              ﴿ سُبحانَ اللهِ ﴾ أتممتَ الدورة!
+              ﴿ {selected.text} ﴾ أتممتَ الدورة!
             </div>
           )}
 

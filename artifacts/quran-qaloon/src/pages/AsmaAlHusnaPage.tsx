@@ -25,7 +25,7 @@ export default function AsmaAlHusnaPage({ darkMode, toggleDarkMode }: AsmaAlHusn
     return ASMA_AL_HUSNA.filter(
       (n) =>
         stripDiacritics(n.name).includes(q) ||
-        n.meaning.includes(search.trim())
+        stripDiacritics(n.meaning).includes(q)
     );
   }, [search]);
 

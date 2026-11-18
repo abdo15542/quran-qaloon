@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash } from "lucide-react";
-import { SURAHS, QIRAAT } from "@/data/surahs";
+import { SURAHS, QIRAAT, getGlobalAyahNumber } from "@/data/surahs";
+import { getJuzNumber } from "@/data/juz";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
 import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
 import TafsirSheet from "@/components/TafsirSheet";
@@ -339,7 +340,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           text: h.text,
           surahNumber: h.surahNumber,
           surahName: surah.name,
-          juz: 0,
+          juz: getJuzNumber(getGlobalAyahNumber(h.surahNumber, h.numberInSurah)),
           occurrences: h.occurrences,
         };
       })
@@ -573,7 +574,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
               const prev = idx > 0 ? visibleResults[idx - 1] : null;
               const showHeader = !prev || prev.surahNumber !== r.surahNumber;
               return (
-                <div key={r.number}>
+                <div key={`${r.surahNumber}:${r.numberInSurah}`}>
                   {showHeader && (
                     <div className="flex items-center justify-between px-1 pt-2 pb-1">
                       <span className="font-arabic text-base text-primary">

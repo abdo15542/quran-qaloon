@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Moon, Sun, RotateCcw, Check, Minus, Plus } from "lucide-react";
 import { ATHKAR_CATEGORIES, type DhikrContent } from "@/data/athkar";
@@ -101,8 +101,28 @@ function DhikrContentBlock({ content, fontSize }: { content: DhikrContent[]; fon
 
 export default function AthkarDetail({ categoryId, darkMode, toggleDarkMode }: AthkarDetailProps) {
   const category = ATHKAR_CATEGORIES.find((c) => c.id === categoryId);
-  const [counts, setCounts] = useState<Record<number, number>>({});
-  const [completed, setCompleted] = useState<Record<number, boolean>>({});
+  // Counting progress survives leaving the page: counts are restored
+  // per category, so a long dhikr is not lost by an accidental back tap.
+  const storageKey = `athkar_counts_${categoryId}`;
+  const loadStored = (): { counts: Record<number, number>; completed: Record<number, boolean> } => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return { counts: {}, completed: {} };
+      const parsed = JSON.parse(raw) as { counts?: Record<number, number>; completed?: Record<number, boolean> };
+      return { counts: parsed.counts ?? {}, completed: parsed.completed ?? {} };
+    } catch {
+      return { counts: {}, completed: {} };
+    }
+  };
+  const [counts, setCounts] = useState<Record<number, number>>(() => loadStored().counts);
+  const [completed, setCompleted] = useState<Record<number, boolean>>(() => loadStored().completed);
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ counts, completed }));
+    } catch {
+      // storage unavailable
+    }
+  }, [counts, completed, storageKey]);
   const [fontSize, setFontSize] = useState<number>(() => {
     const stored = localStorage.getItem("athkar_font_size");
     return stored ? Number(stored) : 20;

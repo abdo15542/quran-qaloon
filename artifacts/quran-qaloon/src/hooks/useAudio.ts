@@ -58,7 +58,18 @@ export function useAudio(
 
     const handleLoadedMetadata = () => {
       if (initialTimeRef.current > 0) {
-        audio.currentTime = initialTimeRef.current;
+        // The saved position belongs to a different recording when the
+        // reciter changed: if it is past this file's length, start
+        // from the beginning instead of seeking to the end and
+        // instantly firing "ended" (which would falsely mark the
+        // surah complete without playing anything).
+        if (
+          isFinite(audio.duration) &&
+          audio.duration > 0 &&
+          initialTimeRef.current < audio.duration
+        ) {
+          audio.currentTime = initialTimeRef.current;
+        }
       }
       setState((s) => ({ ...s, duration: audio.duration, isLoading: false }));
     };

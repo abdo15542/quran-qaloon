@@ -77,7 +77,10 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     [now, activeLoc.lat, activeLoc.lng]
   );
   useEffect(() => {
-    const t = window.setInterval(() => setNow(new Date()), 30000);
+    // Tick every second: the countdown shows seconds in the last
+    // minute, and a 30s tick left the seconds frozen for up to half
+    // a minute before jumping.
+    const t = window.setInterval(() => setNow(new Date()), 1000);
     ensurePrayerRemindersScheduled().catch(() => {});
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -88,12 +91,13 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   const reciter = getSelectedReciter();
 
   const filtered = useMemo(() => {
+    const searchDigits = search.replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString());
     return SURAHS.filter((s) => {
       const matchesSearch =
         search === "" ||
         s.name.includes(search) ||
         s.englishName.toLowerCase().includes(search.toLowerCase()) ||
-        String(s.number).includes(search);
+        String(s.number).includes(searchDigits);
       const matchesFilter =
         filter === "all" ||
         (filter === "meccan" && s.revelationType === "Meccan") ||
@@ -516,8 +520,10 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                   </div>
                 </Link>
 
-                {/* Download button — floats over bottom-right of card */}
-                <div className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                {/* Download button — floats over bottom-right of card.
+                    Always visible: on a touch device there is no hover,
+                    so a hover-only button never appears. */}
+                <div className="absolute bottom-2 left-2 z-10">
                   <DownloadButton
                     surahNumber={surah.number}
                     surahName={surah.name}

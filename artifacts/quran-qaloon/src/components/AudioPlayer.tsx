@@ -40,6 +40,11 @@ export default function AudioPlayer({
   pauseSignal = 0,
 }: AudioPlayerProps) {
   const [retryKey, setRetryKey] = useState(0);
+  // Hide the "resume from X" banner once the user restarts from the
+  // beginning or the surah finishes — otherwise it reappears claiming
+  // a resume from the old position on a finished surah.
+  const [resumeHidden, setResumeHidden] = useState(false);
+  const playedRef = useRef(false);
   const urlWithRetry = audioUrl;
 
   const { state, toggle, pause, seek, setVolume, setPlaybackRate } = useAudio(
@@ -57,6 +62,16 @@ export default function AudioPlayer({
   useEffect(() => {
     if (pauseSignal > 0) pauseRef.current();
   }, [pauseSignal]);
+
+  useEffect(() => {
+    if (state.isPlaying) playedRef.current = true;
+  }, [state.isPlaying]);
+
+  // New surah / new resume position: the banner may show again.
+  useEffect(() => {
+    setResumeHidden(false);
+    playedRef.current = false;
+  }, [audioUrl, initialTime]);
 
   // ---- مؤقت إيقاف التشغيل (للاستماع قبل النوم) ----
   const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = متوقف
@@ -111,7 +126,9 @@ export default function AudioPlayer({
   const progress =
     state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
 
-  const hasResume = initialTime > 0 && state.currentTime < 5;
+  const finished =
+    playedRef.current && !state.isPlaying && state.currentTime === 0 && state.duration > 0;
+  const hasResume = initialTime > 0 && state.currentTime < 5 && !resumeHidden && !finished;
 
   const handleRetry = () => {
     setRetryKey((k) => k + 1);
@@ -150,7 +167,10 @@ export default function AudioPlayer({
               متابعة من {formatTime(initialTime)}
             </span>
             <button
-              onClick={() => seek(0)}
+              onClick={() => {
+                setResumeHidden(true);
+                seek(0);
+              }}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 underline"
             >
               من البداية

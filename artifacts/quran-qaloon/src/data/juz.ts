@@ -79,3 +79,14 @@ export function juzStartGlobalAyah(juzNumber: number): number | null {
   for (let s = 1; s < j.startSurah; s++) total += SURAHS[s - 1].numberOfAyahs;
   return total + j.startAyah;
 }
+
+/** رقم الجزء (١–٣٠) الذي تنتمي إليه آية برقمها العام (١–٦٢٣٦). */
+export function getJuzNumber(globalAyah: number): number {
+  let juz = 1;
+  for (const j of JUZ_STARTS) {
+    const start = juzStartGlobalAyah(j.number);
+    if (start !== null && globalAyah >= start) juz = j.number;
+    else break;
+  }
+  return juz;
+}

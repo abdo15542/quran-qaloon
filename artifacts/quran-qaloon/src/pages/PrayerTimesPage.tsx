@@ -46,6 +46,8 @@ import {
   openLocationSettings,
   scheduleTestAdhanNotification,
   enableReminderIfFirstRun,
+  isExactAlarmGranted,
+  openExactAlarmSettingsPage,
   type PrayerLocationMode,
   type PrayerKey,
   type StoredCoords,
@@ -77,7 +79,10 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   // Live clock for the countdown (updates every 30 seconds — enough for
   // a minute-level countdown and cheap on battery).
   useEffect(() => {
-    const t = window.setInterval(() => setNow(new Date()), 30000);
+    // Tick every second: the countdown shows seconds in the last
+    // minute, and a 30s tick left the seconds frozen for up to half
+    // a minute before jumping.
+    const t = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(t);
   }, []);
 
@@ -215,6 +220,13 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
         setReminderEnabled(isPrayerReminderEnabled());
         if (msg) setReminderStatus(msg);
         else setReminderStatus("التذكير يُفعَّل على الهاتف فقط — سيعمل بعد تثبيت النسخة");
+        // No instruction text in the UI any more — but if the
+        // exact-alarm permission is missing, the native adhan silently
+        // falls back to the notification sound with no remedy in the
+        // app. Open the system settings once so it can be granted.
+        if (isPrayerReminderEnabled() && !(await isExactAlarmGranted())) {
+          await openExactAlarmSettingsPage();
+        }
       }
     } finally {
       setReminderBusy(false);
@@ -391,7 +403,10 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           {PRAYER_ORDER.map((key) => {
             const time = times[key];
-            const isNext = next.key === key && next.time.getTime() === time.getTime();
+            // After Isha the next prayer is tomorrow's Fajr, whose time
+            // is later than today's Fajr row — >= (not ===) so the Fajr
+            // row is marked "next" instead of "ended" at night.
+            const isNext = next.key === key && next.time.getTime() >= time.getTime();
             const passed = time.getTime() <= now.getTime();
             const iqamaTime = getIqamaTime(now, key, active.lat, active.lng);
             const iqamaNow = currentIqama?.key === key;
@@ -410,7 +425,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   {passed && !isNext && (
                     <span className="text-xs text-muted-foreground">انتهت</span>
                   )}
-                  {iqamaOn && !iqamaNow && (
+                  {iqamaOn && !iqamaNow && iqamaTime.getTime() > now.getTime() && (
                     <span className="text-xs text-muted-foreground">الإقامة {formatPrayerTime(iqamaTime)}</span>
                   )}
                   {iqamaNow && (

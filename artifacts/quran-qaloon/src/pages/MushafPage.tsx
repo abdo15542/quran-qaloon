@@ -198,7 +198,7 @@ export default function MushafPage({
           className="mt-4 flex items-center justify-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const p = parseInt(jump, 10);
+            const p = parseInt(jump.replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString()), 10);
             if (!isNaN(p)) goTo(p);
             setJump("");
           }}

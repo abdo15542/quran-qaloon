@@ -45,6 +45,10 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     currentSurah: string;
   }>({ status: "idle", done: 0, total: 0, failed: 0, currentSurah: "" });
   const cancelBulkRef = useRef(false);
+  // Aborts the downloads in flight too — a flag alone only stops
+  // the queue between surahs, while up to 5 fetches would keep
+  // downloading (and saving) for minutes after pressing stop.
+  const bulkAbortRef = useRef<AbortController | null>(null);
 
   const selectedReciter =
     RECITERS.find((r) => r.id === selectedReciterId) ??
@@ -63,6 +67,8 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
       return;
     }
     cancelBulkRef.current = false;
+    bulkAbortRef.current = new AbortController();
+    const signal = bulkAbortRef.current.signal;
     let done = 0;
     let failed = 0;
     setBulk({ status: "running", done: 0, total: pending.length, failed: 0, currentSurah: pending[0].name });
@@ -83,8 +89,12 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
           surah.name,
           selectedReciter.id,
           selectedReciter.name,
-          buildAudioUrl(selectedReciter, surah.number)
+          buildAudioUrl(selectedReciter, surah.number),
+          signal
         );
+        // Stopped while this surah was downloading: do not count the
+        // aborted download as a failure.
+        if (cancelBulkRef.current) return;
         if (ok) done++;
         else failed++;
         setBulk((prev) => ({ ...prev, done, failed }));
@@ -104,6 +114,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
 
   const cancelBulkDownload = () => {
     cancelBulkRef.current = true;
+    bulkAbortRef.current?.abort();
   };
 
   const sorted = [...cachedItems].sort((a, b) => b.cachedAt - a.cachedAt);
@@ -317,7 +328,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
           <ul className="text-muted-foreground text-xs space-y-1.5 list-none">
             <li className="flex items-start gap-2">
               <span className="text-primary mt-0.5">•</span>
-              <span>عند تشغيل سورة وأنت متصل بالإنترنت، يُحفظ الصوت تلقائياً في جهازك</span>
+              <span>الآيات التي تستمع إليها تُحفظ تلقائياً في جهازك، فتعمل دون إنترنت بعدها</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary mt-0.5">•</span>
@@ -339,7 +350,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
           <div className="text-center py-16 text-muted-foreground">
             <WifiOff className="w-12 h-12 mx-auto mb-4 opacity-20" />
             <div className="text-base mb-1">لا توجد ملفات محفوظة بعد</div>
-            <div className="text-sm">استمع إلى أي سورة وهي ستُحفظ تلقائياً</div>
+            <div className="text-sm">حمّل أي سورة من القائمة الرئيسية لتستمع إليها دون إنترنت</div>
           </div>
         ) : (
           <div className="space-y-2">

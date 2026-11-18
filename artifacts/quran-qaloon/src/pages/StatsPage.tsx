@@ -41,7 +41,7 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
   const lastMushafPage = getLastMushafPage();
 
   const khatmaPct = Math.round((totalCompleted / 114) * 100);
-  const mushafPct = Math.round(((lastMushafPage - 1) / 604) * 100);
+  const mushafPct = Math.round((lastMushafPage / 604) * 100);
 
   const tiles = [
     {

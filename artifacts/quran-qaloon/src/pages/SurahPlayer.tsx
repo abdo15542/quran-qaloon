@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
-import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl } from "@/data/surahs";
+import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
 import { getTranslation } from "@/data/translation-en";
@@ -221,7 +221,7 @@ export default function SurahPlayer({
   const { getProgress, saveProgress, clearProgress } = useListeningProgress();
   const { isCompleted, markCompleted, markUncompleted } = useKhatma();
   const { isFavourite, toggleFavourite } = useFavourites();
-  const { isCached, getCachedBlobUrl } = useOffline();
+  const { isCached, getCachedBlobUrl, getCachedAyahUrl, cacheAyahAudio } = useOffline();
 
 
   useEffect(() => {
@@ -375,16 +375,34 @@ export default function SurahPlayer({
     ayahContinuousRef.current = ayahContinuous;
   }, [ayahContinuous]);
 
+  const ayahSeekTimerRef = useRef<number | null>(null);
+  // The pending seek's `seeked` listener: stopping (or tapping another
+  // ayah) must remove it, or it fires later and restarts the old ayah
+  // / yanks the new one back to the old position.
+  const ayahSeekListenerRef = useRef<(() => void) | null>(null);
+  const clearAyahSeek = useCallback(() => {
+    if (ayahSeekTimerRef.current != null) {
+      window.clearTimeout(ayahSeekTimerRef.current);
+      ayahSeekTimerRef.current = null;
+    }
+    const audio = ayahAudioRef.current;
+    if (audio && ayahSeekListenerRef.current) {
+      audio.removeEventListener("seeked", ayahSeekListenerRef.current);
+      ayahSeekListenerRef.current = null;
+    }
+  }, []);
+
   const stopAyah = useCallback(() => {
     const audio = ayahAudioRef.current;
     if (audio) audio.pause();
     clearAyahStopTimer();
+    clearAyahSeek();
     ayahSessionRef.current = null;
     ayahRangeRef.current = null;
     ayahExactRef.current = null;
     setAyahStarted(false);
     setPlayingAyah(null);
-  }, []);
+  }, [clearAyahSeek]);
 
   // عند الانتقال إلى سورة أخرى ألغِ تحديد الآية (حتى لا تبقى لوحة
   // سورة قديمة ظاهرة) وأوقف صوت الآية، وأخفِ الآيات المكشوفة في
@@ -403,7 +421,6 @@ export default function SurahPlayer({
   // currentTime) قبل أن نشغّل؛ وإن لم يتغيّر نعيد القفز بضع مرات.
   // وإن لم تكن بيانات الصوت قد حُمّلت أصلًا لا نشغّل من موضع خاطئ؛
   // مستمع loadedmetadata يعيد تطبيق القفز عند جاهزيتها.
-  const ayahSeekTimerRef = useRef<number | null>(null);
   // الضغط على آية يريدها المستخدم من بدايتها دائمًا، حتى لو كان
   // الصوت واقفًا داخلها أصلًا؛ أما التقدّم المتواصل فيترك الصوت يكمل
   // من حيث هو حتى لا يعيد بداية الآية التالية (انظر applyAyahRange).
@@ -421,10 +438,7 @@ export default function SurahPlayer({
   const seekAyahAudio = useCallback((target: number) => {
     const audio = ayahAudioRef.current;
     if (!audio) return;
-    if (ayahSeekTimerRef.current != null) {
-      window.clearTimeout(ayahSeekTimerRef.current);
-      ayahSeekTimerRef.current = null;
-    }
+    clearAyahSeek();
     audio.pause();
     audio.currentTime = target;
     let tries = 0;
@@ -436,6 +450,7 @@ export default function SurahPlayer({
       if (done) return;
       done = true;
       audio.removeEventListener("seeked", onSeeked);
+      ayahSeekListenerRef.current = null;
       if (ayahSeekTimerRef.current != null) {
         window.clearTimeout(ayahSeekTimerRef.current);
         ayahSeekTimerRef.current = null;
@@ -472,9 +487,10 @@ export default function SurahPlayer({
       ayahSeekTimerRef.current = window.setTimeout(check, 350);
     };
     if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
+    ayahSeekListenerRef.current = onSeeked;
     audio.addEventListener("seeked", onSeeked);
     ayahSeekTimerRef.current = window.setTimeout(check, 600);
-  }, [stopAyah]);
+  }, [stopAyah, clearAyahSeek]);
 
   // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
   // ضغطة المستخدم (forceSeek) تقفز دائمًا إلى بداية الآية؛ أما التقدّم
@@ -520,7 +536,7 @@ export default function SurahPlayer({
   }, [seekAyahAudio]);
 
   const playAyah = useCallback(
-    (ayahNumberInSurah: number, fromTap = false) => {
+    async (ayahNumberInSurah: number, fromTap = false) => {
       // الضغط على الآية الجارية يوقفها ويغلق اللوحة.
       if (playingAyah === ayahNumberInSurah) {
         stopAyah();
@@ -528,6 +544,7 @@ export default function SurahPlayer({
         return;
       }
       clearAyahStopTimer();
+      clearAyahSeek();
       setHighlightedAyah(null);
       // حدّد الآية فور الضغط — قبل محاولة تشغيل الصوت — حتى تبقى
       // اللوحة وزر «التفسير» ظاهرين حتى لو فشل الصوت.
@@ -553,11 +570,25 @@ export default function SurahPlayer({
           played: 0,
         };
         setPlayingAyah(ayahNumberInSurah);
-        audio.src = perAyahUrl;
+        // Offline first: a downloaded or previously heard ayah plays
+        // from the device instead of the network.
+        const globalAyah = getGlobalAyahNumber(surahNumber, ayahNumberInSurah);
+        const cachedUrl = currentReciter
+          ? await getCachedAyahUrl(currentReciter.id, globalAyah)
+          : null;
+        // The user may have tapped another ayah (or stopped) while the
+        // cache lookup was in flight — only play if this session is
+        // still the current one.
+        if (ayahSessionRef.current?.ayah !== ayahNumberInSurah) return;
+        audio.src = cachedUrl ?? perAyahUrl;
         audio.play().catch(() => {
           setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
           stopAyah();
         });
+        // Cache this ayah for offline use after it plays online.
+        if (!cachedUrl && currentReciter) {
+          void cacheAyahAudio(currentReciter.id, globalAyah, perAyahUrl);
+        }
         // حمّل الآية التالية مسبقًا حتى لا تنتظر الشبكة عند الانتقال إليها.
         const nextUrl =
           ayahs.some((a) => a.numberInSurah === ayahNumberInSurah + 1) && currentReciter
@@ -628,7 +659,7 @@ export default function SurahPlayer({
         audio.load();
       }
     },
-    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah, applyAyahRange]
+    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah, applyAyahRange, clearAyahSeek, getCachedAyahUrl, cacheAyahAudio]
   );
 
   const finishAyah = useCallback(() => {
@@ -784,7 +815,11 @@ export default function SurahPlayer({
       setIsOffline(false);
       return;
     }
+    let alive = true;
     getCachedBlobUrl(surahNumber, currentReciter.id).then((blobUrl) => {
+      // A slow lookup for the previous surah must not overwrite the
+      // current one when the user switches surahs quickly.
+      if (!alive) return;
       if (blobUrl) {
         setEffectiveAudioUrl(blobUrl);
         setIsOffline(true);
@@ -793,6 +828,9 @@ export default function SurahPlayer({
         setIsOffline(false);
       }
     });
+    return () => {
+      alive = false;
+    };
   }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQirahChange = (qirahId: string) => {

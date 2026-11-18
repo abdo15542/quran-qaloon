@@ -79,7 +79,19 @@ export function useWird() {
       return null;
     }
   });
-  const [streak, setStreak] = useState<number>(() => loadNum(KEYS.streak, 0));
+  // The streak only survives while the chain is unbroken: if the last
+  // completed day is neither today nor yesterday, the chain is broken
+  // and the displayed streak is 0 until he marks a day done again.
+  const [streak, setStreak] = useState<number>(() => {
+    const s = loadNum(KEYS.streak, 0);
+    let last: string | null = null;
+    try {
+      last = localStorage.getItem(KEYS.lastDone);
+    } catch {
+      last = null;
+    }
+    return last === todayStr() || last === yesterdayStr() ? s : 0;
+  });
   const [reminderEnabled, setReminderEnabled] = useState<boolean>(
     () => loadStr(KEYS.reminder, "0") === "1"
   );
