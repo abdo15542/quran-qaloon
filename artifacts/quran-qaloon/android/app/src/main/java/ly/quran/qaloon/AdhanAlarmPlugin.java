@@ -105,7 +105,7 @@ public class AdhanAlarmPlugin extends Plugin {
         call.resolve();
     }
 
-    /** Play the full adhan once, 5 seconds from now (test button). */
+    /** Play the full adhan once, 5 seconds from now (test button). Pass { fajr: true } to play the Fajr adhan. */
     @PluginMethod
     public void testAdhan(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -115,12 +115,14 @@ public class AdhanAlarmPlugin extends Plugin {
                 return;
             }
         }
+        boolean fajr = call.getBoolean("fajr", false);
         JSONArray one = new JSONArray();
         try {
             JSONObject a = new JSONObject();
             a.put("id", 9999);
             a.put("at", System.currentTimeMillis() + 5000);
-            a.put("title", "اختبار الأذان 🕌");
+            a.put("title", fajr ? "اختبار أذان الفجر 🕌" : "اختبار الأذان 🕌");
+            a.put("fajr", fajr);
             one.put(a);
         } catch (JSONException e) {
             call.reject("test failed");

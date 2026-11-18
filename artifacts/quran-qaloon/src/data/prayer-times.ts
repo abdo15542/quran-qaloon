@@ -447,12 +447,17 @@ export function formatCountdown(ms: number): string {
 // exact-alarm permission is not granted: on Android 8+ a
 // notification's sound lives on its channel, so the channel is
 // created (once — Android keeps the first creation) with the bundled
-// adhan.mp3 (android/app/src/main/res/raw/adhan.mp3, 75s) before
-// scheduling.
+// adhan.mp3 (android/app/src/main/res/raw/adhan.mp3, the full 124s
+// file) before scheduling.
 export const ADHAN_CHANNEL_ID = "prayer-adhan";
 
+// Fajr has its own channel with the Fajr adhan as its sound, so the
+// fallback path (exact-alarm permission not granted) also plays
+// «الصلاة خير من النوم» at Fajr instead of the regular adhan.
+export const ADHAN_FAJR_CHANNEL_ID = "prayer-adhan-fajr";
+
 // The pre-alert (5 minutes before) and the iqama use a second channel
-// with the system default sound — a short alert, not the 75s adhan.
+// with the system default sound — a short alert, not the adhan.
 // Both channels vibrate, so the phone alerts in vibrate mode too.
 export const REMINDER_CHANNEL_ID = "prayer-reminder";
 
@@ -464,6 +469,23 @@ export async function createPrayerChannel(): Promise<void> {
       name: "أوقات الصلاة",
       description: "تذكير بصوت الأذان عند وقت كل صلاة",
       sound: "adhan.mp3",
+      importance: 5,
+      vibration: true,
+      lights: true,
+    });
+  } catch {
+    // channel creation is best-effort; scheduling still proceeds
+  }
+}
+
+export async function createFajrAdhanChannel(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: ADHAN_FAJR_CHANNEL_ID,
+      name: "أذان الفجر",
+      description: "تذكير بصوت أذان الفجر عند وقت صلاة الفجر",
+      sound: "adhan_fajr.mp3",
       importance: 5,
       vibration: true,
       lights: true,
@@ -528,10 +550,12 @@ function allNotificationIds(): Array<{ id: number }> {
       }
     }
   }
-  // The test notification (id 999, «جرّب صوت الأذان») is not part of the
-  // daily sets — include it so cancelling the reminders never leaves a
-  // stale test adhan behind.
+  // The test notifications (id 999 regular, 998 Fajr — «جرّب صوت
+  // الأذان» / «جرّب أذان الفجر») are not part of the daily sets —
+  // include them so cancelling the reminders never leaves a stale
+  // test adhan behind.
   ids.push({ id: 999 });
+  ids.push({ id: 998 });
   return ids;
 }
 
@@ -561,6 +585,9 @@ async function scheduleNativeAlarmsForCoords(lat: number, lng: number): Promise<
           id: NOTIF_BASE_ID + d * PRAYER_ORDER.length + i,
           at: at.getTime(),
           title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
+          // Fajr alarms play the Fajr adhan (adhan_fajr.mp3, with
+          // «الصلاة خير من النوم»); the rest play adhan.mp3.
+          fajr: key === "fajr",
         });
       }
     }
@@ -594,7 +621,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       // So only the notification-based ids are cancelled; the native
       // alarms stay armed and the reminder stays ON. (The service
       // notification's stop button is hidden while notifications are
-      // denied — the adhan still stops by itself after 75s.)
+      // denied — the adhan still stops by itself when the file ends.)
       await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
       const nativeAdhan = await scheduleNativeAlarmsForCoords(lat, lng);
       if (nativeAdhan) setPrayerReminderEnabled(true);
@@ -607,6 +634,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
     await createPrayerChannel();
+    await createFajrAdhanChannel();
     await createReminderChannel();
     await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
     const preAlert = isPreAlertEnabled();
@@ -635,7 +663,9 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
             title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
             body: `صلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
             schedule: { at, allowWhileIdle: true },
-            channelId: ADHAN_CHANNEL_ID,
+            // Fajr fallback plays the Fajr adhan channel; the rest
+            // play the regular adhan channel.
+            channelId: key === "fajr" ? ADHAN_FAJR_CHANNEL_ID : ADHAN_CHANNEL_ID,
           });
         }
         if (preAlert) {
@@ -684,10 +714,11 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
 
 // Fire a real adhan in 5 seconds, so the user can hear the FULL
 // adhan without waiting for a prayer time. Prefers the native player
-// (the whole 75s file); falls back to the notification sound when the
-// exact-alarm permission is not granted. Returns a status message,
-// or null on the web.
-export async function scheduleTestAdhanNotification(): Promise<string | null> {
+// (the whole file); falls back to the notification sound when the
+// exact-alarm permission is not granted. Pass true to test the Fajr
+// adhan («الصلاة خير من النوم») instead of the regular one. Returns
+// a status message, or null on the web.
+export async function scheduleTestAdhanNotification(fajr = false): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
   try {
     const perm = await LocalNotifications.requestPermissions();
@@ -695,24 +726,31 @@ export async function scheduleTestAdhanNotification(): Promise<string | null> {
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
     if (await canScheduleExactAdhanAlarms()) {
-      if (await testNativeAdhan()) {
-        return "سيُسمَع الأذان كاملًا خلال ٥ ثوانٍ — أوقفْه من زر «إيقاف الأذان» في الإشعار";
+      if (await testNativeAdhan(fajr)) {
+        return fajr
+          ? "سيُسمَع أذان الفجر كاملًا خلال ٥ ثوانٍ — أوقفْه من زر «إيقاف الأذان» في الإشعار"
+          : "سيُسمَع الأذان كاملًا خلال ٥ ثوانٍ — أوقفْه من زر «إيقاف الأذان» في الإشعار";
       }
     }
     await createPrayerChannel();
+    await createFajrAdhanChannel();
     const at = new Date(Date.now() + 5000);
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: 999,
-          title: "اختبار الأذان 🕌",
-          body: "هذا صوت الأذان الذي سيسمع عند وقت كل صلاة",
+          id: fajr ? 998 : 999,
+          title: fajr ? "اختبار أذان الفجر 🕌" : "اختبار الأذان 🕌",
+          body: fajr
+            ? "هذا صوت أذان الفجر الذي سيسمع عند وقت صلاة الفجر"
+            : "هذا صوت الأذان الذي سيسمع عند وقت كل صلاة",
           schedule: { at, allowWhileIdle: true },
-          channelId: ADHAN_CHANNEL_ID,
+          channelId: fajr ? ADHAN_FAJR_CHANNEL_ID : ADHAN_CHANNEL_ID,
         },
       ],
     });
-    return "سيصلك إشعار اختبار بصوت الأذان خلال ٥ ثوانٍ";
+    return fajr
+      ? "سيصلك إشعار اختبار بصوت أذان الفجر خلال ٥ ثوانٍ"
+      : "سيصلك إشعار اختبار بصوت الأذان خلال ٥ ثوانٍ";
   } catch {
     return "تعذّر إرسال إشعار الاختبار — حاول مجددًا";
   }

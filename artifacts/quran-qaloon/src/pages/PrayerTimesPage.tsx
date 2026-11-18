@@ -213,6 +213,17 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     }
   };
 
+  const handleTestFajrAdhan = async () => {
+    if (testBusy) return;
+    setTestBusy(true);
+    try {
+      const msg = await scheduleTestAdhanNotification(true);
+      setTestStatus(msg ?? "اختبار أذان الفجر يعمل على الهاتف فقط — سيصلك الإشعار بعد تثبيت النسخة");
+    } finally {
+      setTestBusy(false);
+    }
+  };
+
   const handleReminderToggle = async () => {
     if (reminderBusy) return;
     setReminderBusy(true);
@@ -567,6 +578,13 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
           >
             🔊 جرّب صوت الأذان
+          </button>
+          <button
+            onClick={handleTestFajrAdhan}
+            disabled={testBusy}
+            className="mt-3 mr-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
+          >
+            🌙 جرّب أذان الفجر
           </button>
           {testStatus && (
             <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">{testStatus}</p>

@@ -18,9 +18,11 @@ import androidx.core.app.NotificationCompat;
 import java.io.IOException;
 
 /**
- * Plays the full bundled adhan (res/raw/adhan.mp3, 75s) with a
- * MediaPlayer in a foreground service — this is what makes the adhan
- * play COMPLETELY and automatically at prayer time:
+ * Plays the full bundled adhan (res/raw/adhan.mp3, the full AlAdhan
+ * a3, 124s; Fajr plays res/raw/adhan_fajr.mp3, Mishary, 187s, with
+ * «الصلاة خير من النوم») with a MediaPlayer in a foreground
+ * service — this is what makes the adhan play COMPLETELY and
+ * automatically at prayer time:
  *
  * - A notification sound cannot do this: it stops the moment the
  *   notification is swiped away, and it is silenced by silent mode
@@ -73,6 +75,7 @@ public class AdhanPlayerService extends Service {
         }
         String title = intent.getStringExtra(AdhanAlarms.EXTRA_TITLE);
         if (title == null || title.isEmpty()) title = "حان الآن وقت الصلاة 🕌";
+        boolean fajr = intent.getBooleanExtra(AdhanAlarms.EXTRA_FAJR, false);
         stopPlaying();
         Notification notif = buildNotification(title);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -80,7 +83,7 @@ public class AdhanPlayerService extends Service {
         } else {
             startForeground(NOTIF_ID, notif);
         }
-        startPlaying();
+        startPlaying(fajr);
         return START_NOT_STICKY;
     }
 
@@ -106,14 +109,17 @@ public class AdhanPlayerService extends Service {
             .build();
     }
 
-    private void startPlaying() {
+    private void startPlaying(boolean fajr) {
         try {
             MediaPlayer mp = new MediaPlayer();
             mp.setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build());
-            AssetFileDescriptor afd = getResources().openRawResourceFd(R.raw.adhan);
+            // Fajr has its own adhan («الصلاة خير من النوم»); the
+            // other prayers share the regular adhan.
+            int resId = fajr ? R.raw.adhan_fajr : R.raw.adhan;
+            AssetFileDescriptor afd = getResources().openRawResourceFd(resId);
             mp.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();
             mp.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);

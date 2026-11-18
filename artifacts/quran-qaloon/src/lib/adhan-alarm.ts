@@ -6,8 +6,10 @@
 // schedules them with an INEXACT alarm that Doze can delay or skip.
 // So the adhan itself is played natively: an exact AlarmManager alarm
 // (7 days x 5 prayers) starts a foreground service whose MediaPlayer
-// plays the whole bundled adhan.mp3 (75s) on the ALARM audio stream —
-// on time, in full, even in silent mode, even with the app closed.
+// plays the whole bundled adhan on the ALARM audio stream — on time,
+// in full, even in silent mode, even with the app closed.
+// The regular adhan is adhan.mp3 (the full AlAdhan a3, 124s); Fajr
+// plays adhan_fajr.mp3 (Mishary, 187s, with «الصلاة خير من النوم»).
 // The pre-alert and iqama stay as short notifications: they only
 // need a beep, and the notification system is fine for that.
 import { Capacitor, registerPlugin } from "@capacitor/core";
@@ -17,6 +19,8 @@ export interface AdhanAlarmItem {
   /** Epoch millis when the adhan must play. */
   at: number;
   title: string;
+  /** True for Fajr alarms: play the Fajr adhan (adhan_fajr.mp3). */
+  fajr?: boolean;
 }
 
 interface AdhanAlarmPlugin {
@@ -25,7 +29,7 @@ interface AdhanAlarmPlugin {
   scheduleAlarms(options: { alarms: AdhanAlarmItem[] }): Promise<void>;
   cancelAlarms(): Promise<void>;
   stopAdhan(): Promise<void>;
-  testAdhan(): Promise<void>;
+  testAdhan(options?: { fajr?: boolean }): Promise<void>;
 }
 
 const AdhanAlarm = registerPlugin<AdhanAlarmPlugin>("AdhanAlarm", {
@@ -81,11 +85,11 @@ export async function cancelNativeAdhanAlarms(): Promise<void> {
   }
 }
 
-/** Play the full adhan once, 5 seconds from now. Returns false when the native path is unavailable. */
-export async function testNativeAdhan(): Promise<boolean> {
+/** Play the full adhan once, 5 seconds from now. Pass true to play the Fajr adhan. Returns false when the native path is unavailable. */
+export async function testNativeAdhan(fajr = false): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
-    await AdhanAlarm.testAdhan();
+    await AdhanAlarm.testAdhan({ fajr });
     return true;
   } catch {
     return false;
