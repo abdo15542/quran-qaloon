@@ -2,9 +2,10 @@
 // ومصدرها ونوعها ومعناها في غريب القرآن، وكل آية فيها نفس الجذر.
 // Bottom sheet like TajweedRuleSheet (z-[100], above the bottom nav).
 import { useEffect, useMemo } from "react";
-import { X, BookOpen, Hash, Type, Tag, ListOrdered } from "lucide-react";
+import { X, BookOpen, Hash, Type, Tag, ListOrdered, BookCopy, Heart, Share2, Copy, Check } from "lucide-react";
 import { getWordInfo, searchByRoot, surahName } from "@/lib/word-root";
 import { getAyah, displayAyahText } from "@/data/quran-text";
+import HifzRating from "@/components/HifzRating";
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
@@ -19,6 +20,21 @@ interface WordSheetProps {
   onClose: () => void;
   /** Navigate to an ayah (surah, ayah) — the parent owns navigation. */
   onNavigateAyah: (surahNumber: number, ayahNumber: number) => void;
+  /** Ayah actions (1.0.75) — shown inside the sheet when the parent
+      provides them (SurahPlayer); omitted in MushafPage, which has no
+      tafsir/share/copy wiring. */
+  actions?: {
+    isFav: boolean;
+    onToggleFavourite: () => void;
+    onTafsir: () => void;
+    onReadings: () => void;
+    onShare: () => void;
+    onCopy: () => void;
+    copied: boolean;
+  };
+  /** Called after a hifz rating inside the sheet (parent refreshes the
+      inline rating under the ayah). */
+  onRated?: () => void;
 }
 
 // Long root lists (e.g. «علم» in ~150 ayahs) stay scrollable; cap the
@@ -32,6 +48,8 @@ export default function WordSheet({
   wordText,
   onClose,
   onNavigateAyah,
+  actions,
+  onRated,
 }: WordSheetProps) {
   const info = useMemo(
     () => getWordInfo(surahNumber, ayahNumber, wordIndex, wordText),
@@ -102,6 +120,65 @@ export default function WordSheet({
               {info.wordText}
             </div>
           </div>
+
+          {/* Ayah actions (1.0.75) — tapping an ayah used to open only
+              this sheet and hide the ayah's actions (tafsir / share /
+              copy / favourite / readings + hifz rating). They now live
+              here too, right under the word, so one tap shows both. */}
+          {actions && (
+            <div data-testid="word-sheet-actions">
+              <div className="text-xs text-muted-foreground mb-2">إجراءات الآية</div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  onClick={actions.onTafsir}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors whitespace-nowrap"
+                  aria-label="التفسير"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  التفسير
+                </button>
+                <button
+                  onClick={actions.onReadings}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-teal-500/10 border border-teal-500/30 text-teal-700 dark:text-teal-400 hover:bg-teal-500/20 transition-colors whitespace-nowrap"
+                  aria-label="مقارنة الروايات"
+                >
+                  <BookCopy className="w-3.5 h-3.5" />
+                  الروايات
+                </button>
+                <button
+                  onClick={actions.onToggleFavourite}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors whitespace-nowrap ${
+                    actions.isFav
+                      ? "bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400"
+                      : "bg-background border-border text-muted-foreground hover:text-rose-600"
+                  }`}
+                  aria-label="حفظ في المفضلة"
+                >
+                  <Heart className={`w-3.5 h-3.5 ${actions.isFav ? "fill-rose-500 text-rose-500" : ""}`} />
+                  {actions.isFav ? "محفوظة" : "حفظ"}
+                </button>
+                <button
+                  onClick={actions.onShare}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
+                  aria-label="مشاركة الآية كصورة"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  مشاركة
+                </button>
+                <button
+                  onClick={actions.onCopy}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
+                  aria-label="نسخ نص الآية"
+                >
+                  {actions.copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  {actions.copied ? "تم النسخ ✓" : "نسخ"}
+                </button>
+              </div>
+              <div className="mt-2">
+                <HifzRating surahNumber={surahNumber} ayahNumber={ayahNumber} onRated={() => onRated?.()} />
+              </div>
+            </div>
+          )}
 
           {/* Root / lemma / POS */}
           <div className="grid grid-cols-3 gap-2">
