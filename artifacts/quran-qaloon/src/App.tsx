@@ -67,7 +67,8 @@ function AppRoutes() {
 
   return (
     <>
-      <div className="pb-16">
+      {/* حشوة سفلية للشريط السفلي الثابت (ارتفاعه ~64px + 16px مسافة) */}
+      <div className="pb-20">
         <Switch>
           <Route path="/" component={() => <Home darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/surah/:number">

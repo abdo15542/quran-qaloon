@@ -990,33 +990,38 @@ export default function SurahPlayer({
       {/* عنصر تحميل مسبق للآية التالية (لقرّاء الصوت-لكل-آية) */}
       <audio ref={ayahPrefetchRef} preload="auto" className="hidden" />
       {justCompleted && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-bounce-once font-arabic text-sm">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] text-center bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-bounce-once font-arabic text-sm">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
           تبارك الله! أتممت سورة {surah.name} ✨
         </div>
       )}
 
       {/* الشريط العلوي منزَّل عن حافة الشاشة (قاعدة header.sticky في
-          index.css: حشوة علوية 2.25rem + مساحة آمنة) حتى يكون واضحًا. */}
+          index.css: حشوة علوية 2.25rem + مساحة آمنة) حتى يكون واضحًا.
+          إصلاح الحركة الأفقية: الصف كان أعرض من الهاتف (~426px على
+          شاشة 360px) فيدفع الصفحة كلها يمين/يسار. الأزرار الآن
+          مضغوطة، وزرا «نص/تسميع» مخفيان على الشاشات الضيقة (تبويبا
+          البطاقة أسفل المشغّل يؤديان نفس الوظيفة)، وشريط الأزرار
+          يُمرَّر داخلياً (no-scrollbar) فلا يوسّع الصفحة أبداً. */}
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border/70">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link href="/">
-            <button className="p-2 rounded-full hover:bg-muted transition-colors">
+        <div className="max-w-4xl mx-auto px-3 py-3 flex items-center gap-2">
+          <Link href="/" className="flex-shrink-0">
+            <button className="p-1.5 rounded-full hover:bg-muted transition-colors">
               <ArrowRight className="w-5 h-5" />
             </button>
           </Link>
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <BookOpen className="w-4 h-4 text-primary flex-shrink-0" />
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <BookOpen className="w-4 h-4 text-primary flex-shrink-0 hidden min-[400px]:block" />
             <span className="surah-name text-foreground truncate">{surah.name}</span>
             <span className="text-xs text-muted-foreground hidden sm:inline">({surah.numberOfAyahs} آية)</span>
             {surahCompleted && (
               <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
             )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setRightMode("text")}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-1.5 rounded-full transition-colors flex-shrink-0 hidden sm:block ${
                 rightMode === "text" ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
               }`}
               title="نص السورة"
@@ -1025,7 +1030,7 @@ export default function SurahPlayer({
             </button>
             <button
               onClick={() => setRightMode("recite")}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-1.5 rounded-full transition-colors flex-shrink-0 hidden sm:block ${
                 rightMode === "recite" ? "bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400" : "hover:bg-muted text-muted-foreground"
               }`}
               title="التسميع الصوتي"
@@ -1034,7 +1039,7 @@ export default function SurahPlayer({
             </button>
             <button
               onClick={toggleTranslation}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-1.5 rounded-full transition-colors flex-shrink-0 ${
                 showTranslation ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
               }`}
               title="الترجمة الإنجليزية"
@@ -1043,7 +1048,7 @@ export default function SurahPlayer({
             </button>
             <button
               onClick={toggleMemorization}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-1.5 rounded-full transition-colors flex-shrink-0 ${
                 memorization ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
               }`}
               title="وضع الحفظ — إخفاء نص الآيات لتسميعها"
@@ -1052,14 +1057,14 @@ export default function SurahPlayer({
             </button>
             <button
               onClick={toggleTajweed}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-1.5 rounded-full transition-colors flex-shrink-0 ${
                 tajweed ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
               }`}
               title="تلوين أحكام التجويد"
             >
               <Palette className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1" title="حجم الخط">              <button
+            <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1 flex-shrink-0" title="حجم الخط">              <button
                 onClick={decreaseFontSize}
                 disabled={fontSize <= 14}
                 className="p-1 rounded hover:bg-background transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30"
@@ -1079,7 +1084,7 @@ export default function SurahPlayer({
             </div>
             <button
               onClick={toggleDarkMode}
-              className="p-2 rounded-full hover:bg-muted transition-colors"
+              className="p-1.5 rounded-full hover:bg-muted transition-colors flex-shrink-0"
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
