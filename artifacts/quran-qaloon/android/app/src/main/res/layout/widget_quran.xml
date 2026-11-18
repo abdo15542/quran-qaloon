@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0B6B4F"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="تسميع القرآن — قالون"
+        android:textColor="#D4AF37"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_verse"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:gravity="right" />
+
+    <TextView
+        android:id="@+id/widget_ref"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#D4AF37"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/widget_prayer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:layout_marginTop="4dp" />
+
+</LinearLayout>

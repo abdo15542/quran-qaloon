@@ -10,6 +10,7 @@ import { getPageOfAyah } from "@/data/mushaf-pages";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
+import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import DownloadButton from "@/components/DownloadButton";
@@ -321,6 +322,9 @@ export default function SurahPlayer({
       return !v;
     });
   };
+
+  // حكم التجويد المضغوط عليه — تُعرض ورقة شرحه.
+  const [selectedRule, setSelectedRule] = useState<string | null>(null);
 
   const toggleReveal = useCallback((ayahNumber: number) => {
     setRevealedAyahs((prev) => {
@@ -1409,7 +1413,7 @@ export default function SurahPlayer({
                             >
                               <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} />
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} onRuleClick={setSelectedRule} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
@@ -1475,7 +1479,7 @@ export default function SurahPlayer({
                                 }`}
                               >
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} />
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} onRuleClick={setSelectedRule} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
@@ -1532,6 +1536,9 @@ export default function SurahPlayer({
           }}
         />
       )}
+
+      {/* شرح حكم التجويد المضغوط عليه */}
+      <TajweedRuleSheet rule={selectedRule} onClose={() => setSelectedRule(null)} />
     </div>
   );
 }

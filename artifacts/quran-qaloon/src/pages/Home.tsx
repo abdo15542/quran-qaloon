@@ -10,6 +10,8 @@ import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
 import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled, isPrayerReminderEnabled, isExactAlarmGranted, openExactAlarmSettingsPage } from "@/data/prayer-times";
+import { refreshAfterPrayerAthkar } from "@/hooks/useAthkarReminders";
+import { updateWidgetData } from "@/lib/widget-data";
 import { Capacitor } from "@capacitor/core";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
@@ -94,6 +96,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     // a minute before jumping.
     const t = window.setInterval(() => setNow(new Date()), 1000);
     ensurePrayerRemindersScheduled().catch(() => {});
+    // تذكيرات أذكار بعد الصلاة (اليوم وغدًا) + بيانات ويدجت الشاشة الرئيسية.
+    refreshAfterPrayerAthkar().catch(() => {});
+    updateWidgetData().catch(() => {});
     if (Capacitor.isNativePlatform() && isPrayerReminderEnabled()) {
       isExactAlarmGranted().then((ok) => setExactAlarmDenied(!ok)).catch(() => {});
     }

@@ -3,8 +3,9 @@
 // mushaf page, and offline downloads. All data is local (localStorage /
 // IndexedDB); nothing is invented or estimated.
 
+import { useRef, useState } from "react";
 import { Link } from "wouter";
-import { ArrowRight, Moon, Sun, BookOpen, Headphones, Heart, Flame, WifiOff, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Moon, Sun, BookOpen, Headphones, Heart, Flame, WifiOff, CheckCircle2, Download, Upload, ShieldCheck } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useKhatma } from "@/hooks/useKhatma";
@@ -12,6 +13,7 @@ import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
 import { useOffline } from "@/context/OfflineContext";
+import { exportBackup, importBackup } from "@/lib/backup";
 
 interface StatsPageProps {
   darkMode: boolean;
@@ -39,6 +41,45 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
   const { streak, todayDone, startPage, endPage } = useWird();
   const { cachedItems } = useOffline();
   const lastMushafPage = getLastMushafPage();
+
+  // نسخة احتياطية: تصدير كل بيانات التطبيق إلى ملف JSON واستعادتها.
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportBackup = async () => {
+    if (backupBusy) return;
+    setBackupBusy(true);
+    try {
+      const r = await exportBackup();
+      setBackupStatus(
+        r === "shared"
+          ? "تم إنشاء النسخة — اختر مكان حفظها من ورقة المشاركة"
+          : r === "downloaded"
+            ? "تم تنزيل ملف النسخة الاحتياطية"
+            : r === "cancelled"
+              ? "أُلغي التصدير"
+              : "تعذّر إنشاء النسخة — حاول مجددًا",
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleImportFile = async (file: File | undefined) => {
+    if (!file || backupBusy) return;
+    setBackupBusy(true);
+    try {
+      const text = await file.text();
+      const count = importBackup(text);
+      setBackupStatus(`تمت استعادة ${count} إعدادًا — سيُعاد تحميل التطبيق الآن`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch {
+      setBackupStatus("هذا الملف ليس نسخة احتياطية صالحة من التطبيق");
+    } finally {
+      setBackupBusy(false);
+    }
+  };
 
   const khatmaPct = Math.round((totalCompleted / 114) * 100);
   const mushafPct = Math.round((lastMushafPage / 604) * 100);
@@ -172,6 +213,48 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
             </div>
           </div>
         )}
+
+        {/* نسخة احتياطية */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="w-5 h-5 text-primary" />
+            <span className="font-arabic text-base text-foreground">نسخة احتياطية</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            احفظ المفضلة والتقدم والورد وكل الإعدادات في ملف، واستعدها عند تغيير الهاتف أو إعادة التثبيت. النسخة لا تشمل الصوتيات المحمّلة.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleExportBackup}
+              disabled={backupBusy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              تصدير نسخة
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={backupBusy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-card border border-border text-sm hover:border-primary/40 transition-colors disabled:opacity-50"
+            >
+              <Upload className="w-4 h-4" />
+              استعادة نسخة
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                handleImportFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          {backupStatus && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-3">{backupStatus}</p>
+          )}
+        </div>
       </div>
     </div>
   );

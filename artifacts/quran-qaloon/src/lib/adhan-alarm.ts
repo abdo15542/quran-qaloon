@@ -32,6 +32,7 @@ interface AdhanAlarmPlugin {
   cancelAlarms(): Promise<void>;
   stopAdhan(): Promise<void>;
   testAdhan(options?: { fajr?: boolean; voice?: string }): Promise<void>;
+  updateWidgets(): Promise<void>;
 }
 
 const AdhanAlarm = registerPlugin<AdhanAlarmPlugin>("AdhanAlarm", {
@@ -44,6 +45,7 @@ const AdhanAlarm = registerPlugin<AdhanAlarmPlugin>("AdhanAlarm", {
     async cancelAlarms() {},
     async stopAdhan() {},
     async testAdhan() {},
+    async updateWidgets() {},
   },
 });
 
@@ -95,5 +97,15 @@ export async function testNativeAdhan(fajr = false, voice?: string): Promise<boo
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Ask the native side to refresh the home-screen widget now (from widget.json). */
+export async function requestWidgetUpdate(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await AdhanAlarm.updateWidgets();
+  } catch {
+    // ignore
   }
 }

@@ -105,6 +105,13 @@ public class AdhanAlarmPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Refresh the home-screen widget (if placed) from widget.json. */
+    @PluginMethod
+    public void updateWidgets(PluginCall call) {
+        QuranWidgetProvider.updateAllWidgets(getContext());
+        call.resolve();
+    }
+
     /** Play the full adhan once, 5 seconds from now (test button). Pass { fajr: true } to play the Fajr adhan. */
     @PluginMethod
     public void testAdhan(PluginCall call) {

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, Moon, Sun } from "lucide-react";
+import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, Moon, Palette, Sun } from "lucide-react";
 import { Link, useLocation, useRoute } from "wouter";
 import { SURAHS } from "@/data/surahs";
 import { getSurahAyahs, type LocalAyah } from "@/data/quran-text";
 import { getMushafPageRange, getLastMushafPage, setLastMushafPage } from "@/data/mushaf-pages";
+import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
+import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d, 10)]);
@@ -59,6 +61,28 @@ export default function MushafPage({
   });
   const [jump, setJump] = useState("");
 
+  // تلوين التجويد في المصحف — المفتاح نفسه المستعمل في المشغّل.
+  const [tajweed, setTajweed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("quran_tajweed_enabled") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleTajweed = () => {
+    setTajweed((v) => {
+      try {
+        localStorage.setItem("quran_tajweed_enabled", v ? "0" : "1");
+      } catch {
+        // storage unavailable
+      }
+      return !v;
+    });
+  };
+
+  // حكم التجويد المضغوط عليه — تُعرض ورقة شرحه.
+  const [selectedRule, setSelectedRule] = useState<string | null>(null);
+
   const range = getMushafPageRange(page);
   const items = useMemo(() => buildPageAyahs(page), [page]);
 
@@ -106,6 +130,14 @@ export default function MushafPage({
               صفحة {toArabicNum(page)} من {toArabicNum(604)}
             </span>
           </div>
+          <button
+            onClick={toggleTajweed}
+            className={`p-2 rounded-full hover:bg-muted transition-colors ${tajweed ? "bg-primary/10 text-primary" : ""}`}
+            aria-label="تفعيل تلوين التجويد أو إيقافه"
+            title="تلوين التجويد"
+          >
+            <Palette className="w-4 h-4" />
+          </button>
           <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-muted transition-colors">
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -130,6 +162,19 @@ export default function MushafPage({
           )}
         </div>
 
+        {/* مفتاح ألوان التجويد — يظهر فقط عند تفعيل التلوين. */}
+        {tajweed && (
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-xl bg-muted/60 px-3 py-2">
+            <span className="text-xs text-muted-foreground">أحكام التجويد — اضغط أي حرف ملوّن لشرح حكمه:</span>
+            {TAJWEED_LEGEND.map((item) => (
+              <span key={item.label} className="flex items-center gap-1 text-xs">
+                <span className={`w-2.5 h-2.5 rounded-full bg-current ${item.className}`} />
+                <span className={item.className}>{item.label}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* The page itself — framed like a mushaf page */}
         <div className="bg-card border-2 border-amber-500/30 rounded-2xl px-5 py-6 sm:px-8 shadow-sm">
           <div className="quran-text text-right leading-loose text-[26px] sm:text-[28px]" dir="rtl">
@@ -151,14 +196,30 @@ export default function MushafPage({
               ) : (
                 <span key={`${b.item.surah}-${b.item.ayah.numberInSurah}`}>
                   {b.item.basmala && (
-                    <span className="block text-center my-3 text-[0.9em] text-foreground">{BASMALA}</span>
+                    <span className="block text-center my-3 text-[0.9em] text-foreground">
+                      <TajweedText
+                        surahNumber={b.item.surah}
+                        ayahNumber={b.item.ayah.numberInSurah}
+                        text={BASMALA}
+                        enabled={tajweed}
+                        window={[0, BASMALA.length]}
+                        onRuleClick={setSelectedRule}
+                      />
+                    </span>
                   )}
                   <span
                     data-ayah={b.item.ayah.numberInSurah}
                     onClick={() => navigate(`/surah/${b.item.surah}?ayah=${b.item.ayah.numberInSurah}`)}
                     className="cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10"
                   >
-                    {b.item.rest}{" "}
+                    <TajweedText
+                      surahNumber={b.item.surah}
+                      ayahNumber={b.item.ayah.numberInSurah}
+                      text={b.item.rest}
+                      enabled={tajweed}
+                      window={[b.item.ayah.text.length - b.item.rest.length, b.item.ayah.text.length]}
+                      onRuleClick={setSelectedRule}
+                    />{" "}
                     <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
                   </span>
                 </span>
@@ -218,6 +279,9 @@ export default function MushafPage({
           </button>
         </form>
       </div>
+
+      {/* شرح حكم التجويد المضغوط عليه */}
+      <TajweedRuleSheet rule={selectedRule} onClose={() => setSelectedRule(null)} />
     </div>
   );
 }

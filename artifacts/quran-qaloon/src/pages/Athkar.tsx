@@ -48,9 +48,14 @@ export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
     morningTime,
     eveningEnabled,
     eveningTime,
+    bedtimeEnabled,
+    bedtimeTime,
+    afterPrayerEnabled,
     status,
     setMorning,
     setEvening,
+    setBedtime,
+    setAfterPrayer,
   } = useAthkarReminders();
   const [reminderBusy, setReminderBusy] = useState(false);
 
@@ -94,6 +99,36 @@ export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
     }
   };
 
+  const handleBedtimeToggle = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setBedtime(!bedtimeEnabled, bedtimeTime);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleBedtimeTime = async (time: string) => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setBedtime(bedtimeEnabled, time);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleAfterPrayerToggle = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setAfterPrayer(!afterPrayerEnabled);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border">
@@ -125,7 +160,7 @@ export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
         <div className="bg-card border border-border rounded-2xl p-5 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <Bell className="w-5 h-5 text-primary" />
-            <span className="font-arabic text-base text-foreground">تذكير أذكار الصباح والمساء</span>
+            <span className="font-arabic text-base text-foreground">تذكير الأذكار</span>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
@@ -181,6 +216,55 @@ export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
                   <span
                     className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
                       eveningEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground">🕌 أذكار بعد كل صلاة</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">بعد الصلاة بـ ١٠ دقائق</span>
+                <button
+                  onClick={handleAfterPrayerToggle}
+                  disabled={reminderBusy}
+                  className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                    afterPrayerEnabled ? "bg-primary" : "bg-muted"
+                  }`}
+                  aria-label="تفعيل تذكير أذكار بعد الصلاة أو إيقافه"
+                >
+                  <span
+                    className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                      afterPrayerEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground">😴 أذكار النوم</span>
+              <div className="flex items-center gap-2">
+                {bedtimeEnabled && (
+                  <input
+                    type="time"
+                    value={bedtimeTime}
+                    onChange={(e) => handleBedtimeTime(e.target.value)}
+                    disabled={reminderBusy}
+                    className="bg-background border border-border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    dir="ltr"
+                  />
+                )}
+                <button
+                  onClick={handleBedtimeToggle}
+                  disabled={reminderBusy}
+                  className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                    bedtimeEnabled ? "bg-primary" : "bg-muted"
+                  }`}
+                  aria-label="تفعيل تذكير أذكار النوم أو إيقافه"
+                >
+                  <span
+                    className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                      bedtimeEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
                     }`}
                   />
                 </button>

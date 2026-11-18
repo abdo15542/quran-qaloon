@@ -48,33 +48,53 @@ interface TajweedTextProps {
   ayahNumber: number;
   text: string;
   enabled: boolean;
+  /** نافذة [بداية، نهاية) بإحداثيات الآية الكاملة: يُعرض فقط هذا
+      المقطع من النص (المصحف يفصل البسملة عن بقية الآية الأولى). */
+  window?: [number, number];
+  /** عند الضغط على حرف ملوّن: يُستدعى بمعرّف الحكم لعرض شرحه. */
+  onRuleClick?: (rule: string) => void;
 }
 
-export default function TajweedText({ surahNumber, ayahNumber, text, enabled }: TajweedTextProps) {
+export default function TajweedText({ surahNumber, ayahNumber, text, enabled, window, onRuleClick }: TajweedTextProps) {
   if (!enabled) return <>{text}</>;
   const spans = TAJWEED[`${surahNumber}:${ayahNumber}`];
   if (!spans || spans.length === 0) return <>{text}</>;
+  const w0 = window ? window[0] : 0;
+  const w1 = window ? window[1] : text.length;
   // الأطول أولًا عند نفس البداية؛ ثم قصّ أي تداخل.
   const sorted = [...spans].sort((a, b) => a[1] - b[1] || b[2] - b[1] - (a[2] - a[1]));
   const segments: { start: number; end: number; rule: string | null }[] = [];
-  let pos = 0;
+  let pos = w0;
   for (const [ri, st, en] of sorted) {
-    if (en <= pos) continue;
-    const s = Math.max(st, pos);
-    if (s > pos) segments.push({ start: pos, end: s, rule: null });
-    segments.push({ start: s, end: en, rule: TAJWEED_RULES[ri] });
-    pos = en;
+    // قصّ المقطع على النافذة أولًا، ثم على ما سبق عرضه.
+    const cs = Math.max(st, w0, pos);
+    const ce = Math.min(en, w1);
+    if (ce <= cs) continue;
+    if (cs > pos) segments.push({ start: pos, end: cs, rule: null });
+    segments.push({ start: cs, end: ce, rule: TAJWEED_RULES[ri] });
+    pos = ce;
   }
-  if (pos < text.length) segments.push({ start: pos, end: text.length, rule: null });
+  if (pos < w1) segments.push({ start: pos, end: w1, rule: null });
   return (
     <>
       {segments.map((seg, i) =>
         seg.rule ? (
-          <span key={i} className={RULE_CLASS[seg.rule] ?? ""}>
-            {text.slice(seg.start, seg.end)}
+          <span
+            key={i}
+            className={`${RULE_CLASS[seg.rule] ?? ""}${onRuleClick ? " cursor-pointer underline decoration-dotted underline-offset-4" : ""}`}
+            onClick={
+              onRuleClick
+                ? (e) => {
+                    e.stopPropagation();
+                    onRuleClick(seg.rule as string);
+                  }
+                : undefined
+            }
+          >
+            {text.slice(seg.start - w0, seg.end - w0)}
           </span>
         ) : (
-          <Fragment key={i}>{text.slice(seg.start, seg.end)}</Fragment>
+          <Fragment key={i}>{text.slice(seg.start - w0, seg.end - w0)}</Fragment>
         ),
       )}
     </>
