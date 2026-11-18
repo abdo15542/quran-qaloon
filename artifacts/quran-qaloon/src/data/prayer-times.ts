@@ -68,6 +68,7 @@ export const LIBYAN_CITIES: LibyanCity[] = [
 const CITY_KEY = "quran_prayer_city";
 const REMINDER_KEY = "quran_prayer_reminder";
 const REMINDER_SCHEDULED_KEY = "quran_prayer_reminder_scheduled";
+const NATIVE_ADHAN_STATE_KEY = "quran_prayer_native_adhan";
 const MODE_KEY = "quran_prayer_mode";
 const COORDS_KEY = "quran_prayer_coords";
 const PRE_ALERT_KEY = "quran_prayer_pre_alert";
@@ -148,18 +149,6 @@ export function findNearestCity(lat: number, lng: number): LibyanCity {
     }
   }
   return best;
-}
-
-// The device's current position (GPS on the phone, browser geolocation
-// on the web). Throws when the permission is denied or no fix is
-// available — callers fall back to the manual city.
-export async function getCurrentPosition(): Promise<{ lat: number; lng: number }> {
-  const pos = await Geolocation.getCurrentPosition({
-    enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 300000, // a fix up to 5 minutes old is fine for prayer times
-  });
-  return { lat: pos.coords.latitude, lng: pos.coords.longitude };
 }
 
 export type LocationFailureReason = "denied" | "unavailable" | "timeout";
@@ -539,6 +528,10 @@ function allNotificationIds(): Array<{ id: number }> {
       }
     }
   }
+  // The test notification (id 999, «جرّب صوت الأذان») is not part of the
+  // daily sets — include it so cancelling the reminders never leaves a
+  // stale test adhan behind.
+  ids.push({ id: 999 });
   return ids;
 }
 
@@ -595,13 +588,22 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
   try {
     const perm = await LocalNotifications.requestPermissions();
     if (perm.display !== "granted") {
-      // Denying notifications must also stop what is already armed:
-      // native adhan alarms (ids 100-134) are NOT blocked by the
-      // notification permission, so without cancelling them the full
-      // adhan would keep firing for up to 7 days while the reminder
-      // shows as off — and with notifications disabled its stop
-      // button would not even appear.
-      await cancelPrayerReminders();
+      // Notifications are denied — but the native adhan does NOT need
+      // the notification permission: the alarm receiver starts the
+      // foreground service and the adhan plays on the ALARM stream.
+      // So only the notification-based ids are cancelled; the native
+      // alarms stay armed and the reminder stays ON. (The service
+      // notification's stop button is hidden while notifications are
+      // denied — the adhan still stops by itself after 75s.)
+      await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
+      const nativeAdhan = await scheduleNativeAlarmsForCoords(lat, lng);
+      if (nativeAdhan) setPrayerReminderEnabled(true);
+      try {
+        localStorage.setItem(REMINDER_SCHEDULED_KEY, new Date().toDateString());
+      } catch {
+        // storage unavailable
+      }
+      if (nativeAdhan) return "التذكير مفعّل";
       return "لم يُمنح إذن الإشعارات — فعّله من إعدادات الهاتف";
     }
     await createPrayerChannel();
@@ -764,11 +766,15 @@ export async function ensurePrayerRemindersScheduled(): Promise<void> {
   }
   try {
     const last = localStorage.getItem(REMINDER_SCHEDULED_KEY);
-    // When the native path is unavailable (permission revoked),
-    // Android has already deleted all exact alarms, so the fallback
-    // must be scheduled NOW — waiting for tomorrow would leave a
-    // whole day with no adhan at all.
-    if (last === new Date().toDateString() && nativeOn) return;
+    const prevNative = localStorage.getItem(NATIVE_ADHAN_STATE_KEY);
+    const nativeStr = nativeOn ? "1" : "0";
+    // Already scheduled today with the same adhan path: nothing to do.
+    // The native state is tracked so the on→off transition (exact
+    // alarms revoked) still triggers an immediate fallback schedule
+    // instead of waiting for tomorrow — otherwise a whole day would
+    // pass with no adhan at all.
+    if (last === new Date().toDateString() && prevNative === nativeStr) return;
+    localStorage.setItem(NATIVE_ADHAN_STATE_KEY, nativeStr);
   } catch {
     // storage unavailable
   }

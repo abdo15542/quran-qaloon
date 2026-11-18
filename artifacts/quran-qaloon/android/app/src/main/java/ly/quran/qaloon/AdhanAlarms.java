@@ -29,9 +29,38 @@ public final class AdhanAlarms {
 
     private AdhanAlarms() {}
 
+    // Device-protected storage: readable before the first unlock after a
+    // reboot (direct boot). Credential-encrypted storage is NOT — an
+    // alarm set stored there would be unreadable when Fajr fires before
+    // unlock, so the boot receiver could never re-register it.
+    private static SharedPreferences prefs(Context ctx) {
+        Context storage = ctx;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            storage = ctx.createDeviceProtectedStorageContext();
+        }
+        return storage.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
     static JSONArray loadStored(Context ctx) {
-        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String raw = p.getString(KEY_ALARMS, "[]");
+        SharedPreferences p = prefs(ctx);
+        String raw = p.getString(KEY_ALARMS, null);
+        if (raw == null) {
+            // One-time migration: alarms stored before 1.0.64 lived in
+            // credential-encrypted storage — copy them over once (fails
+            // silently before unlock, when that storage is unreadable;
+            // the next app open re-schedules them anyway).
+            try {
+                String legacy = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .getString(KEY_ALARMS, null);
+                if (legacy != null) {
+                    p.edit().putString(KEY_ALARMS, legacy).apply();
+                    raw = legacy;
+                }
+            } catch (Exception ignored) {
+                // unreadable before unlock — nothing to migrate yet
+            }
+        }
+        if (raw == null) return new JSONArray();
         try {
             return new JSONArray(raw);
         } catch (Exception e) {
@@ -40,17 +69,35 @@ public final class AdhanAlarms {
     }
 
     static void saveStored(Context ctx, JSONArray alarms) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs(ctx)
             .edit()
             .putString(KEY_ALARMS, alarms.toString())
             .apply();
+        // Drop the pre-1.0.64 credential-encrypted copy so a later
+        // clear cannot resurrect it through the migration above.
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_ALARMS)
+                .apply();
+        } catch (Exception ignored) {
+            // unreadable before unlock — harmless, it is never read again
+        }
     }
 
     static void clearStored(Context ctx) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs(ctx)
             .edit()
             .remove(KEY_ALARMS)
             .apply();
+        try {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_ALARMS)
+                .apply();
+        } catch (Exception ignored) {
+            // unreadable before unlock — harmless
+        }
     }
 
     static PendingIntent alarmIntent(Context ctx, int id, String title) {
@@ -102,5 +149,12 @@ public final class AdhanAlarms {
                 // ignore
             }
         }
+    }
+
+    /** Cancel a single alarm by id (e.g. the unstored test alarm 9999). */
+    static void cancelId(Context ctx, int id) {
+        AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        am.cancel(alarmIntent(ctx, id, ""));
     }
 }

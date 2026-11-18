@@ -13,6 +13,7 @@
 // the Hafs text. The Warsh source is kept in
 // ~/workspace/quran-qaloon-android/riwayah-texts/ (see README-warsh.md).
 import { QURAN_TEXT_QALOON } from "./quran-text-qaloon";
+import { DAGGER_ALIF_FIXES } from "./dagger-alif-fixes";
 
 export interface LocalAyah {
   number: number;
@@ -185,9 +186,22 @@ const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
 // Two more unifications, so common modern spellings find the Uthmani
 // text: «ءا» (hamza + alef, e.g. «ءامنوا», «الءاخرة») -> «ا», so
 // «آمنوا» matches «ءامنوا»; and the Uthmani و-words above -> modern ا.
-export function normalizeArabic(s: string): string {
+//
+// The dagger alif (U+0670) needs special care — it is a real alef in some
+// words (الصِّرَٰطَ = الصراط، مَٰلِكِ = مالك، ٱلسَّمَٰوَٰتِ = السماوات)
+// and only a flourish in others (هَٰذَا = هذا، عَلَىٰ = على، ٱلرَّحْمَٰنِ
+// = الرحمن). The strip set also removes maddah (U+0653) and hamza-above /
+// hamza-below (U+0654/U+0655), which are pure diacritics — without them
+// الضَّآلِّينَ، ٱلسَّمَآءُ، جَآءَ، شَآءَ never matched. The default is to map
+// U+0670 to «ا»; DAGGER_ALIF_FIXES (generated from the bundled text, see
+// dagger-alif-fixes.ts) then corrects, per word, the cases where the dagger
+// alif is a flourish. That table must run on the TEXT side only — queries
+// are typed in modern spelling, so pass applyDaggerFixes=false for them
+// (a query word like «عليا» must stay «عليا», not become «علي»).
+export function normalizeArabic(s: string, applyDaggerFixes = true): string {
   let out = s
-    .replace(/[\u064B-\u0652\u0670\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
+    .replace(/[\u064B-\u0655\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
+    .replace(/\u0670/g, "\u0627")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
     .replace(/\u0621\u0627/g, "\u0627")
     .replace(/\u0629/g, "\u0647")
@@ -196,6 +210,9 @@ export function normalizeArabic(s: string): string {
     .replace(/\u0624/g, "\u0648")
     .replace(/\u0626/g, "\u064A");
   for (const [re, rep] of UTHMANI_WORD_FIXES) out = out.replace(re, rep);
+  if (applyDaggerFixes) {
+    out = out.replace(/\S+/g, (w) => DAGGER_ALIF_FIXES[w] ?? w);
+  }
   return out;
 }
 
@@ -263,10 +280,14 @@ function getNormalizedWords(qirahId?: string): string[][][] {
 }
 
 export function searchQuranDetailed(query: string, qirahId?: string): QuranSearchDetailed {
-  const q = normalizeArabic(query.trim());
+  const q = normalizeArabic(query.trim(), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
   const empty: QuranSearchDetailed = { query: query.trim(), totalOccurrences: 0, ayahCount: 0, surahCount: 0, hits: [] };
   if (!queryWords.length) return empty;
+  // Some phrases are written as ONE word in the Uthmani text («يَٰٓأَيُّهَا»
+  // = «يا أيها»، «يَٰمُوسَىٰ» = «يا موسى»): a multi-word query also tries
+  // its words joined, as a single token, so «يا أيها» finds its 142 ayahs.
+  const joinedQuery = queryWords.length > 1 ? queryWords.join("") : null;
   const table = getTextTable(qirahId);
   const normWords = getNormalizedWords(qirahId);
   const hits: QuranSearchHitDetailed[] = [];
@@ -287,6 +308,9 @@ export function searchQuranDetailed(query: string, qirahId?: string): QuranSearc
             if (!matchWord(words[j + k], queryWords[k])) { ok = false; break; }
           }
           if (ok) { occ++; j += queryWords.length - 1; }
+        }
+        if (joinedQuery) {
+          for (const w of words) if (matchWord(w, joinedQuery)) occ++;
         }
       }
       if (occ > 0) {
@@ -310,9 +334,10 @@ export interface HighlightSegment {
 // Normalisation never adds or removes spaces, so the n-th word of the
 // original text aligns with the n-th word of the normalised text.
 export function highlightSegments(text: string, query: string): HighlightSegment[] {
-  const q = normalizeArabic(query.trim());
+  const q = normalizeArabic(query.trim(), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
   if (!queryWords.length) return [{ text, matched: false }];
+  const joinedQuery = queryWords.length > 1 ? queryWords.join("") : null;
   const normWords = normalizeArabic(text).split(/\s+/);
   const matched = new Array<boolean>(normWords.length).fill(false);
   if (queryWords.length === 1) {
@@ -328,6 +353,13 @@ export function highlightSegments(text: string, query: string): HighlightSegment
         j += queryWords.length - 1;
       }
     }
+    // Joined single-token form (see searchQuranDetailed): «يا أيها» is one
+    // word in the text, so highlight that word too.
+    if (joinedQuery) {
+      for (let i = 0; i < normWords.length; i++) {
+        if (matchWord(normWords[i], joinedQuery)) matched[i] = true;
+      }
+    }
   }
   const parts = text.split(/(\s+)/);
   const segments: HighlightSegment[] = [];
@@ -341,26 +373,4 @@ export function highlightSegments(text: string, query: string): HighlightSegment
   return segments;
 }
 
-export interface QuranSearchHit {
-  number: number;
-  numberInSurah: number;
-  text: string;
-  surahNumber: number;
-}
-
-export function searchQuran(query: string, limit = 30, qirahId?: string): QuranSearchHit[] {
-  const q = normalizeArabic(query.trim());
-  if (!q) return [];
-  const table = getTextTable(qirahId);
-  const hits: QuranSearchHit[] = [];
-  for (let s = 0; s < table.length && hits.length < limit; s++) {
-    const texts = table[s];
-    for (let i = 0; i < texts.length && hits.length < limit; i++) {
-      if (normalizeArabic(texts[i]).includes(q)) {
-        hits.push({ number: i + 1, numberInSurah: i + 1, text: texts[i], surahNumber: s + 1 });
-      }
-    }
-  }
-  return hits;
-}
 

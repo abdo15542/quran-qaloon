@@ -12,6 +12,7 @@ import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import DownloadButton from "@/components/DownloadButton";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
+import { getPlayerVolume, getPlayerRate } from "@/hooks/useAudio";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useOffline } from "@/context/OfflineContext";
@@ -244,7 +245,9 @@ export default function SurahPlayer({
   const networkAudioUrl = currentReciter ? buildAudioUrl(currentReciter, surahNumber) : null;
   const audioUrl = networkAudioUrl;
 
-  const savedProgress = getProgress(surahNumber);
+  // Resume is per reciter: the same surah with another reciter is a
+  // different recording, so its position is stored separately.
+  const savedProgress = getProgress(surahNumber, currentReciter?.id);
   const initialTime = savedProgress?.currentTime ?? 0;
   const surahCompleted = isCompleted(surahNumber);
 
@@ -551,6 +554,11 @@ export default function SurahPlayer({
       setSelectedAyah(ayahNumberInSurah);
       const audio = ayahAudioRef.current;
       if (!audio) return;
+      // The tap-ayah element is separate from the main player: apply
+      // the persisted volume/speed here too, or a muted main player
+      // still plays tapped ayahs at full volume / 1×.
+      audio.volume = getPlayerVolume();
+      audio.playbackRate = getPlayerRate();
       // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
       setPauseSignal((s) => s + 1);
       setAyahError(null);
@@ -582,7 +590,14 @@ export default function SurahPlayer({
         if (ayahSessionRef.current?.ayah !== ayahNumberInSurah) return;
         audio.src = cachedUrl ?? perAyahUrl;
         audio.play().catch(() => {
-          setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
+          // Offline with an uncached ayah: say so plainly, instead of
+          // a generic connection error — the fix is downloading the
+          // surah, not checking the connection.
+          setAyahError(
+            !cachedUrl && !navigator.onLine
+              ? "هذه الآية غير محمّلة — حمّل السورة أولاً"
+              : "تعذّر تشغيل صوت الآية — تحقق من الاتصال"
+          );
           stopAyah();
         });
         // Cache this ayah for offline use after it plays online.
@@ -743,7 +758,13 @@ export default function SurahPlayer({
     };
     const onEnded = () => finishAyahRef.current();
     const onError = () => {
-      setAyahError("تعذّر تشغيل صوت الآية — تحقق من الاتصال");
+      // Offline: the ayah file is not on the device — say so, instead
+      // of blaming the connection (the fix is downloading the surah).
+      setAyahError(
+        !navigator.onLine
+          ? "هذه الآية غير محمّلة — حمّل السورة أولاً"
+          : "تعذّر تشغيل صوت الآية — تحقق من الاتصال"
+      );
       stopAyahRef.current();
     };
     // أثناء انتظار بيانات الصوت من الشبكة أظهر «جارٍ التحميل» بدل أن
@@ -809,6 +830,9 @@ export default function SurahPlayer({
     }
   }, [effectiveAudioUrl, networkAudioUrl, currentReciter, surahNumber]);
 
+  // Downloading the currently open surah must switch the player to
+  // the offline blob without leaving the page: isCached() is a
+  // dependency (its result changes when the cache refreshes).
   useEffect(() => {
     if (!networkAudioUrl || !currentReciter) {
       setEffectiveAudioUrl(networkAudioUrl);
@@ -831,7 +855,7 @@ export default function SurahPlayer({
     return () => {
       alive = false;
     };
-  }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl, isCached(surahNumber, currentReciter?.id ?? "")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQirahChange = (qirahId: string) => {
     setSelectedQirahId(qirahId);
@@ -850,17 +874,17 @@ export default function SurahPlayer({
 
   const handleProgress = useCallback(
     (currentTime: number, duration: number) => {
-      saveProgress(surahNumber, currentTime, duration);
+      saveProgress(surahNumber, currentTime, duration, currentReciter?.id);
     },
-    [surahNumber, saveProgress]
+    [surahNumber, saveProgress, currentReciter?.id]
   );
 
   const handleFinished = useCallback(() => {
-    clearProgress(surahNumber);
+    clearProgress(surahNumber, currentReciter?.id);
     markCompleted(surahNumber);
     setJustCompleted(true);
     setTimeout(() => setJustCompleted(false), 4000);
-  }, [surahNumber, clearProgress, markCompleted]);
+  }, [surahNumber, clearProgress, markCompleted, currentReciter?.id]);
 
   // Offline: the full Uthmani text is bundled in src/data/quran-text.ts —
   // no network is needed to read a surah. Only audio is streamed/downloaded.

@@ -13,12 +13,14 @@ function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
 }
 
-// النص المضمّن يسبق البسملةَ بنص الآية الأولى من كل سورة (ما عدا التوبة)؛
-// نخفيها في المعاينة حتى تظهر بداية الآية الحقيقية.
+// The Juz 1 card starts at 1:1, whose entire text IS the basmala —
+// stripping it leaves an empty preview, so fall back to the basmala
+// itself instead of showing a blank line.
 const BASMALA_PREFIX = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
 function previewText(text: string): string {
   const t = text.startsWith(BASMALA_PREFIX) ? text.slice(BASMALA_PREFIX.length).trim() : text;
-  return t.length > 70 ? t.slice(0, 70) + "…" : t;
+  const shown = t.length > 0 ? t : BASMALA_PREFIX;
+  return shown.length > 70 ? shown.slice(0, 70) + "…" : shown;
 }
 
 export default function JuzPage({ darkMode, toggleDarkMode }: JuzPageProps) {

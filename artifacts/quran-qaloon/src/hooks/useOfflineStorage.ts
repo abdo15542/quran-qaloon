@@ -28,8 +28,14 @@ function getCacheKey(surahNumber: number, reciterId: string): string {
   return `${surahNumber}-${reciterId}`;
 }
 
+// One shared IndexedDB connection: opening a new connection per
+// operation (~12,000 opens in a full-Quran download) is wasteful and
+// risks hitting the browser's connection limit.
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -40,9 +46,24 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(AYAH_STORE_NAME, { keyPath: "key" });
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbPromise = null;
+      reject(req.error);
+    };
+    req.onblocked = () => {
+      dbPromise = null;
+      reject(new Error("IndexedDB blocked"));
+    };
   });
+  return dbPromise;
 }
 
 async function getFromDB(key: string): Promise<{ blob: Blob; meta: CachedAudio } | null> {
@@ -112,6 +133,8 @@ export interface CachedAyah {
   key: string;
   reciterId: string;
   globalAyah: number;
+  /** Size of the cached ayah file in bytes (for the storage meter). */
+  size: number;
   cachedAt: number;
 }
 
@@ -159,40 +182,91 @@ async function clearAyahDB(): Promise<void> {
   });
 }
 
-// Download a surah's per-ayah files (best effort, sequential, abort
-// aware). A failed ayah never fails the surah download — it is simply
-// skipped and can be cached later when the ayah is played online.
+async function getAllAyahKeys(): Promise<string[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(AYAH_STORE_NAME, "readonly");
+    const req = tx.objectStore(AYAH_STORE_NAME).getAllKeys();
+    req.onsuccess = () => resolve((req.result as IDBValidKey[]).map(String));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Total bytes held by the ayah store. The blob size is read from the
+// stored record itself, so even ayah files cached before 1.0.64 (whose
+// meta has no size) are counted exactly.
+async function getAllAyahBytes(): Promise<number> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(AYAH_STORE_NAME, "readonly");
+    const req = tx.objectStore(AYAH_STORE_NAME).getAll();
+    req.onsuccess = () => {
+      const rows = req.result as { blob?: Blob; meta?: CachedAyah }[];
+      resolve(rows.reduce((acc, r) => acc + (r.blob?.size ?? r.meta?.size ?? 0), 0));
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Download a surah's per-ayah files (best effort, abort aware, 6 in
+// flight at a time). A failed ayah never fails the surah download — it
+// is simply skipped and can be cached later when the ayah is played
+// online. Sequential fetching froze the progress bar at 99% for minutes
+// on long surahs (6,236 fetches for a full Quran), so the ayah phase
+// runs concurrently and reports its own progress.
 async function downloadAyahFiles(
   reciterId: string,
   surahNumber: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void
 ): Promise<void> {
   const reciter = RECITERS.find((r) => r.id === reciterId);
-  if (!reciter?.ayahAudioBase) return;
+  if (!reciter || !reciter.ayahAudioBase) return;
+  // Capture the narrowed reciter in a fresh const: a hoisted function
+  // declaration sees only the declared (nullable) type of `reciter`.
+  const reciterForAyahs = reciter;
   const surah = SURAHS.find((s) => s.number === surahNumber);
   if (!surah) return;
-  for (let a = 1; a <= surah.numberOfAyahs; a++) {
-    if (signal?.aborted) return;
-    const global = getGlobalAyahNumber(surahNumber, a);
-    const key = getAyahCacheKey(reciterId, global);
-    try {
-      const existing = await getFromAyahDB(key);
-      if (existing) continue;
-    } catch {
-      // fall through and fetch
-    }
-    try {
-      const url = buildAyahAudioUrl(reciter, surahNumber, a);
-      if (!url) continue;
-      const res = await fetch(url, { signal });
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      await putInAyahDB(key, blob, { key, reciterId, globalAyah: global, cachedAt: Date.now() });
-    } catch {
+  const total = surah.numberOfAyahs;
+  let done = 0;
+  const CONCURRENCY = 6;
+  let next = 1;
+  async function worker(): Promise<void> {
+    while (true) {
       if (signal?.aborted) return;
-      // best effort — skip this ayah
+      const a = next++;
+      if (a > total) return;
+      const global = getGlobalAyahNumber(surahNumber, a);
+      const key = getAyahCacheKey(reciterId, global);
+      try {
+        const existing = await getFromAyahDB(key);
+        if (!existing) {
+          const url = buildAyahAudioUrl(reciterForAyahs, surahNumber, a);
+          if (url) {
+            const res = await fetch(url, { signal });
+            if (res.ok) {
+              const blob = await res.blob();
+              await putInAyahDB(key, blob, {
+                key,
+                reciterId,
+                globalAyah: global,
+                size: blob.size,
+                cachedAt: Date.now(),
+              });
+            }
+          }
+        }
+      } catch {
+        if (signal?.aborted) return;
+        // best effort — skip this ayah
+      }
+      done++;
+      onProgress?.(done, total);
     }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker())
+  );
 }
 
 const blobUrlCache = new Map<string, string>();
@@ -202,6 +276,7 @@ export function useOfflineStorage() {
   const [cachedItems, setCachedItems] = useState<CachedAudio[]>([]);
   const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
   const [isLoaded, setIsLoaded] = useState(false);
+  const [ayahStorageBytes, setAyahStorageBytes] = useState(0);
 
   const refreshCache = useCallback(async () => {
     try {
@@ -209,6 +284,11 @@ export function useOfflineStorage() {
       setCachedItems(all);
     } catch {
       setCachedItems([]);
+    }
+    try {
+      setAyahStorageBytes(await getAllAyahBytes());
+    } catch {
+      setAyahStorageBytes(0);
     }
   }, []);
 
@@ -250,6 +330,15 @@ export function useOfflineStorage() {
         const entry = await getFromAyahDB(key);
         if (!entry) return null;
         const url = URL.createObjectURL(entry.blob);
+        // Cap the cache: blob URLs are never revoked while cached, so
+        // an unbounded map leaks one URL per tapped ayah.
+        if (ayahBlobUrlCache.size >= 100) {
+          const oldest = ayahBlobUrlCache.keys().next().value;
+          if (oldest !== undefined) {
+            URL.revokeObjectURL(ayahBlobUrlCache.get(oldest)!);
+            ayahBlobUrlCache.delete(oldest);
+          }
+        }
         ayahBlobUrlCache.set(key, url);
         return url;
       } catch {
@@ -258,6 +347,17 @@ export function useOfflineStorage() {
     },
     []
   );
+
+  // All cached ayah keys (one getAllKeys): the Downloads page uses it
+  // to tell whether a surah's ayah files are complete, so an
+  // interrupted ayah phase is repaired instead of skipped.
+  const getCachedAyahKeys = useCallback(async (): Promise<Set<string>> => {
+    try {
+      return new Set(await getAllAyahKeys());
+    } catch {
+      return new Set<string>();
+    }
+  }, []);
 
   // Cache one ayah file in the background (fire-and-forget): an ayah
   // heard online becomes playable offline afterwards.
@@ -270,7 +370,7 @@ export function useOfflineStorage() {
         const res = await fetch(url);
         if (!res.ok) return false;
         const blob = await res.blob();
-        await putInAyahDB(key, blob, { key, reciterId, globalAyah, cachedAt: Date.now() });
+        await putInAyahDB(key, blob, { key, reciterId, globalAyah, size: blob.size, cachedAt: Date.now() });
         return true;
       } catch {
         return false;
@@ -295,6 +395,20 @@ export function useOfflineStorage() {
         next.set(key, { key, progress: 0, status: "downloading" });
         return next;
       });
+      // Progress is split across the two phases: the surah file is
+      // 0–70%, the per-ayah files 70–100% — before this the bar froze
+      // at the surah-phase percentage for minutes while the ayahs
+      // downloaded.
+      const setProgress = (p: number) => {
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          next.set(key, { key, progress: Math.min(99, Math.max(0, Math.round(p))), status: "downloading" });
+          return next;
+        });
+      };
+      const reportAyahProgress = (done: number, total: number) => {
+        if (total > 0) setProgress(70 + (done / total) * 30);
+      };
 
       try {
         const response = await fetch(audioUrl, { signal });
@@ -320,7 +434,8 @@ export function useOfflineStorage() {
             blobUrlCache.delete(key);
           }
           // Tap-ayah needs the per-ayah files too, not just the surah file.
-          await downloadAyahFiles(reciterId, surahNumber, signal);
+          setProgress(70);
+          await downloadAyahFiles(reciterId, surahNumber, signal, reportAyahProgress);
           setDownloads((prev) => {
             const next = new Map(prev);
             next.set(key, { key, progress: 100, status: "done" });
@@ -340,12 +455,7 @@ export function useOfflineStorage() {
           chunks.push(value);
           received += value.length;
           if (contentLength > 0) {
-            const progress = Math.round((received / contentLength) * 100);
-            setDownloads((prev) => {
-              const next = new Map(prev);
-              next.set(key, { key, progress, status: "downloading" });
-              return next;
-            });
+            setProgress((received / contentLength) * 70);
           }
         }
 
@@ -365,7 +475,8 @@ export function useOfflineStorage() {
           blobUrlCache.delete(key);
         }
         // Tap-ayah needs the per-ayah files too, not just the surah file.
-        await downloadAyahFiles(reciterId, surahNumber, signal);
+        setProgress(70);
+        await downloadAyahFiles(reciterId, surahNumber, signal, reportAyahProgress);
 
         setDownloads((prev) => {
           const next = new Map(prev);
@@ -440,7 +551,11 @@ export function useOfflineStorage() {
     [downloads]
   );
 
-  const totalStorageBytes = cachedItems.reduce((acc, c) => acc + c.size, 0);
+  // The storage meter: surah files + the per-ayah files, which used
+  // to be invisible here even though they are the bulk of the cache
+  // (~400 MB for a full Quran).
+  const totalStorageBytes =
+    cachedItems.reduce((acc, c) => acc + c.size, 0) + ayahStorageBytes;
 
   return {
     cachedItems,
@@ -448,6 +563,7 @@ export function useOfflineStorage() {
     isCached,
     getCachedBlobUrl,
     getCachedAyahUrl,
+    getCachedAyahKeys,
     cacheAyahAudio,
     downloadAudio,
     deleteAudio,

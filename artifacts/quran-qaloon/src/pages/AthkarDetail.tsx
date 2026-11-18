@@ -103,12 +103,20 @@ export default function AthkarDetail({ categoryId, darkMode, toggleDarkMode }: A
   const category = ATHKAR_CATEGORIES.find((c) => c.id === categoryId);
   // Counting progress survives leaving the page: counts are restored
   // per category, so a long dhikr is not lost by an accidental back tap.
+  // The counts carry the day they belong to: daily athkar (morning /
+  // evening) reset at midnight, so yesterday's completed dhikr does not
+  // still show completed tomorrow.
   const storageKey = `athkar_counts_${categoryId}`;
   const loadStored = (): { counts: Record<number, number>; completed: Record<number, boolean> } => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return { counts: {}, completed: {} };
-      const parsed = JSON.parse(raw) as { counts?: Record<number, number>; completed?: Record<number, boolean> };
+      const parsed = JSON.parse(raw) as {
+        counts?: Record<number, number>;
+        completed?: Record<number, boolean>;
+        date?: string;
+      };
+      if (parsed.date !== new Date().toDateString()) return { counts: {}, completed: {} };
       return { counts: parsed.counts ?? {}, completed: parsed.completed ?? {} };
     } catch {
       return { counts: {}, completed: {} };
@@ -118,7 +126,10 @@ export default function AthkarDetail({ categoryId, darkMode, toggleDarkMode }: A
   const [completed, setCompleted] = useState<Record<number, boolean>>(() => loadStored().completed);
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ counts, completed }));
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ counts, completed, date: new Date().toDateString() })
+      );
     } catch {
       // storage unavailable
     }

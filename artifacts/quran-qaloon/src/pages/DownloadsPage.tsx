@@ -1,8 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { ArrowRight, HardDrive, Trash2, BookOpen, Moon, Sun, WifiOff, Download, AlertTriangle, Square, CheckCircle2 } from "lucide-react";
 import { useOffline } from "@/context/OfflineContext";
-import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
+import { SURAHS, RECITERS, buildAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
 
 interface DownloadsPageProps {
   darkMode: boolean;
@@ -26,9 +26,34 @@ function formatDate(ts: number): string {
 }
 
 export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPageProps) {
-  const { cachedItems, totalStorageBytes, deleteAudio, clearAll, downloadAudio, isCached } = useOffline();
+  const { cachedItems, totalStorageBytes, deleteAudio, clearAll, downloadAudio, isCached, getCachedAyahKeys } = useOffline();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  // All cached ayah keys: a surah counts as fully downloaded only when
+  // its surah file AND all its ayah files are cached (an interrupted
+  // ayah phase used to be skipped as "already downloaded").
+  const [ayahKeys, setAyahKeys] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    getCachedAyahKeys().then((keys) => {
+      if (!cancelled) setAyahKeys(keys);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedItems, getCachedAyahKeys]);
+
+  const isSurahFullyCached = (surahNumber: number, reciterId: string, keys: Set<string> = ayahKeys): boolean => {
+    if (!isCached(surahNumber, reciterId)) return false;
+    const surah = SURAHS.find((s) => s.number === surahNumber);
+    if (!surah) return false;
+    const firstGlobal = getGlobalAyahNumber(surahNumber, 1);
+    for (let a = 0; a < surah.numberOfAyahs; a++) {
+      if (!keys.has(`ayah-${reciterId}-${firstGlobal + a}`)) return false;
+    }
+    return true;
+  };
 
   // ---- تحميل المصحف كاملاً دفعة واحدة ----
   const [selectedReciterId, setSelectedReciterId] = useState<string>(() => {
@@ -54,14 +79,33 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     RECITERS.find((r) => r.id === selectedReciterId) ??
     RECITERS.find((r) => r.id === "mishary") ??
     RECITERS[0];
-  const alreadyCachedForReciter = SURAHS.filter((s) => isCached(s.number, selectedReciter.id)).length;
+  const alreadyCachedForReciter = SURAHS.filter((s) => isSurahFullyCached(s.number, selectedReciter.id)).length;
   const remainingForReciter = SURAHS.length - alreadyCachedForReciter;
 
   // تحميل متوازٍ بأقصى سرعة: 5 سور في نفس الوقت بدل سورة بعد سورة.
   const BULK_CONCURRENCY = 5;
 
   const startBulkDownload = async () => {
-    const pending = SURAHS.filter((s) => !isCached(s.number, selectedReciter.id));
+    setBulkError(null);
+    // Not enough free space for a whole-Quran download: refuse to
+    // start instead of failing halfway through (a full Quran with its
+    // ayah files is several hundred megabytes).
+    try {
+      const estimate = await navigator.storage?.estimate?.();
+      if (estimate && typeof estimate.quota === "number" && typeof estimate.usage === "number") {
+        const free = estimate.quota - estimate.usage;
+        if (free < 300 * 1024 * 1024) {
+          setBulkError("لا توجد مساحة كافية — حرّر مساحة ثم أعد المحاولة");
+          return;
+        }
+      }
+    } catch {
+      // estimate unavailable — proceed and let the download fail loudly
+    }
+    // Fresh keys at click time: the state copy can lag a just-finished
+    // download, and a stale empty set would re-queue all 114 surahs.
+    const freshAyahKeys = await getCachedAyahKeys();
+    const pending = SURAHS.filter((s) => !isSurahFullyCached(s.number, selectedReciter.id, freshAyahKeys));
     if (pending.length === 0) {
       setBulk({ status: "done", done: 0, total: 0, failed: 0, currentSurah: "" });
       return;
@@ -131,7 +175,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     setShowClearConfirm(false);
   };
 
-  const STORAGE_WARN_MB = 200;
+  const STORAGE_WARN_MB = 1000;
   const storageMB = totalStorageBytes / (1024 * 1024);
   const storagePercent = Math.min(Math.round((storageMB / STORAGE_WARN_MB) * 100), 100);
 
@@ -230,7 +274,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
             <p className="text-xs text-muted-foreground leading-relaxed">
               حمّل كل السور الـ114 دفعة واحدة بصوت القارئ الذي تختاره، لتستمع بدون إنترنت نهائياً.
               التحميل متوازٍ بأقصى سرعة (5 سور في نفس الوقت).
-              قد يصل الحجم الإجمالي إلى مئات الميغابايت — يُفضَّل الاتصال بشبكة Wi-Fi وترك التطبيق مفتوحاً حتى يكتمل التحميل.
+              الحجم الإجمالي كبير: سورة البقرة وحدها نحو 120 ميغابايت بصوت العفاسي، والمصحف كاملاً مع ملفات الآيات قد يصل إلى نحو 800 ميغابايت — يُفضَّل الاتصال بشبكة Wi-Fi وترك التطبيق مفتوحاً حتى يكتمل التحميل.
             </p>
             <div className="flex flex-col sm:flex-row gap-2">
               <select
@@ -270,6 +314,13 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
             {alreadyCachedForReciter > 0 && bulk.status !== "running" && (
               <div className="text-xs text-muted-foreground">
                 محفوظ حالياً بصوت {selectedReciter.name}: {alreadyCachedForReciter} من 114 سورة
+              </div>
+            )}
+
+            {bulkError && (
+              <div className="flex items-center gap-2 text-xs bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 rounded-xl px-3 py-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{bulkError}</span>
               </div>
             )}
 

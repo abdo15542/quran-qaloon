@@ -195,7 +195,12 @@ export default function AudioPlayer({
               min={0}
               max={state.duration || 100}
               value={state.currentTime}
-              onChange={(e) => seek(Number(e.target.value))}
+              onChange={(e) => {
+                // Seeking to the start is a restart: hide the resume
+                // banner, or it pops back up as soon as currentTime < 5.
+                setResumeHidden(true);
+                seek(Number(e.target.value));
+              }}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
           </div>
@@ -288,7 +293,10 @@ export default function AudioPlayer({
 
         <div className="mt-3 flex justify-center">
           <button
-            onClick={() => seek(0)}
+            onClick={() => {
+              setResumeHidden(true);
+              seek(0);
+            }}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <RotateCcw className="w-3 h-3" />

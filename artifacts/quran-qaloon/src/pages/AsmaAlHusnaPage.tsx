@@ -5,14 +5,18 @@ import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Search, Sparkles } from "lucide-react";
 import { ASMA_AL_HUSNA } from "@/data/asma-al-husna";
+import { normalizeArabic } from "@/data/quran-text";
 
 interface AsmaAlHusnaPageProps {
   darkMode: boolean;
   toggleDarkMode: () => void;
 }
 
+// Search without hamza must match names with hamza («الاول» finds
+// «الأوَّلُ»): the shared normaliser maps أ/إ/آ/ٱ→ا، ؤ→و، ئ→ي and
+// strips diacritics — the old local stripper did none of the mappings.
 function stripDiacritics(s: string): string {
-  return s.replace(/[ً-ٰٓـ]/g, "").replace(/\s+/g, "");
+  return normalizeArabic(s, false).replace(/\s+/g, "");
 }
 
 export default function AsmaAlHusnaPage({ darkMode, toggleDarkMode }: AsmaAlHusnaPageProps) {

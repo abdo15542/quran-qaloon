@@ -7,7 +7,8 @@ import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
-import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
+import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled, isPrayerReminderEnabled, isExactAlarmGranted, openExactAlarmSettingsPage } from "@/data/prayer-times";
+import { Capacitor } from "@capacitor/core";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
@@ -76,12 +77,20 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     () => getNextPrayerForCoords(now, activeLoc.lat, activeLoc.lng),
     [now, activeLoc.lat, activeLoc.lng]
   );
+  // True when the reminder is on but the exact-alarm permission is
+  // denied, so the adhan falls back to the notification sound: the
+  // prayer card shows a one-line status for it (native only — the web
+  // preview has no exact alarms at all).
+  const [exactAlarmDenied, setExactAlarmDenied] = useState(false);
   useEffect(() => {
     // Tick every second: the countdown shows seconds in the last
     // minute, and a 30s tick left the seconds frozen for up to half
     // a minute before jumping.
     const t = window.setInterval(() => setNow(new Date()), 1000);
     ensurePrayerRemindersScheduled().catch(() => {});
+    if (Capacitor.isNativePlatform() && isPrayerReminderEnabled()) {
+      isExactAlarmGranted().then((ok) => setExactAlarmDenied(!ok)).catch(() => {});
+    }
     return () => window.clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -274,6 +283,18 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               <div className="text-xs text-muted-foreground">
                 {PRAYER_NAMES[nextPrayer.key]} {formatPrayerTime(nextPrayer.time)} — متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())} · {activeLoc.label}
               </div>
+              {exactAlarmDenied && (
+                <div
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openExactAlarmSettingsPage();
+                  }}
+                  className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 cursor-pointer"
+                >
+                  الأذان الكامل غير مفعّل — اضغط لفتحه
+                </div>
+              )}
             </div>
           </Link>
           <Link href="/stats">

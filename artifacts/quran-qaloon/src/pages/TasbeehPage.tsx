@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "wouter";
 import { ArrowRight, RotateCcw, Moon, Sun } from "lucide-react";
 
@@ -110,10 +110,33 @@ function CircleProgress({
 
 export default function TasbeehPage({ darkMode, toggleDarkMode }: TasbeehPageProps) {
   const [selectedId, setSelectedId] = useState<string>("subhan");
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [totalTaps, setTotalTaps] = useState(0);
+  // Counts survive leaving the page (like the athkar counts): an
+  // accidental back tap mid-count no longer loses the session.
+  const TASBEEH_KEY = "quran_tasbeeh_counts";
+  const loadStoredTasbeeh = (): { counts: Record<string, number>; totalTaps: number } => {
+    try {
+      const raw = localStorage.getItem(TASBEEH_KEY);
+      if (!raw) return { counts: {}, totalTaps: 0 };
+      const parsed = JSON.parse(raw) as { counts?: Record<string, number>; totalTaps?: number };
+      return { counts: parsed.counts ?? {}, totalTaps: parsed.totalTaps ?? 0 };
+    } catch {
+      return { counts: {}, totalTaps: 0 };
+    }
+  };
+  const [counts, setCounts] = useState<Record<string, number>>(() => loadStoredTasbeeh().counts);
+  const [totalTaps, setTotalTaps] = useState<number>(() => loadStoredTasbeeh().totalTaps);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TASBEEH_KEY, JSON.stringify({ counts, totalTaps }));
+    } catch {
+      // storage unavailable
+    }
+  }, [counts, totalTaps]);
   const [flash, setFlash] = useState(false);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  // The timeout that hides the «أتممتَ الدورة!» banner after 1.5s —
+  // a reset inside that window must clear it too.
+  const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selected = DHIKR_OPTIONS.find((d) => d.id === selectedId) ?? DHIKR_OPTIONS[0];
   const count = counts[selectedId] ?? 0;
@@ -125,7 +148,9 @@ export default function TasbeehPage({ darkMode, toggleDarkMode }: TasbeehPagePro
       const next = (prev[selectedId] ?? 0) + 1;
       if (next % selected.target === 0 && next > 0) {
         setCompletedIds((c) => new Set([...c, selectedId]));
-        setTimeout(() => setCompletedIds((c) => { const s = new Set(c); s.delete(selectedId); return s; }), 1500);
+        completeTimeoutRef.current = setTimeout(() => {
+          setCompletedIds((c) => { const s = new Set(c); s.delete(selectedId); return s; });
+        }, 1500);
       }
       return { ...prev, [selectedId]: next };
     });
@@ -138,18 +163,33 @@ export default function TasbeehPage({ darkMode, toggleDarkMode }: TasbeehPagePro
     }
   }, [selectedId, selected.target]);
 
+  const clearCompletedBanner = () => {
+    if (completeTimeoutRef.current) {
+      clearTimeout(completeTimeoutRef.current);
+      completeTimeoutRef.current = null;
+    }
+  };
+
   const handleReset = () => {
     setCounts((prev) => ({ ...prev, [selectedId]: 0 }));
+    setCompletedIds((c) => { const s = new Set(c); s.delete(selectedId); return s; });
+    clearCompletedBanner();
   };
 
   const handleResetAll = () => {
     setCounts({});
     setTotalTaps(0);
+    setCompletedIds(new Set());
+    clearCompletedBanner();
   };
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "Enter") {
+        // Space on a focused button fires its click on keyup, which a
+        // keydown preventDefault does NOT block — the tap would count
+        // twice. Let the button handle its own key instead.
+        if (document.activeElement instanceof HTMLButtonElement) return;
         e.preventDefault();
         handleTap();
       }

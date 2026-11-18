@@ -91,6 +91,9 @@ public class AdhanAlarmPlugin extends Plugin {
         Context ctx = getContext();
         JSONArray stored = AdhanAlarms.loadStored(ctx);
         AdhanAlarms.cancelAll(ctx, stored);
+        // The test alarm (id 9999, testAdhan) is registered but never
+        // stored, so the stored set alone cannot cancel it.
+        AdhanAlarms.cancelId(ctx, 9999);
         AdhanAlarms.clearStored(ctx);
         call.resolve();
     }

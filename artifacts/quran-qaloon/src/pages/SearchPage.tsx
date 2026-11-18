@@ -268,13 +268,15 @@ function AthkarResultCard({ result, query }: { result: AthkarResult; query: stri
 function searchAthkar(query: string): AthkarResult[] {
   // Diacritic-insensitive, like the Quran search: the athkar texts are
   // fully vocalised, so a plain includes() misses «الله» in «لِلَّهِ».
-  const q = normalizeArabic(query.trim());
+  // Athkar texts are modern spelling (no Uthmani dagger alif), so the
+  // dagger-alif exception table must not apply to them — pass false.
+  const q = normalizeArabic(query.trim(), false);
   if (!q) return [];
   const results: AthkarResult[] = [];
   for (const cat of ATHKAR_CATEGORIES) {
     for (const item of cat.items) {
       for (const content of item.content) {
-        if (content.type === "text" && normalizeArabic(content.text).includes(q)) {
+        if (content.type === "text" && normalizeArabic(content.text, false).includes(q)) {
           results.push({
             categoryId: cat.id,
             categoryName: cat.name,
@@ -350,18 +352,19 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   }, [detailed, athkarResults.length]);
 
   // Live search as the user types (debounced), so results appear while
-  // typing without a search on every keystroke.
+  // typing without a search on every keystroke — in both tabs (the
+  // athkar tab used to search only on submit or tab switch).
   useEffect(() => {
-    if (tab !== "quran") return;
     const trimmed = query.trim();
     if (!trimmed) {
       setDetailed(null);
       setResults([]);
+      setAthkarResults([]);
       setSearched(false);
       lastQueryRef.current = "";
       return;
     }
-    const t = setTimeout(() => { doSearch(query, "quran"); }, 600);
+    const t = setTimeout(() => { doSearch(query, tab); }, 600);
     return () => clearTimeout(t);
   }, [query, tab, doSearch]);
 

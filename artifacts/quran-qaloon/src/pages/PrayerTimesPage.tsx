@@ -19,7 +19,6 @@ import {
   PRAYER_ORDER,
   getStoredCityId,
   setStoredCityId,
-  getCity,
   getPrayerTimesForCoords,
   getNextPrayerForCoords,
   getIqamaTime,
@@ -41,6 +40,7 @@ import {
   setStoredMode,
   getStoredCoords,
   setStoredCoords,
+  getActiveLocation,
   detectPrayerLocation,
   locationErrorMessage,
   openLocationSettings,
@@ -53,6 +53,10 @@ import {
   type StoredCoords,
 } from "@/data/prayer-times";
 import { formatHijriDate } from "@/data/hijri";
+
+// Set once the exact-alarm settings have been opened automatically from
+// the reminder toggle, so it does not pop up on every enable.
+const EXACT_ALARM_PROMPTED_KEY = "quran_exact_alarm_prompted";
 
 interface PrayerTimesPageProps {
   darkMode: boolean;
@@ -134,14 +138,13 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The active location: GPS coordinates in auto mode (when detected),
-  // the selected city otherwise.
+  // The active location: getActiveLocation() applies the 24h GPS expiry
+  // (the same source Home and the scheduler use) — the page's raw coords
+  // state has no expiry, so the page could show stale-location times
+  // while the reminders were scheduled for the fallback city.
   const active = useMemo(() => {
-    if (mode === "auto" && coords) {
-      return { lat: coords.lat, lng: coords.lng, label: getCity(coords.cityId).name, cityId: coords.cityId };
-    }
-    const city = LIBYAN_CITIES.find((c) => c.id === cityId) ?? LIBYAN_CITIES[0];
-    return { lat: city.lat, lng: city.lng, label: city.name, cityId: city.id };
+    const loc = getActiveLocation();
+    return { lat: loc.lat, lng: loc.lng, label: loc.label, cityId: loc.cityId };
   }, [mode, coords, cityId]);
 
   const times = useMemo(
@@ -163,6 +166,9 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     month: "long",
     year: "numeric",
   }).format(now);
+  // formatHijriDate returns "" when the Islamic calendar is unavailable
+  // — hide the bullet too, so the line never ends with a dangling «•».
+  const hijriLabel = formatHijriDate(now);
 
   const handleModeChange = (m: PrayerLocationMode) => {
     // Tapping the already-active «الموقع الحالي» button must re-detect
@@ -223,9 +229,18 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
         // No instruction text in the UI any more — but if the
         // exact-alarm permission is missing, the native adhan silently
         // falls back to the notification sound with no remedy in the
-        // app. Open the system settings once so it can be granted.
+        // app. Open the system settings ONCE so it can be granted;
+        // afterwards the Home card's status line is the way back in.
         if (isPrayerReminderEnabled() && !(await isExactAlarmGranted())) {
-          await openExactAlarmSettingsPage();
+          try {
+            if (!localStorage.getItem(EXACT_ALARM_PROMPTED_KEY)) {
+              localStorage.setItem(EXACT_ALARM_PROMPTED_KEY, "1");
+              await openExactAlarmSettingsPage();
+            }
+          } catch {
+            // storage unavailable — open anyway, once per toggle
+            await openExactAlarmSettingsPage();
+          }
         }
       }
     } finally {
@@ -363,7 +378,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </button>
                 </div>
               )}
-              <div className="text-xs text-muted-foreground mt-2">{todayLabel} • {formatHijriDate(now)}</div>
+              <div className="text-xs text-muted-foreground mt-2">{todayLabel}{hijriLabel ? ` • ${hijriLabel}` : ""}</div>
             </div>
           ) : (
             <div>
@@ -379,7 +394,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </option>
                 ))}
               </select>
-              <div className="text-xs text-muted-foreground mt-2">{todayLabel} • {formatHijriDate(now)}</div>
+              <div className="text-xs text-muted-foreground mt-2">{todayLabel}{hijriLabel ? ` • ${hijriLabel}` : ""}</div>
             </div>
           )}
         </div>
