@@ -199,3 +199,9 @@
 header.sticky {
   padding-top: max(2.25rem, calc(env(safe-area-inset-top, 0px) + 1.25rem));
 }
+
+/* A long-press on a link must not show the link callout with the raw
+   internal URL (the cards are navigation, not links to copy). */
+a {
+  -webkit-touch-callout: none;
+}

@@ -3,7 +3,7 @@ import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, 
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
-import { getSurahAyahs } from "@/data/quran-text";
+import { getSurahAyahs, splitAyahBasmala, displayAyahText } from "@/data/quran-text";
 import { isSajdahAyah } from "@/data/hizb";
 import { getTranslation } from "@/data/translation-en";
 import { getPageOfAyah } from "@/data/mushaf-pages";
@@ -348,7 +348,7 @@ export default function SurahPlayer({
       if (!surah) return;
       const ayah = ayahs.find((a) => a.numberInSurah === ayahNumber);
       if (!ayah) return;
-      const text = `${ayah.text} ﴿${toArabicNum(ayahNumber)}﴾\nسورة ${surah.name} — الآية ${toArabicNum(ayahNumber)}`;
+      const text = `${displayAyahText(surahNumber, ayahNumber, ayah.text)} ﴿${toArabicNum(ayahNumber)}﴾\nسورة ${surah.name} — الآية ${toArabicNum(ayahNumber)}`;
       const ok = await copyTextToClipboard(text);
       if (ok) {
         setCopiedAyah(ayahNumber);
@@ -372,12 +372,21 @@ export default function SurahPlayer({
 
   // The share preview sheet handles rendering, saving and sharing — the
   // player only opens it for the tapped ayah.
+  // Ayah 1 of surahs 2-114 carries the Basmala as a text prefix; the header
+  // above already shows it, so display the ayah without it. TajweedText gets
+  // the windowed text plus the full-text window so its spans still clip
+  // correctly. Surah 1 ayah 1 IS the Basmala and is kept whole.
+  const ayahParts = useMemo(
+    () => ayahs.map((a) => splitAyahBasmala(surahNumber, a.numberInSurah, a.text)),
+    [ayahs, surahNumber]
+  );
+
   const sharePreviewData = (() => {
     if (sharePreviewAyah == null || !surah) return null;
     const ayah = ayahs.find((a) => a.numberInSurah === sharePreviewAyah);
     if (!ayah) return null;
     return {
-      ayahText: ayah.text,
+      ayahText: displayAyahText(surahNumber, sharePreviewAyah, ayah.text),
       surahName: surah.name,
       surahNumber,
       ayahNumber: sharePreviewAyah,
@@ -385,6 +394,8 @@ export default function SurahPlayer({
     };
   })();
   const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Guards the blob -> network fallback so it fires at most once per surah+reciter.
+  const audioFallbackTriedRef = useRef("");
   const [ayahBuffering, setAyahBuffering] = useState(false);
   // هل بدأ صوت الآية يتحرك فعلًا (وليس مجرد ضغطة بانتظار البيانات).
   const [ayahStarted, setAyahStarted] = useState(false);
@@ -857,6 +868,20 @@ export default function SurahPlayer({
     }
   }, [effectiveAudioUrl, networkAudioUrl, currentReciter, surahNumber]);
 
+  // If the offline blob fails to play (a corrupt/empty cache entry or a
+  // stale blob URL), fall back to the network URL once instead of leaving
+  // the player dead with «تعذّر تحميل الملف الصوتي». A network failure
+  // after the switch shows the normal banner with retry (the guard above
+  // stops any loop).
+  const handlePlayerError = useCallback(() => {
+    if (!isOffline || !networkAudioUrl) return;
+    const key = `${surahNumber}-${currentReciter?.id ?? ""}`;
+    if (audioFallbackTriedRef.current === key) return;
+    audioFallbackTriedRef.current = key;
+    setEffectiveAudioUrl(networkAudioUrl);
+    setIsOffline(false);
+  }, [isOffline, networkAudioUrl, surahNumber, currentReciter?.id]);
+
   // Downloading the currently open surah must switch the player to
   // the offline blob without leaving the page: isCached() is a
   // dependency (its result changes when the cache refreshes).
@@ -867,6 +892,7 @@ export default function SurahPlayer({
       return;
     }
     let alive = true;
+    audioFallbackTriedRef.current = "";
     getCachedBlobUrl(surahNumber, currentReciter.id).then((blobUrl) => {
       // A slow lookup for the previous surah must not overwrite the
       // current one when the user switches surahs quickly.
@@ -1066,7 +1092,7 @@ export default function SurahPlayer({
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <div className="md:col-span-2">
             <div className="md:sticky md:top-20 space-y-4">
-              {effectiveAudioUrl && (
+              {effectiveAudioUrl ? (
                 <div className="relative">
                   {isOffline && (
                     <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-emerald-600/90 text-white text-xs px-2 py-0.5 rounded-full">
@@ -1087,7 +1113,13 @@ export default function SurahPlayer({
                     hasPrevious={!!prevSurah}
                     hasNext={!!nextSurah}
                     pauseSignal={pauseSignal}
+                    onError={handlePlayerError}
                   />
+                </div>
+              ) : (
+                <div className="card-modern p-6 flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  <span className="text-sm">جارٍ تحميل المشغّل…</span>
                 </div>
               )}
 
@@ -1250,7 +1282,7 @@ export default function SurahPlayer({
 
               {rightMode === "text" ? (
                 <>
-                  {surah.number !== 9 && (
+                  {surah.number !== 9 && surah.number !== 1 && (
                     <div className="text-center py-5 border-b border-border bg-primary/5">
                       <div className="bismillah-text text-2xl sm:text-3xl text-primary">
                         بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
@@ -1399,7 +1431,7 @@ export default function SurahPlayer({
                           المعتاد مثل المصحف. */}
                       {showTranslation ? (
                         <div className="space-y-5" dir="rtl">
-                          {ayahs.map((ayah) => (
+                          {ayahs.map((ayah, idx) => (
                             <div
                               key={ayah.number}
                               data-ayah={ayah.numberInSurah}
@@ -1414,7 +1446,7 @@ export default function SurahPlayer({
                             >
                               <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} onRuleClick={setSelectedRule} />
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} enabled={tajweed} window={ayahParts[idx].basmala ? ([ayah.text.length - ayahParts[idx].rest.length, ayah.text.length] as [number, number]) : undefined} onRuleClick={setSelectedRule} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
@@ -1448,7 +1480,7 @@ export default function SurahPlayer({
                         </div>
                       ) : (
                         <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
-                          {ayahs.map((ayah) => (
+                          {ayahs.map((ayah, idx) => (
                             <Fragment key={ayah.number}>
                               {/* أزرار الآية المضغوطة مباشرة فوقها — التفسير /
                                   حفظ في المفضلة / مشاركة كصورة — حتى لا يضطر
@@ -1480,7 +1512,7 @@ export default function SurahPlayer({
                                 }`}
                               >
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} onRuleClick={setSelectedRule} />
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} enabled={tajweed} window={ayahParts[idx].basmala ? ([ayah.text.length - ayahParts[idx].rest.length, ayah.text.length] as [number, number]) : undefined} onRuleClick={setSelectedRule} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OfflineProvider } from "@/context/OfflineContext";
 import Home from "@/pages/Home";
@@ -41,6 +41,29 @@ function AppRoutes() {
   }, [darkMode]);
 
   const toggleDarkMode = () => setDarkMode((d) => !d);
+
+  // On every route change, return to the top of the page — the app is a
+  // SPA and the scroll position otherwise carries over (opening a surah
+  // from a scrolled Home opened the player mid-page). Deep links with
+  // ?ayah= are skipped: the player scrolls the target ayah into view
+  // itself, and a parent scroll-to-top would override it.
+  const [location] = useLocation();
+  useEffect(() => {
+    if (window.location.search.includes("ayah=")) return;
+    window.scrollTo(0, 0);
+  }, [location]);
+
+  // A long-press on a card link must not show the WebView's link-preview
+  // tooltip with the raw internal URL — the cards are navigation, not
+  // links to copy. Suppress the context menu on links only; long-press
+  // text selection elsewhere still works.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest("a")) e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
 
   return (
     <>

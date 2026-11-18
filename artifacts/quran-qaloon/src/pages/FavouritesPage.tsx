@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { ArrowRight, Heart, Moon, Sun, X } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
-import { getAyah } from "@/data/quran-text";
+import { getAyah, displayAyahText } from "@/data/quran-text";
 import { useFavourites } from "@/hooks/useFavourites";
 
 interface FavouritesPageProps {
@@ -88,7 +88,7 @@ export default function FavouritesPage({ darkMode, toggleDarkMode }: FavouritesP
                         style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
                         dir="rtl"
                       >
-                        {ayah.text}{" "}
+                        {displayAyahText(fav.surah, fav.ayah, ayah.text)}{" "}
                         <span className="text-primary inline-block mx-1 text-base">
                           ﴿{toArabicNum(fav.ayah)}﴾
                         </span>

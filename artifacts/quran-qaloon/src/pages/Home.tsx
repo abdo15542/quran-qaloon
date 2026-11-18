@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
-import { getAyah } from "@/data/quran-text";
+import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
 import { formatHijriDate } from "@/data/hijri";
 import { getQibla } from "@/data/qibla";
@@ -286,7 +286,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 </span>
               </div>
               <div className="quran-text text-foreground text-center" dir="rtl" style={{ fontSize: "1.65rem" }}>
-                {verseAyah.text} ﴿{toArabicNum(verseOfDay.ayah)}﴾
+                {displayAyahText(verseOfDay.surah, verseOfDay.ayah, verseAyah.text)} ﴿{toArabicNum(verseOfDay.ayah)}﴾
               </div>
               <div className="text-center text-xs text-muted-foreground mt-1">اضغط للاستماع إلى الآية</div>
             </div>

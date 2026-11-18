@@ -246,6 +246,7 @@ async function downloadAyahFiles(
             const res = await fetch(url, { signal });
             if (res.ok) {
               const blob = await res.blob();
+              if (blob.size === 0) continue;
               await putInAyahDB(key, blob, {
                 key,
                 reciterId,
@@ -312,6 +313,14 @@ export function useOfflineStorage() {
       try {
         const entry = await getFromDB(key);
         if (!entry) return null;
+        // A zero-byte entry (an interrupted download that slipped
+        // through) is a cache miss, not a playable file — evict it so
+        // the player falls back to the network and a re-download can
+        // store a real file.
+        if (entry.blob.size === 0) {
+          await deleteFromDB(key).catch(() => undefined);
+          return null;
+        }
         const url = URL.createObjectURL(entry.blob);
         blobUrlCache.set(key, url);
         return url;
@@ -329,6 +338,10 @@ export function useOfflineStorage() {
       try {
         const entry = await getFromAyahDB(key);
         if (!entry) return null;
+        if (entry.blob.size === 0) {
+          await deleteFromAyahDB(key).catch(() => undefined);
+          return null;
+        }
         const url = URL.createObjectURL(entry.blob);
         // Cap the cache: blob URLs are never revoked while cached, so
         // an unbounded map leaks one URL per tapped ayah.
@@ -413,12 +426,19 @@ export function useOfflineStorage() {
       try {
         const response = await fetch(audioUrl, { signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        // A 200 with an error page (HTML) instead of audio must not be
+        // stored as a "downloaded" surah that then fails to play.
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!/^(audio\/|application\/octet-stream)/i.test(contentType)) {
+          throw new Error(`Unexpected content-type: ${contentType}`);
+        }
 
         const contentLength = Number(response.headers.get("content-length") ?? "0");
         const reader = response.body?.getReader();
 
         if (!reader) {
           const blob = await response.blob();
+          if (blob.size === 0) throw new Error("Empty audio file");
           const meta: CachedAudio = {
             key,
             surahNumber,
@@ -460,6 +480,7 @@ export function useOfflineStorage() {
         }
 
         const blob = new Blob(chunks, { type: "audio/mpeg" });
+        if (blob.size === 0) throw new Error("Empty audio file");
         const meta: CachedAudio = {
           key,
           surahNumber,

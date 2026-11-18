@@ -16,6 +16,8 @@ interface AudioPlayerProps {
   hasNext?: boolean;
   /** Increment to pause the player from outside (e.g. when ayah audio starts). */
   pauseSignal?: number;
+  /** Called when the audio fails to load/play, so the parent can fall back to another source. */
+  onError?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -38,6 +40,7 @@ export default function AudioPlayer({
   hasPrevious = true,
   hasNext = true,
   pauseSignal = 0,
+  onError,
 }: AudioPlayerProps) {
   const [retryKey, setRetryKey] = useState(0);
   // Hide the "resume from X" banner once the user restarts from the
@@ -72,6 +75,15 @@ export default function AudioPlayer({
     setResumeHidden(false);
     playedRef.current = false;
   }, [audioUrl, initialTime]);
+
+  // Report a load/play failure to the parent (offline blob -> network
+  // fallback) — once per error, via a ref so the callback identity
+  // never retriggers this effect.
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  useEffect(() => {
+    if (state.error) onErrorRef.current?.();
+  }, [state.error]);
 
   // ---- مؤقت إيقاف التشغيل (للاستماع قبل النوم) ----
   const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = متوقف

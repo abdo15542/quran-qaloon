@@ -163,6 +163,44 @@ export function getAyah(surahNumber: number, ayahNumber: number, qirahId?: strin
   return { number: ayahNumber, numberInSurah: ayahNumber, text: texts[ayahNumber - 1] };
 }
 
+// The Basmala prefixes ayah 1 of every surah (except 9) in the bundled
+// text — but it is NOT part of the ayah: the surah header already shows
+// it, and for surah 1 it IS ayah 1. Any code that displays an ayah's text
+// must strip the prefix, or the user sees the Basmala twice (seen on
+// video in 1.0.70: the verse-of-day card and the player both showed it).
+// The literal is byte-identical to the prefix in the bundled text
+// (verified: it prefixes ayah 1 of surahs 2-114 except 9, 113 times;
+// surah 1 ayah 1 equals it exactly).
+export const BASMALA = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+
+/** Split ayah 1's Basmala prefix off: { basmala, rest }. Only ayah 1 of
+    surahs 2-114 (not 9) carries the prefix; surah 1 ayah 1 IS the
+    Basmala and is returned whole (basmala=false). */
+export function splitAyahBasmala(
+  surahNumber: number,
+  ayahNumber: number,
+  text: string
+): { basmala: boolean; rest: string } {
+  if (
+    ayahNumber === 1 &&
+    surahNumber !== 1 &&
+    surahNumber !== 9 &&
+    text.startsWith(BASMALA)
+  ) {
+    return { basmala: true, rest: text.slice(BASMALA.length).trim() };
+  }
+  return { basmala: false, rest: text };
+}
+
+/** Plain display text of an ayah (no TajweedText window needed). */
+export function displayAyahText(
+  surahNumber: number,
+  ayahNumber: number,
+  text: string
+): string {
+  return splitAyahBasmala(surahNumber, ayahNumber, text).rest;
+}
+
 // Uthmani spellings use و where modern spelling uses ا in a handful of
 // words (الصلوة = الصلاة، الزكوة = الزكاة ...). After the ة→ه step below
 // these become الصلوه/الزكوه/... — map them to the modern form so a search

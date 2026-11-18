@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart, Share2 } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
-import { getAyah } from "@/data/quran-text";
+import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
 import { getTafsirJalalayn, TAFSIR_JALALAYN_EDITION_NAME } from "@/data/tafsir-jalalayn";
 import { getTranslation, TRANSLATION_EDITION_NAME } from "@/data/translation-en";
@@ -124,7 +124,7 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
                 style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
                 dir="rtl"
               >
-                {ayah.text}{" "}
+                {displayAyahText(surahNumber, currentAyah, ayah.text)}{" "}
                 <span className="text-primary text-lg">﴿{toArabicNum(ayah.numberInSurah)}﴾</span>
               </div>
               {translation && (
@@ -229,7 +229,7 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
       {showSharePreview && ayah && surah && (
         <SharePreviewSheet
           ayah={{
-            ayahText: ayah.text,
+            ayahText: displayAyahText(surahNumber, currentAyah, ayah.text),
             surahName: surah.name,
             surahNumber,
             ayahNumber: currentAyah,
