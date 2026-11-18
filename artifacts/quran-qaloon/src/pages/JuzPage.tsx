@@ -81,7 +81,7 @@ export default function JuzPage({ darkMode, toggleDarkMode }: JuzPageProps) {
                 </div>
                 <div
                   className="text-sm text-muted-foreground mt-2 leading-relaxed"
-                  style={{ fontFamily: "'Amiri Quran', 'Amiri', serif" }}
+                  style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
                   dir="rtl"
                 >
                   {previewText(startAyah.text)}

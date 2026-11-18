@@ -972,7 +972,7 @@ export default function SurahPlayer({
 
       {/* الشريط العلوي منزَّل عن حافة الشاشة (قاعدة header.sticky في
           index.css: حشوة علوية 2.25rem + مساحة آمنة) حتى يكون واضحًا. */}
-      <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border">
+      <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border/70">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link href="/">
             <button className="p-2 rounded-full hover:bg-muted transition-colors">
@@ -981,7 +981,7 @@ export default function SurahPlayer({
           </Link>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <BookOpen className="w-4 h-4 text-primary flex-shrink-0" />
-            <span className="font-arabic text-lg text-primary truncate">{surah.name}</span>
+            <span className="surah-name text-foreground truncate">{surah.name}</span>
             <span className="text-xs text-muted-foreground hidden sm:inline">({surah.numberOfAyahs} آية)</span>
             {surahCompleted && (
               <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
@@ -1091,7 +1091,7 @@ export default function SurahPlayer({
               )}
 
               {networkAudioUrl && currentReciter && (
-                <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5">
+                <div className="flex items-center justify-between bg-card border border-border rounded-2xl px-4 py-2.5">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     {isCached(surahNumber, currentReciter.id) ? (
                       <>
@@ -1115,7 +1115,7 @@ export default function SurahPlayer({
                 </div>
               )}
 
-              <div className="bg-card border border-border rounded-2xl p-4 text-sm space-y-3">
+              <div className="card-modern p-4 text-sm space-y-3">
                 <div className="text-xs text-muted-foreground">{QIRAAT.length > 1 ? "اختيار القراءة والقارئ" : "اختيار القارئ"}</div>
 
                 {QIRAAT.length > 1 && (
@@ -1152,7 +1152,7 @@ export default function SurahPlayer({
                 </div>
               </div>
 
-              <div className="bg-card border border-border rounded-2xl p-4 text-sm space-y-2">
+              <div className="card-modern p-4 text-sm space-y-2">
                 <div className="text-xs text-muted-foreground mb-1">معلومات السورة</div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">رقم السورة</span>
@@ -1221,7 +1221,7 @@ export default function SurahPlayer({
           </div>
 
           <div className="md:col-span-3">
-            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+            <div className="card-modern overflow-hidden">
               <div className="flex border-b border-border">
                 <button
                   onClick={() => setRightMode("text")}

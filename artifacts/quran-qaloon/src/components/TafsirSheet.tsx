@@ -121,7 +121,7 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
             <div className="bg-primary/5 border border-primary/20 rounded-2xl p-5 text-center">
               <div
                 className="text-xl leading-loose"
-                style={{ fontFamily: "'Amiri Quran', 'Amiri', serif" }}
+                style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
                 dir="rtl"
               >
                 {ayah.text}{" "}

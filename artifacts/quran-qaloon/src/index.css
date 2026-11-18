@@ -30,47 +30,49 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* التصميم الجديد (1.0.69): عاجي دافئ + زمردي عميق + ذهبي.
+   الخطوط: Tajawal للواجهة كلها، وScheherazade New لنص القرآن. */
 :root {
-  --background: 36 33% 97%;
-  --foreground: 36 30% 12%;
-  --border: 36 20% 85%;
-  --input: 36 20% 90%;
-  --ring: 158 45% 30%;
-  --card: 36 30% 100%;
-  --card-foreground: 36 30% 12%;
-  --primary: 158 45% 28%;
-  --primary-foreground: 36 33% 97%;
-  --secondary: 36 35% 90%;
-  --secondary-foreground: 36 30% 20%;
-  --muted: 36 25% 93%;
-  --muted-foreground: 36 20% 45%;
-  --accent: 42 80% 50%;
-  --accent-foreground: 36 30% 10%;
+  --background: 40 40% 96%;
+  --foreground: 160 30% 12%;
+  --border: 40 22% 86%;
+  --input: 40 22% 90%;
+  --ring: 160 55% 24%;
+  --card: 40 45% 100%;
+  --card-foreground: 160 30% 12%;
+  --primary: 160 58% 24%;
+  --primary-foreground: 40 40% 97%;
+  --secondary: 40 35% 92%;
+  --secondary-foreground: 160 30% 18%;
+  --muted: 40 30% 94%;
+  --muted-foreground: 40 14% 42%;
+  --accent: 43 78% 42%;
+  --accent-foreground: 40 40% 97%;
   --destructive: 0 70% 50%;
-  --destructive-foreground: 36 33% 97%;
-  --app-font-sans: 'Cairo', sans-serif;
-  --app-font-arabic: 'Amiri Quran', 'Amiri', serif;
-  --radius: 0.75rem;
+  --destructive-foreground: 40 40% 97%;
+  --app-font-sans: 'Tajawal', system-ui, sans-serif;
+  --app-font-arabic: 'Tajawal', system-ui, sans-serif;
+  --radius: 1rem;
 }
 
 .dark {
-  --background: 220 25% 8%;
-  --foreground: 36 20% 90%;
-  --border: 220 20% 20%;
-  --input: 220 20% 18%;
-  --ring: 158 45% 40%;
-  --card: 220 25% 11%;
-  --card-foreground: 36 20% 90%;
-  --primary: 158 45% 40%;
-  --primary-foreground: 36 33% 97%;
-  --secondary: 220 20% 18%;
-  --secondary-foreground: 36 20% 80%;
-  --muted: 220 20% 15%;
-  --muted-foreground: 220 15% 55%;
-  --accent: 42 70% 45%;
-  --accent-foreground: 36 30% 10%;
+  --background: 160 28% 7%;
+  --foreground: 40 22% 92%;
+  --border: 160 20% 18%;
+  --input: 160 20% 16%;
+  --ring: 160 50% 45%;
+  --card: 160 24% 10%;
+  --card-foreground: 40 22% 92%;
+  --primary: 160 55% 46%;
+  --primary-foreground: 160 30% 8%;
+  --secondary: 160 20% 16%;
+  --secondary-foreground: 40 22% 85%;
+  --muted: 160 20% 13%;
+  --muted-foreground: 160 12% 62%;
+  --accent: 43 85% 56%;
+  --accent-foreground: 160 30% 8%;
   --destructive: 0 65% 55%;
-  --destructive-foreground: 36 33% 97%;
+  --destructive-foreground: 40 40% 97%;
 }
 
 @layer base {
@@ -79,28 +81,47 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Cairo', sans-serif;
+    font-family: 'Tajawal', system-ui, sans-serif;
     direction: rtl;
   }
 }
 
 .font-arabic {
-  font-family: 'Cairo', sans-serif;
+  font-family: 'Tajawal', system-ui, sans-serif;
 }
 
 .quran-text {
-  font-family: 'Amiri Quran', 'Amiri', serif;
-  font-size: var(--quran-font-size, 22px);
-  line-height: 2.4;
-  letter-spacing: 0.02em;
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+  font-size: var(--quran-font-size, 24px);
+  line-height: 2.6;
+  letter-spacing: 0.01em;
 }
 
 .bismillah-text {
-  font-family: 'Amiri Quran', 'Amiri', serif;
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+}
+
+/* اسم السورة في بطاقات الرئيسية: خط قرآني بحجم عنوان. */
+.surah-name {
+  font-family: 'Scheherazade New', 'Amiri Quran', serif;
+  font-size: 1.5rem;
+  line-height: 1.7;
+}
+
+/* بطاقة البطل في الرئيسية: تدرج زمردي مع لمسة ذهبية. */
+.hero-gradient {
+  background:
+    radial-gradient(120% 140% at 85% 0%, hsl(43 85% 55% / 0.35) 0%, transparent 55%),
+    linear-gradient(135deg, hsl(160 62% 20%) 0%, hsl(160 58% 26%) 55%, hsl(158 55% 32%) 100%);
+  color: hsl(40 40% 97%);
+}
+
+.hero-gradient .hero-muted {
+  color: hsl(40 30% 82%);
 }
 
 .geometric-pattern {
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23166534' fill-opacity='0.06'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%230B6B4F' fill-opacity='0.07'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
 .surah-card {
@@ -108,6 +129,16 @@
 }
 .surah-card:hover {
   transform: translateY(-2px);
+}
+
+/* بطاقة حديثة: زوايا أكبر وظل ناعم. */
+.card-modern {
+  @apply bg-card border border-border rounded-3xl shadow-[0_1px_2px_hsl(160_30%_12%/0.05),0_8px_24px_-12px_hsl(160_30%_12%/0.18)];
+}
+
+/* عنوان قسم صغير فوق البطاقات. */
+.section-label {
+  @apply text-xs font-bold text-primary tracking-wide;
 }
 
 .audio-progress::-webkit-slider-thumb {
@@ -128,9 +159,9 @@
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(158 45% 28% / 0.4); }
-  70% { transform: scale(1); box-shadow: 0 0 0 10px hsl(158 45% 28% / 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(158 45% 28% / 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(160 58% 24% / 0.4); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px hsl(160 58% 24% / 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 hsl(160 58% 24% / 0); }
 }
 
 .playing-pulse {
@@ -138,7 +169,7 @@
 }
 
 .ayah-highlight {
-  background: hsl(158 45% 28% / 0.08);
+  background: hsl(160 58% 24% / 0.08);
   border-radius: 8px;
   transition: background 0.3s ease;
 }

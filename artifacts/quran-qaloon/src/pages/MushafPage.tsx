@@ -164,7 +164,7 @@ export default function MushafPage({
 
         {/* مفتاح ألوان التجويد — يظهر فقط عند تفعيل التلوين. */}
         {tajweed && (
-          <div className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-xl bg-muted/60 px-3 py-2">
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full bg-muted/60 px-4 py-2">
             <span className="text-xs text-muted-foreground">أحكام التجويد — اضغط أي حرف ملوّن لشرح حكمه:</span>
             {TAJWEED_LEGEND.map((item) => (
               <span key={item.label} className="flex items-center gap-1 text-xs">
@@ -176,7 +176,7 @@ export default function MushafPage({
         )}
 
         {/* The page itself — framed like a mushaf page */}
-        <div className="bg-card border-2 border-amber-500/30 rounded-2xl px-5 py-6 sm:px-8 shadow-sm">
+        <div className="bg-card border-2 border-amber-500/40 rounded-[2rem] px-5 py-6 sm:px-8 shadow-md">
           <div className="quran-text text-right leading-loose text-[26px] sm:text-[28px]" dir="rtl">
             {blocks.map((b, i) =>
               b.type === "header" ? (

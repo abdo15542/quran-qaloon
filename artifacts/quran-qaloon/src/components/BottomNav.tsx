@@ -18,24 +18,21 @@ export default function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-t border-border safe-area-inset-bottom">
-      <div className="max-w-lg mx-auto flex">
+    <nav className="fixed bottom-4 left-4 right-4 z-50">
+      <div className="max-w-lg mx-auto flex bg-card/95 backdrop-blur border border-border rounded-full shadow-[0_10px_36px_-8px_hsl(160_30%_12%/0.35)] p-1.5">
         {NAV_ITEMS.map(({ path, label, icon: Icon, exact }) => {
           const active = isActive(path, exact);
           return (
             <Link key={path} href={path} className="flex-1">
               <button
-                className={`relative w-full flex flex-col items-center gap-1 py-2 px-1 transition-colors ${
+                className={`w-full flex flex-col items-center gap-0.5 py-2 px-1 rounded-full transition-all ${
                   active
-                    ? "text-primary"
+                    ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {active && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-b-full" />
-                )}
-                <Icon className={`w-5 h-5 transition-transform ${active ? "scale-110" : ""}`} />
-                <span className="text-xs font-arabic">{label}</span>
+                <Icon className={`w-5 h-5 ${active ? "scale-105" : ""}`} />
+                <span className="text-[11px] font-bold leading-none">{label}</span>
               </button>
             </Link>
           );

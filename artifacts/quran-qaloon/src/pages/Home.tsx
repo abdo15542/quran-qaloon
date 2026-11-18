@@ -142,12 +142,14 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-primary" />
-            <span className="font-arabic text-lg text-primary">تسميع القرآن</span>
-          </div>
-          <div className="text-center hidden sm:block">
-            <div className="text-xs text-muted-foreground">رواية قالون عن نافع</div>
+          <div className="flex items-center gap-2.5">
+            <span className="w-10 h-10 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-sm">
+              <BookOpen className="w-5 h-5" />
+            </span>
+            <div>
+              <div className="font-bold text-lg text-foreground leading-tight">تسميع القرآن</div>
+              <div className="text-[11px] text-muted-foreground leading-tight">قالون عن نافع</div>
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <Link href="/search">
@@ -180,20 +182,30 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
       </header>
 
       <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="text-center mb-6">
-          <div className="bismillah-text text-3xl sm:text-4xl text-primary mb-2">
+        {/* البطل: البسملة + التاريخ الهجري + الصلاة القادمة */}
+        <div className="hero-gradient rounded-[2rem] p-6 mb-6 shadow-lg relative overflow-hidden">
+          <div className="bismillah-text text-3xl sm:text-4xl text-center mb-2" style={{ color: "#F2CE6B" }}>
             بسم الله الرحمن الرحيم
           </div>
-          <p className="text-muted-foreground text-sm">
-            اختر سورة للاستماع إليها بصوت قالون عن نافع
+          <p className="hero-muted text-center text-sm mb-4">
+            {formatHijriDate(now)} — {activeLoc.label}
           </p>
-          <p className="text-muted-foreground text-sm mt-1">
-            {formatHijriDate(now)} — التاريخ الهجري اليوم
-          </p>
+          <Link href="/prayer-times">
+            <div className="bg-white/10 backdrop-blur rounded-2xl px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-white/15 transition-colors">
+              <div className="flex items-center gap-2.5">
+                <Clock className="w-5 h-5 shrink-0" style={{ color: "#F2CE6B" }} />
+                <div>
+                  <div className="text-sm font-bold">الصلاة القادمة: {PRAYER_NAMES[nextPrayer.key]}</div>
+                  <div className="hero-muted text-xs">متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())}</div>
+                </div>
+              </div>
+              <div className="text-2xl font-bold tabular-nums">{formatPrayerTime(nextPrayer.time)}</div>
+            </div>
+          </Link>
         </div>
 
         {/* Khatma Progress Card */}
-        <div className={`mb-6 rounded-2xl border overflow-hidden ${
+        <div className={`mb-6 card-modern overflow-hidden ${
           isKhatmaComplete
             ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
             : "border-border bg-card"
@@ -231,7 +243,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               </div>
             </div>
 
-            <div className="w-full h-2.5 bg-muted rounded-full overflow-hidden">
+            <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   isKhatmaComplete ? "bg-emerald-500" : "bg-primary"
@@ -269,19 +281,17 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         {/* آية اليوم */}
         {verseAyah && verseSurah && (
           <Link href={`/surah/${verseOfDay.surah}?ayah=${verseOfDay.ayah}`}>
-            <div className="bg-gradient-to-l from-emerald-500/15 to-emerald-500/5 border border-emerald-500/30 rounded-2xl p-4 mb-6 hover:border-emerald-500/60 hover:shadow-sm transition-all cursor-pointer">
-              <div className="flex items-center gap-2 mb-2">
-                <Quote className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="font-arabic text-base text-foreground">آية اليوم</span>
+            <div className="card-modern p-5 mb-6 cursor-pointer hover:shadow-md transition-all border-r-4 border-r-amber-500">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-8 h-8 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <Quote className="w-4 h-4" />
+                </span>
+                <span className="font-bold text-base text-foreground">آية اليوم</span>
                 <span className="text-xs text-muted-foreground">
                   سورة {verseSurah.name} — الآية {toArabicNum(verseOfDay.ayah)}
                 </span>
               </div>
-              <div
-                className="text-lg text-foreground leading-loose text-center"
-                style={{ fontFamily: "'Amiri Quran', 'Amiri', serif" }}
-                dir="rtl"
-              >
+              <div className="quran-text text-2xl text-foreground text-center" dir="rtl">
                 {verseAyah.text} ﴿{toArabicNum(verseOfDay.ayah)}﴾
               </div>
             </div>
@@ -291,9 +301,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         {/* المفضلة والأجزاء وأوقات الصلاة والإحصائيات */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <Link href="/favourites">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-rose-400/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                <span className="w-10 h-10 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0"><Heart className="w-5 h-5 fill-rose-500" /></span>
                 <span className="font-arabic text-base text-foreground">المفضلة</span>
               </div>
               <div className="text-xs text-muted-foreground">
@@ -304,32 +314,30 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/juz">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <BookOpen className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">الأجزاء</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالجزء — ٣٠ جزءًا</div>
             </div>
           </Link>
           <Link href="/hizb">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <BookOpen className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">الأحزاب</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالحزب — ٦٠ حزبًا وآيات السجدة</div>
             </div>
           </Link>
           <Link href="/prayer-times">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <Clock className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0"><Clock className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">أوقات الصلاة</span>
               </div>
-              <div className="text-xs text-muted-foreground">
-                {PRAYER_NAMES[nextPrayer.key]} {formatPrayerTime(nextPrayer.time)} — متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())} · {activeLoc.label}
-              </div>
+              <div className="text-xs text-muted-foreground">أوقات الصلوات الخمس والأذان الكامل · {activeLoc.label}</div>
               {exactAlarmDenied && (
                 <div
                   onClick={(e) => {
@@ -345,9 +353,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/stats">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <BarChart3 className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0"><BarChart3 className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">إحصائياتي</span>
               </div>
               <div className="text-xs text-muted-foreground">
@@ -356,9 +364,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/qibla">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <Compass className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0"><Compass className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">اتجاه القبلة</span>
               </div>
               <div className="text-xs text-muted-foreground">
@@ -367,9 +375,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/asma">
-            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="w-10 h-10 rounded-2xl bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0"><Sparkles className="w-5 h-5" /></span>
                 <span className="font-arabic text-base text-foreground">أسماء الله الحسنى</span>
               </div>
               <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
@@ -379,7 +387,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
 
         {/* وردي اليومي */}
         <Link href="/wird">
-          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-2xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-sm transition-all cursor-pointer">
+          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-3xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-sm transition-all cursor-pointer">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-lg">📖</span>
               <span className="font-arabic text-base text-foreground">وردي اليومي</span>
@@ -404,9 +412,9 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
 
         {/* المصحف — قراءة صفحة صفحة مثل المصحف الورقي */}
         <Link href={`/mushaf/${lastMushafPage}`}>
-          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-2xl p-4 mb-6 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
             <div className="flex items-center gap-2 mb-1.5">
-              <BookOpen className="w-5 h-5 text-primary" />
+              <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
               <span className="font-arabic text-base text-foreground">المصحف</span>
               <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">٦٠٤ صفحات</span>
             </div>
@@ -420,7 +428,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
 
         {/* Resume Listening */}
         {inProgressSurahs.length > 0 && (
-          <div className="mb-6 bg-primary/5 border border-primary/20 rounded-2xl p-4">
+          <div className="mb-6 bg-primary/5 border border-primary/20 rounded-3xl p-4">
             <div className="text-sm text-primary font-arabic mb-3 flex items-center gap-2">
               <span>▶</span>
               <span>متابعة الاستماع</span>
@@ -453,7 +461,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         )}
 
         {/* Classification Legend */}
-        <div className="bg-card border border-border rounded-2xl mb-6 overflow-hidden">
+        <div className="card-modern mb-6 overflow-hidden">
           <button
             onClick={() => setShowLegend(!showLegend)}
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
@@ -501,7 +509,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               placeholder="ابحث عن سورة..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-card border border-border rounded-xl pr-10 pl-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
+              className="w-full bg-card border border-border rounded-full pr-10 pl-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
             />
           </div>
           <div className="flex gap-2">
@@ -509,7 +517,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-2.5 rounded-xl text-sm font-sans transition-colors flex-1 sm:flex-none ${
+                className={`px-3 py-2.5 rounded-full text-sm font-sans transition-colors flex-1 sm:flex-none ${
                   filter === f
                     ? "bg-primary text-primary-foreground"
                     : "bg-card border border-border hover:bg-muted text-foreground"
@@ -534,7 +542,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             return (
               <div key={surah.number} className="relative group">
                 <Link href={`/surah/${surah.number}`}>
-                  <div className={`surah-card bg-card border rounded-xl p-4 cursor-pointer hover:shadow-md relative overflow-hidden transition-all ${
+                  <div className={`surah-card card-modern p-4 cursor-pointer hover:shadow-md relative overflow-hidden ${
                     done
                       ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/10"
                       : "border-border hover:border-primary/50"
@@ -568,7 +576,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                       </span>
                     </div>
 
-                    <div className={`font-arabic text-xl mb-1 text-center transition-colors ${
+                    <div className={`surah-name mb-1 text-center transition-colors ${
                       done
                         ? "text-emerald-700 dark:text-emerald-400"
                         : "text-foreground group-hover:text-primary"
