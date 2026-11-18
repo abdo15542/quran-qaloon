@@ -200,29 +200,17 @@ header.sticky {
   padding-top: max(2.25rem, calc(env(safe-area-inset-top, 0px) + 1.25rem));
 }
 
-/* لا تمرير أفقي إطلاقاً: صفحة القراءة كانت أعرض من الشاشة (شريط
-   المشغّل العلوي بكل أزراره ~426px على هاتف 360px) فتنجرّ الصفحة
-   كلها يمين/يسار، بما فيها الشريط العلوي اللاصق والشريط السفلي
-   الثابت. clip لا hidden حتى لا ينكسر position: sticky. */
-html,
-body {
-  overflow-x: clip;
-}
-
-body {
-  overscroll-behavior-x: none;
-}
-
-/* شريط أزرار بلا شريط تمرير ظاهر — يُمرَّر داخلياً عند الحاجة فقط. */
-.no-scrollbar {
-  scrollbar-width: none;
-}
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
 /* A long-press on a link must not show the link callout with the raw
    internal URL (the cards are navigation, not links to copy). */
 a {
   -webkit-touch-callout: none;
+}
+
+/* لا تسمح لأي عنصر عريض بسحب الصفحة أفقيًا: عندما يتجاوز شريط أو صف
+   عرض الشاشة تتسع نافذة العرض ويستطيع المستخدم سحب الصفحة يمينًا
+   ويسارًا قليلًا. clip (وليس hidden) لا ينشئ حاوية تمرير، فتبقى
+   الترويسات اللاصقة sticky تعمل كما هي. */
+html,
+body {
+  overflow-x: clip;
 }

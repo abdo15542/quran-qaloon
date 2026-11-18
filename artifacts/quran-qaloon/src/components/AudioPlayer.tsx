@@ -221,11 +221,11 @@ export default function AudioPlayer({
           </span>
         </div>
 
-        <div className="flex items-center justify-between mt-4">
+        <div className="flex items-center justify-between gap-1 mt-4">
           <div className="flex items-center gap-1">
             <button
               onClick={() => setVolume(state.volume === 0 ? 1 : 0)}
-              className="p-2 rounded-full hover:bg-muted transition-colors"
+              className="p-1.5 sm:p-2 rounded-full hover:bg-muted transition-colors"
             >
               {state.volume === 0 ? (
                 <VolumeX className="w-4 h-4 text-muted-foreground" />
@@ -240,15 +240,15 @@ export default function AudioPlayer({
               step={0.05}
               value={state.volume}
               onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-16 h-1 accent-primary cursor-pointer"
+              className="w-12 sm:w-16 h-1 accent-primary cursor-pointer"
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
               onClick={onPrevious}
               disabled={!hasPrevious}
-              className="p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
+              className="p-1.5 sm:p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
               title="السورة السابقة"
             >
               <SkipForward className="w-5 h-5 text-foreground" />
@@ -257,7 +257,7 @@ export default function AudioPlayer({
             <button
               onClick={toggle}
               disabled={state.isLoading}
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${
                 state.isPlaying
                   ? "bg-primary text-primary-foreground playing-pulse"
                   : "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -275,7 +275,7 @@ export default function AudioPlayer({
             <button
               onClick={onNext}
               disabled={!hasNext}
-              className="p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
+              className="p-1.5 sm:p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
               title="السورة التالية"
             >
               <SkipBack className="w-5 h-5 text-foreground" />
@@ -284,7 +284,7 @@ export default function AudioPlayer({
 
           <button
             onClick={() => setPlaybackRate(nextRate)}
-            className="px-2 py-1 rounded-lg bg-muted hover:bg-muted/80 text-xs font-sans text-muted-foreground transition-colors min-w-[44px] text-center"
+            className="px-1.5 sm:px-2 py-1 rounded-lg bg-muted hover:bg-muted/80 text-xs font-sans text-muted-foreground transition-colors min-w-[40px] text-center"
           >
             {state.playbackRate}x
           </button>
@@ -292,14 +292,14 @@ export default function AudioPlayer({
           <button
             onClick={cycleSleepTimer}
             title={sleepMinutes > 0 ? `إيقاف التشغيل بعد ${sleepMinutes} دقيقة` : "مؤقت إيقاف التشغيل"}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-sans transition-colors min-w-[44px] justify-center ${
+            className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-xs font-sans transition-colors min-w-0 sm:min-w-[44px] justify-center ${
               sleepMinutes > 0
                 ? "bg-primary/10 text-primary"
                 : "bg-muted hover:bg-muted/80 text-muted-foreground"
             }`}
           >
             <Timer className="w-3.5 h-3.5" />
-            {sleepMinutes > 0 ? `${sleepMinutes}د` : "إيقاف"}
+            {sleepMinutes > 0 ? `${sleepMinutes}د` : <span className="hidden sm:inline">إيقاف</span>}
           </button>
         </div>
 

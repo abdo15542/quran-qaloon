@@ -18,7 +18,7 @@ export default function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 z-50">
+    <nav className="fixed bottom-[max(1rem,env(safe-area-inset-bottom,0px))] left-4 right-4 z-50">
       <div className="max-w-md mx-auto flex bg-card/95 backdrop-blur border border-border rounded-full shadow-[0_12px_40px_-8px_hsl(160_30%_12%/0.4)] p-1.5">
         {NAV_ITEMS.map(({ path, label, icon: Icon, exact }) => {
           const active = isActive(path, exact);
