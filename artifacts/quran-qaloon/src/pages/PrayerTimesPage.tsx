@@ -33,8 +33,6 @@ import {
   setIqamaEnabled,
   getIqamaDelays,
   setIqamaDelays,
-  openNotificationChannelSettings,
-  ADHAN_CHANNEL_ID,
   schedulePrayerReminders,
   schedulePrayerRemindersForCoords,
   cancelPrayerReminders,
@@ -48,8 +46,6 @@ import {
   openLocationSettings,
   scheduleTestAdhanNotification,
   enableReminderIfFirstRun,
-  isExactAlarmGranted,
-  openExactAlarmSettingsPage,
   type PrayerLocationMode,
   type PrayerKey,
   type StoredCoords,
@@ -72,10 +68,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [reminderEnabled, setReminderEnabled] = useState<boolean>(isPrayerReminderEnabled);
   const [reminderStatus, setReminderStatus] = useState<string | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
-  // Whether the system allows exact alarms (Android 12+). Without it
-  // the adhan falls back to the notification sound, which can arrive
-  // late or not at all when the phone is idle. null = not checked yet.
-  const [exactAlarm, setExactAlarm] = useState<boolean | null>(null);
   const [preAlert, setPreAlert] = useState<boolean>(isPreAlertEnabled);
   const [iqamaOn, setIqamaOn] = useState<boolean>(isIqamaEnabled);
   const [iqamaDelays, setIqamaDelaysState] = useState<Record<PrayerKey, number>>(getIqamaDelays);
@@ -137,29 +129,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Exact-alarm state: re-check whenever the reminder is on, and again
-  // when the user comes back from the system settings.
-  useEffect(() => {
-    if (!reminderEnabled) {
-      setExactAlarm(null);
-      return;
-    }
-    let alive = true;
-    const check = async () => {
-      const granted = await isExactAlarmGranted();
-      if (alive) setExactAlarm(granted);
-    };
-    check();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") check();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      alive = false;
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [reminderEnabled]);
-
   // The active location: GPS coordinates in auto mode (when detected),
   // the selected city otherwise.
   const active = useMemo(() => {
@@ -220,13 +189,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
         if (msg) setReminderStatus(msg);
       });
     }
-  };
-
-  const handleOpenExactAlarmSettings = async () => {
-    await openExactAlarmSettingsPage();
-    // Re-check when he comes back (the visibility listener does it);
-    // also check now in case the settings opened inline.
-    setExactAlarm(await isExactAlarmGranted());
   };
 
   const handleTestAdhan = async () => {
@@ -497,35 +459,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
               />
             </button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            أذان كامل عند وقت كل صلاة، حتى والتطبيق مغلق — ويتوقف بزر «إيقاف الأذان» في الإشعار. تُحسب الأوقات على
-            جهازك دون إنترنت.
-          </p>
-
-          {/* Exact alarms: without this permission the adhan falls back
-              to a notification sound, which can arrive late or not at
-              all when the phone is idle (especially Fajr). */}
-          {reminderEnabled && exactAlarm === false && (
-            <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
-              <div className="text-sm font-arabic text-foreground">المنبهات الدقيقة غير مفعّلة</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                بدون هذا الإذن يجدول الهاتف الأذان بمنبّه غير دقيق، فيتأخر الأذان أو لا يصل أحيانًا — خصوصًا الفجر
-                والهاتف نائم. فعّله ليؤذّن في وقته كاملًا كل مرة.
-              </p>
-              <button
-                onClick={handleOpenExactAlarmSettings}
-                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500 text-white text-xs hover:bg-amber-600 transition-colors"
-              >
-                ⏰ فتح إعدادات المنبهات
-              </button>
-            </div>
-          )}
-          {reminderEnabled && exactAlarm === true && (
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
-              الأذان الكامل مفعّل — يؤذّن في وقته كاملًا، حتى والهاتف صامت.
-            </p>
-          )}
-
           {/* Pre-alert: 5 minutes before each prayer */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
             <div>
@@ -595,25 +528,8 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                   </span>
                 </div>
               ))}
-              <p className="text-xs text-muted-foreground">وقت الإقامة بعد الأذان — عدّله لكل صلاة كما في مسجدك.</p>
             </div>
           )}
-
-          {/* Silent / vibrate mode */}
-          <div className="mt-4 pt-4 border-t border-border">
-            <div className="text-sm font-arabic text-foreground">التنبيه في الوضع الصامت</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              في وضع الاهتزاز يهتز الهاتف عند كل تنبيه. أما في الوضع الصامت فيمنع أندرويد صوت التطبيقات — فعّل «تجاوز
-              عدم الإزعاج» لقناة الأذان من الإعدادات ليصلك التنبيه حتى في الوضع الصامت.
-            </p>
-            <button
-              onClick={() => openNotificationChannelSettings(ADHAN_CHANNEL_ID)}
-              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors"
-            >
-              <Bell className="w-3.5 h-3.5" />
-              فتح إعدادات قناة الأذان
-            </button>
-          </div>
 
           <button
             onClick={handleTestAdhan}
