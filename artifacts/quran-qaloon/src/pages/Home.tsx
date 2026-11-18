@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3, Compass, Sparkles } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3, Compass, Sparkles, Quote } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
+import { getAyah } from "@/data/quran-text";
+import { getVerseOfDay } from "@/data/verse-of-day";
 import { formatHijriDate } from "@/data/hijri";
 import { getQibla } from "@/data/qibla";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
@@ -32,6 +34,10 @@ function formatDate(ts: number): string {
     month: "long",
     year: "numeric",
   }).format(new Date(ts));
+}
+
+function toArabicNum(n: number): string {
+  return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
 }
 
 function getSelectedReciter() {
@@ -96,6 +102,11 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   }, []);
 
   const lastMushafPage = getLastMushafPage();
+
+  // آية اليوم — ثابتة لكل يوم (بذرة من التاريخ)، اضغط للانتقال إليها.
+  const verseOfDay = useMemo(() => getVerseOfDay(new Date()), []);
+  const verseAyah = getAyah(verseOfDay.surah, verseOfDay.ayah);
+  const verseSurah = SURAHS.find((s) => s.number === verseOfDay.surah);
 
   const reciter = getSelectedReciter();
 
@@ -250,6 +261,28 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           )}
         </div>
 
+        {/* آية اليوم */}
+        {verseAyah && verseSurah && (
+          <Link href={`/surah/${verseOfDay.surah}?ayah=${verseOfDay.ayah}`}>
+            <div className="bg-gradient-to-l from-emerald-500/15 to-emerald-500/5 border border-emerald-500/30 rounded-2xl p-4 mb-6 hover:border-emerald-500/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-2">
+                <Quote className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="font-arabic text-base text-foreground">آية اليوم</span>
+                <span className="text-xs text-muted-foreground">
+                  سورة {verseSurah.name} — الآية {toArabicNum(verseOfDay.ayah)}
+                </span>
+              </div>
+              <div
+                className="text-lg text-foreground leading-loose text-center"
+                style={{ fontFamily: "'Amiri Quran', 'Amiri', serif" }}
+                dir="rtl"
+              >
+                {verseAyah.text} ﴿{toArabicNum(verseOfDay.ayah)}﴾
+              </div>
+            </div>
+          </Link>
+        )}
+
         {/* المفضلة والأجزاء وأوقات الصلاة والإحصائيات */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <Link href="/favourites">
@@ -272,6 +305,15 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-base text-foreground">الأجزاء</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالجزء — ٣٠ جزءًا</div>
+            </div>
+          </Link>
+          <Link href="/hizb">
+            <div className="bg-card border border-border rounded-2xl p-4 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <BookOpen className="w-5 h-5 text-primary" />
+                <span className="font-arabic text-base text-foreground">الأحزاب</span>
+              </div>
+              <div className="text-xs text-muted-foreground">تصفح المصحف بالحزب — ٦٠ حزبًا وآيات السجدة</div>
             </div>
           </Link>
           <Link href="/prayer-times">

@@ -28,6 +28,8 @@ public final class AdhanAlarms {
     static final String EXTRA_TITLE = "adhan_title";
     /** True when this alarm must play the Fajr adhan (adhan_fajr.mp3). */
     static final String EXTRA_FAJR = "adhan_fajr";
+    /** Voice id for the regular adhan (see ADHAN_VOICES); "a3" = default. */
+    static final String EXTRA_VOICE = "adhan_voice";
 
     private AdhanAlarms() {}
 
@@ -102,19 +104,20 @@ public final class AdhanAlarms {
         }
     }
 
-    static PendingIntent alarmIntent(Context ctx, int id, String title, boolean fajr) {
+    static PendingIntent alarmIntent(Context ctx, int id, String title, boolean fajr, String voice) {
         Intent i = new Intent(ctx, AdhanAlarmReceiver.class);
         i.setAction(ACTION_ALARM);
         i.putExtra(EXTRA_ID, id);
         i.putExtra(EXTRA_TITLE, title);
         i.putExtra(EXTRA_FAJR, fajr);
+        i.putExtra(EXTRA_VOICE, voice == null ? "a3" : voice);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         return PendingIntent.getBroadcast(ctx, id, i, flags);
     }
 
     /** Cancels only need id + action (extras do not affect matching). */
     static PendingIntent alarmIntent(Context ctx, int id, String title) {
-        return alarmIntent(ctx, id, title, false);
+        return alarmIntent(ctx, id, title, false, "a3");
     }
 
     /** Register every future alarm in the set (past ones are skipped). */
@@ -133,8 +136,9 @@ public final class AdhanAlarms {
                 long at = a.getLong("at");
                 String title = a.optString("title", "");
                 boolean fajr = a.optBoolean("fajr", false);
+                String voice = a.optString("voice", "a3");
                 if (at <= now) continue;
-                PendingIntent pi = alarmIntent(ctx, id, title, fajr);
+                PendingIntent pi = alarmIntent(ctx, id, title, fajr, voice);
                 if (exact) {
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
                 } else {

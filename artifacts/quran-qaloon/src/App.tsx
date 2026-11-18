@@ -12,6 +12,7 @@ import TasbeehPage from "@/pages/TasbeehPage";
 import RecitersList from "@/pages/RecitersList";
 import FavouritesPage from "@/pages/FavouritesPage";
 import JuzPage from "@/pages/JuzPage";
+import HizbPage from "@/pages/HizbPage";
 import MushafPage from "@/pages/MushafPage";
 import WirdPage from "@/pages/WirdPage";
 import PrayerTimesPage from "@/pages/PrayerTimesPage";
@@ -63,6 +64,7 @@ function AppRoutes() {
           <Route path="/reciters" component={() => <RecitersList darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/favourites" component={() => <FavouritesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/juz" component={() => <JuzPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/hizb" component={() => <HizbPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/mushaf" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/mushaf/:page" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/wird" component={() => <WirdPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />

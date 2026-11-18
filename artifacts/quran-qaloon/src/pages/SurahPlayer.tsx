@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff, Palette } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
 import { getSurahAyahs } from "@/data/quran-text";
+import { isSajdahAyah } from "@/data/hizb";
 import { getTranslation } from "@/data/translation-en";
 import { getPageOfAyah } from "@/data/mushaf-pages";
 import AudioPlayer from "@/components/AudioPlayer";
 import TajweedChecker from "@/components/TajweedChecker";
+import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import DownloadButton from "@/components/DownloadButton";
@@ -292,6 +294,27 @@ export default function SurahPlayer({
     setMemorization((v) => {
       try {
         localStorage.setItem("quran_memorization_mode", v ? "0" : "1");
+      } catch {
+        // storage unavailable
+      }
+      return !v;
+    });
+  };
+
+  // Tajweed coloring (تلوين أحكام التجويد): on by default — the colors
+  // follow the printed tajweed mushafs. Persisted like memorization.
+  const [tajweed, setTajweed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("quran_tajweed_enabled") !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleTajweed = () => {
+    setTajweed((v) => {
+      try {
+        localStorage.setItem("quran_tajweed_enabled", v ? "0" : "1");
       } catch {
         // storage unavailable
       }
@@ -997,6 +1020,15 @@ export default function SurahPlayer({
             >
               <EyeOff className="w-4 h-4" />
             </button>
+            <button
+              onClick={toggleTajweed}
+              className={`p-2 rounded-full transition-colors ${
+                tajweed ? "bg-primary/10 text-primary" : "hover:bg-muted text-muted-foreground"
+              }`}
+              title="تلوين أحكام التجويد"
+            >
+              <Palette className="w-4 h-4" />
+            </button>
             <div className="flex items-center gap-0.5 bg-muted rounded-lg px-1" title="حجم الخط">              <button
                 onClick={decreaseFontSize}
                 disabled={fontSize <= 14}
@@ -1345,6 +1377,18 @@ export default function SurahPlayer({
                           {ayahError}
                         </div>
                       )}
+                      {/* مفتاح ألوان التجويد — يظهر فقط عند تفعيل التلوين. */}
+                      {tajweed && rightMode === "text" && (
+                        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-muted/60 px-3 py-2">
+                          <span className="text-xs text-muted-foreground">أحكام التجويد:</span>
+                          {TAJWEED_LEGEND.map((item) => (
+                            <span key={item.label} className="flex items-center gap-1 text-xs">
+                              <span className={`w-2.5 h-2.5 rounded-full bg-current ${item.className}`} />
+                              <span className={item.className}>{item.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {/* عند تشغيل الترجمة: آية آية، كل آية في بلوك مستقل
                           وتحتها ترجمتها الإنجليزية. بدونها: النص المتصل
                           المعتاد مثل المصحف. */}
@@ -1365,11 +1409,16 @@ export default function SurahPlayer({
                             >
                               <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  {ayah.text}
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
                                 </span>
+                                {isSajdahAyah(surahNumber, ayah.numberInSurah) && (
+                                  <span className="inline-block mx-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs align-middle" title="آية سجدة">
+                                    ۩ سجدة
+                                  </span>
+                                )}
                               </div>
                               <p className="text-sm text-muted-foreground leading-relaxed mt-1.5" dir="ltr">
                                 {getTranslation(surahNumber, ayah.numberInSurah)}
@@ -1426,11 +1475,16 @@ export default function SurahPlayer({
                                 }`}
                               >
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  {ayah.text}
+                                  <TajweedText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayah.text} enabled={tajweed} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
                                 </span>{" "}
+                                {isSajdahAyah(surahNumber, ayah.numberInSurah) && (
+                                  <span className="inline-block mx-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs align-middle" title="آية سجدة">
+                                    ۩ سجدة
+                                  </span>
+                                )}{" "}
                               </span>
                             </Fragment>
                           ))}

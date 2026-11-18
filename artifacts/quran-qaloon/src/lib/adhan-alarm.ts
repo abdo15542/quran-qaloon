@@ -21,6 +21,8 @@ export interface AdhanAlarmItem {
   title: string;
   /** True for Fajr alarms: play the Fajr adhan (adhan_fajr.mp3). */
   fajr?: boolean;
+  /** Voice id for the regular adhan (see ADHAN_VOICES); "a3" = default. */
+  voice?: string;
 }
 
 interface AdhanAlarmPlugin {
@@ -29,7 +31,7 @@ interface AdhanAlarmPlugin {
   scheduleAlarms(options: { alarms: AdhanAlarmItem[] }): Promise<void>;
   cancelAlarms(): Promise<void>;
   stopAdhan(): Promise<void>;
-  testAdhan(options?: { fajr?: boolean }): Promise<void>;
+  testAdhan(options?: { fajr?: boolean; voice?: string }): Promise<void>;
 }
 
 const AdhanAlarm = registerPlugin<AdhanAlarmPlugin>("AdhanAlarm", {
@@ -86,10 +88,10 @@ export async function cancelNativeAdhanAlarms(): Promise<void> {
 }
 
 /** Play the full adhan once, 5 seconds from now. Pass true to play the Fajr adhan. Returns false when the native path is unavailable. */
-export async function testNativeAdhan(fajr = false): Promise<boolean> {
+export async function testNativeAdhan(fajr = false, voice?: string): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
-    await AdhanAlarm.testAdhan({ fajr });
+    await AdhanAlarm.testAdhan({ fajr, voice });
     return true;
   } catch {
     return false;

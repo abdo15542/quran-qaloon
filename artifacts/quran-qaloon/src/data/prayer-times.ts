@@ -456,6 +456,54 @@ export const ADHAN_CHANNEL_ID = "prayer-adhan";
 // «الصلاة خير من النوم» at Fajr instead of the regular adhan.
 export const ADHAN_FAJR_CHANNEL_ID = "prayer-adhan-fajr";
 
+// ---- Adhan voices (اختيار صوت المؤذن) ----
+
+// The regular adhan (not Fajr — Fajr always plays the Mishary Fajr
+// adhan, adhan_fajr.mp3) can be one of these voices. All files live in
+// android/app/src/main/res/raw/; "a3" is the bundled default (the full
+// AlAdhan a3, 124s, res/raw/adhan.mp3). The rest come from the
+// Kiwifu/adhan-mp3 collection (raw.githubusercontent.com): each was
+// verified complete (full adhan sequence, no «الصلاة خير من النوم»)
+// before bundling — Makkah 246s, Madinah 190s, Mishary 155s,
+// Al-Aqsa 152s, Abdulbasit 245s.
+export const ADHAN_VOICES: { id: string; name: string }[] = [
+  { id: "a3", name: "الأذان الافتراضي" },
+  { id: "makkah", name: "مكة المكرمة — علي ملا" },
+  { id: "madinah", name: "المدينة المنورة — الحرم المدني" },
+  { id: "mishary", name: "مشاري العفاسي" },
+  { id: "aqsa", name: "المسجد الأقصى — القدس" },
+  { id: "abdulbasit", name: "عبد الباسط عبد الصمد" },
+];
+
+const ADHAN_VOICE_KEY = "quran_adhan_voice";
+
+export function getAdhanVoice(): string {
+  try {
+    const v = localStorage.getItem(ADHAN_VOICE_KEY) ?? "a3";
+    return ADHAN_VOICES.some((x) => x.id === v) ? v : "a3";
+  } catch {
+    return "a3";
+  }
+}
+
+export function setAdhanVoice(id: string): void {
+  try {
+    localStorage.setItem(ADHAN_VOICE_KEY, id);
+  } catch {
+    // storage unavailable
+  }
+}
+
+/** Channel id for the fallback adhan notification of the given voice. */
+export function adhanChannelIdForVoice(voice: string): string {
+  return voice === "a3" ? ADHAN_CHANNEL_ID : `prayer-adhan-${voice}`;
+}
+
+/** Raw resource file name for the voice (without the res/raw/ prefix). */
+export function adhanSoundForVoice(voice: string): string {
+  return voice === "a3" ? "adhan.mp3" : `adhan_${voice}.mp3`;
+}
+
 // The pre-alert (5 minutes before) and the iqama use a second channel
 // with the system default sound — a short alert, not the adhan.
 // Both channels vibrate, so the phone alerts in vibrate mode too.
@@ -486,6 +534,32 @@ export async function createFajrAdhanChannel(): Promise<void> {
       name: "أذان الفجر",
       description: "تذكير بصوت أذان الفجر عند وقت صلاة الفجر",
       sound: "adhan_fajr.mp3",
+      importance: 5,
+      vibration: true,
+      lights: true,
+    });
+  } catch {
+    // channel creation is best-effort; scheduling still proceeds
+  }
+}
+
+// Fallback channel for a chosen voice: created on demand when the
+// user picks that voice. Android keeps the FIRST creation of a
+// channel, so a voice channel is created once and then reused.
+export async function createVoiceAdhanChannel(voice: string): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  if (voice === "a3") {
+    await createPrayerChannel();
+    return;
+  }
+  const v = ADHAN_VOICES.find((x) => x.id === voice);
+  if (!v) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: adhanChannelIdForVoice(voice),
+      name: `أذان — ${v.name}`,
+      description: "تذكير بصوت الأذان عند وقت كل صلاة",
+      sound: adhanSoundForVoice(voice),
       importance: 5,
       vibration: true,
       lights: true,
@@ -572,6 +646,7 @@ function allNotificationIds(): Array<{ id: number }> {
 async function scheduleNativeAlarmsForCoords(lat: number, lng: number): Promise<boolean> {
   if (!(await canScheduleExactAdhanAlarms())) return false;
   const alarms: AdhanAlarmItem[] = [];
+  const voice = getAdhanVoice();
   const now = new Date();
   for (let d = 0; d < NOTIF_DAYS; d++) {
     const date = new Date(now);
@@ -586,8 +661,9 @@ async function scheduleNativeAlarmsForCoords(lat: number, lng: number): Promise<
           at: at.getTime(),
           title: `حان الآن وقت صلاة ${PRAYER_NAMES[key]} 🕌`,
           // Fajr alarms play the Fajr adhan (adhan_fajr.mp3, with
-          // «الصلاة خير من النوم»); the rest play adhan.mp3.
+          // «الصلاة خير من النوم»); the rest play the chosen voice.
           fajr: key === "fajr",
+          voice,
         });
       }
     }
@@ -635,6 +711,7 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     }
     await createPrayerChannel();
     await createFajrAdhanChannel();
+    await createVoiceAdhanChannel(getAdhanVoice());
     await createReminderChannel();
     await LocalNotifications.cancel({ notifications: allNotificationIds() }).catch(() => {});
     const preAlert = isPreAlertEnabled();
@@ -664,8 +741,8 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
             body: `صلاة ${PRAYER_NAMES[key]} — ${formatPrayerTime(at)}`,
             schedule: { at, allowWhileIdle: true },
             // Fajr fallback plays the Fajr adhan channel; the rest
-            // play the regular adhan channel.
-            channelId: key === "fajr" ? ADHAN_FAJR_CHANNEL_ID : ADHAN_CHANNEL_ID,
+            // play the channel of the chosen voice.
+            channelId: key === "fajr" ? ADHAN_FAJR_CHANNEL_ID : adhanChannelIdForVoice(getAdhanVoice()),
           });
         }
         if (preAlert) {

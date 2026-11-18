@@ -116,6 +116,7 @@ public class AdhanAlarmPlugin extends Plugin {
             }
         }
         boolean fajr = call.getBoolean("fajr", false);
+        String voice = call.getString("voice", "a3");
         JSONArray one = new JSONArray();
         try {
             JSONObject a = new JSONObject();
@@ -123,6 +124,7 @@ public class AdhanAlarmPlugin extends Plugin {
             a.put("at", System.currentTimeMillis() + 5000);
             a.put("title", fajr ? "اختبار أذان الفجر 🕌" : "اختبار الأذان 🕌");
             a.put("fajr", fajr);
+            a.put("voice", voice);
             one.put(a);
         } catch (JSONException e) {
             call.reject("test failed");

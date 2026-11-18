@@ -76,6 +76,7 @@ public class AdhanPlayerService extends Service {
         String title = intent.getStringExtra(AdhanAlarms.EXTRA_TITLE);
         if (title == null || title.isEmpty()) title = "حان الآن وقت الصلاة 🕌";
         boolean fajr = intent.getBooleanExtra(AdhanAlarms.EXTRA_FAJR, false);
+        String voice = intent.getStringExtra(AdhanAlarms.EXTRA_VOICE);
         stopPlaying();
         Notification notif = buildNotification(title);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -83,7 +84,7 @@ public class AdhanPlayerService extends Service {
         } else {
             startForeground(NOTIF_ID, notif);
         }
-        startPlaying(fajr);
+        startPlaying(fajr, voice);
         return START_NOT_STICKY;
     }
 
@@ -109,7 +110,17 @@ public class AdhanPlayerService extends Service {
             .build();
     }
 
-    private void startPlaying(boolean fajr) {
+    /** Raw resource id of the chosen voice; unknown ids fall back to the default adhan. */
+    private static int voiceResId(String voice) {
+        if ("makkah".equals(voice)) return R.raw.adhan_makkah;
+        if ("madinah".equals(voice)) return R.raw.adhan_madinah;
+        if ("mishary".equals(voice)) return R.raw.adhan_mishary;
+        if ("aqsa".equals(voice)) return R.raw.adhan_aqsa;
+        if ("abdulbasit".equals(voice)) return R.raw.adhan_abdulbasit;
+        return R.raw.adhan;
+    }
+
+    private void startPlaying(boolean fajr, String voice) {
         try {
             MediaPlayer mp = new MediaPlayer();
             mp.setAudioAttributes(new AudioAttributes.Builder()
@@ -117,8 +128,8 @@ public class AdhanPlayerService extends Service {
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build());
             // Fajr has its own adhan («الصلاة خير من النوم»); the
-            // other prayers share the regular adhan.
-            int resId = fajr ? R.raw.adhan_fajr : R.raw.adhan;
+            // other prayers play the chosen voice.
+            int resId = fajr ? R.raw.adhan_fajr : voiceResId(voice);
             AssetFileDescriptor afd = getResources().openRawResourceFd(resId);
             mp.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();

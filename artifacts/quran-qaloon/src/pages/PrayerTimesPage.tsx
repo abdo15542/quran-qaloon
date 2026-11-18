@@ -32,6 +32,9 @@ import {
   setIqamaEnabled,
   getIqamaDelays,
   setIqamaDelays,
+  ADHAN_VOICES,
+  getAdhanVoice,
+  setAdhanVoice,
   schedulePrayerReminders,
   schedulePrayerRemindersForCoords,
   cancelPrayerReminders,
@@ -75,6 +78,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [reminderBusy, setReminderBusy] = useState(false);
   const [preAlert, setPreAlert] = useState<boolean>(isPreAlertEnabled);
   const [iqamaOn, setIqamaOn] = useState<boolean>(isIqamaEnabled);
+  const [adhanVoice, setAdhanVoiceState] = useState<string>(getAdhanVoice);
   const [iqamaDelays, setIqamaDelaysState] = useState<Record<PrayerKey, number>>(getIqamaDelays);
 
   // Live clock for the countdown (updates every 30 seconds — enough for
@@ -254,6 +258,16 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     setIqamaOn(nextVal);
     setIqamaEnabled(nextVal);
     await reschedule();
+  };
+
+  // Changing the adhan voice re-schedules the alarms (native + fallback
+  // channel) so the next prayer already uses the new voice. Fajr is
+  // untouched: it always plays the Mishary Fajr adhan.
+  const handleVoiceChange = async (id: string) => {
+    setAdhanVoiceState(id);
+    setAdhanVoice(id);
+    await reschedule();
+    setReminderStatus(`صوت الأذان: ${ADHAN_VOICES.find((v) => v.id === id)?.name ?? id}`);
   };
 
   const handleIqamaDelay = async (key: PrayerKey, delta: number) => {
@@ -474,6 +488,26 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
                 }`}
               />
             </button>
+          </div>
+          {/* Adhan voice — the regular adhan only; Fajr always plays
+              the Mishary Fajr adhan. */}
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+            <div>
+              <div className="text-sm font-arabic text-foreground">صوت المؤذن</div>
+              <div className="text-xs text-muted-foreground">أذان الفجر يبقى بصوت مشاري العفاسي دائمًا</div>
+            </div>
+            <select
+              value={adhanVoice}
+              onChange={(e) => handleVoiceChange(e.target.value)}
+              className="bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 max-w-[55%]"
+              dir="rtl"
+            >
+              {ADHAN_VOICES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
           </div>
           {/* Pre-alert: 5 minutes before each prayer */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">

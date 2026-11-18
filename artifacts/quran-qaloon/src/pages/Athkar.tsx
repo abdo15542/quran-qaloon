@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { ArrowRight, BookOpen, Moon, Sun, ChevronLeft } from "lucide-react";
+import { ArrowRight, BookOpen, Moon, Sun, ChevronLeft, Bell, BellOff } from "lucide-react";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
+import { useAthkarReminders } from "@/hooks/useAthkarReminders";
 
 interface AthkarProps {
   darkMode: boolean;
@@ -41,6 +43,57 @@ const badgeColorMap: Record<string, string> = {
 };
 
 export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
+  const {
+    morningEnabled,
+    morningTime,
+    eveningEnabled,
+    eveningTime,
+    status,
+    setMorning,
+    setEvening,
+  } = useAthkarReminders();
+  const [reminderBusy, setReminderBusy] = useState(false);
+
+  const handleMorningToggle = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setMorning(!morningEnabled, morningTime);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleEveningToggle = async () => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setEvening(!eveningEnabled, eveningTime);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleMorningTime = async (time: string) => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setMorning(morningEnabled, time);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
+  const handleEveningTime = async (time: string) => {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      await setEvening(eveningEnabled, time);
+    } finally {
+      setReminderBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border">
@@ -66,6 +119,77 @@ export default function Athkar({ darkMode, toggleDarkMode }: AthkarProps) {
           <p className="text-muted-foreground text-sm">
             حصن المسلم — أذكار الصباح والمساء والصلاة والنوم والأدعية اليومية
           </p>
+        </div>
+
+        {/* تذكيرا أذكار الصباح والمساء */}
+        <div className="bg-card border border-border rounded-2xl p-5 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Bell className="w-5 h-5 text-primary" />
+            <span className="font-arabic text-base text-foreground">تذكير أذكار الصباح والمساء</span>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground">☀️ أذكار الصباح</span>
+              <div className="flex items-center gap-2">
+                {morningEnabled && (
+                  <input
+                    type="time"
+                    value={morningTime}
+                    onChange={(e) => handleMorningTime(e.target.value)}
+                    disabled={reminderBusy}
+                    className="bg-background border border-border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    dir="ltr"
+                  />
+                )}
+                <button
+                  onClick={handleMorningToggle}
+                  disabled={reminderBusy}
+                  className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                    morningEnabled ? "bg-primary" : "bg-muted"
+                  }`}
+                  aria-label="تفعيل تذكير أذكار الصباح أو إيقافه"
+                >
+                  <span
+                    className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                      morningEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground">🌙 أذكار المساء</span>
+              <div className="flex items-center gap-2">
+                {eveningEnabled && (
+                  <input
+                    type="time"
+                    value={eveningTime}
+                    onChange={(e) => handleEveningTime(e.target.value)}
+                    disabled={reminderBusy}
+                    className="bg-background border border-border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    dir="ltr"
+                  />
+                )}
+                <button
+                  onClick={handleEveningToggle}
+                  disabled={reminderBusy}
+                  className={`relative w-12 h-7 rounded-full transition-colors disabled:opacity-50 ${
+                    eveningEnabled ? "bg-primary" : "bg-muted"
+                  }`}
+                  aria-label="تفعيل تذكير أذكار المساء أو إيقافه"
+                >
+                  <span
+                    className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${
+                      eveningEnabled ? "right-0.5" : "right-[calc(100%-1.625rem)]"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+          {status && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-3">{status}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

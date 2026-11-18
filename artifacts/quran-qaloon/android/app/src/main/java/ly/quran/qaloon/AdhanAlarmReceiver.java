@@ -23,6 +23,7 @@ public class AdhanAlarmReceiver extends BroadcastReceiver {
             svc.putExtra(AdhanAlarms.EXTRA_ID, intent.getIntExtra(AdhanAlarms.EXTRA_ID, 0));
             svc.putExtra(AdhanAlarms.EXTRA_TITLE, intent.getStringExtra(AdhanAlarms.EXTRA_TITLE));
             svc.putExtra(AdhanAlarms.EXTRA_FAJR, intent.getBooleanExtra(AdhanAlarms.EXTRA_FAJR, false));
+            svc.putExtra(AdhanAlarms.EXTRA_VOICE, intent.getStringExtra(AdhanAlarms.EXTRA_VOICE));
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(svc);
             } else {
