@@ -214,7 +214,38 @@ const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
   [/منوه/g, "مناه"],
   [/النجوه/g, "النجاه"],
   [/الغدوه/g, "الغداه"],
+  // اللائي: the article's ل and the pronoun's ل merge into one written ل
+  // with shadda (ٱلَّٰٓـِٔى), so the text normalises to one ل where the
+  // query has two. Longer form first so it is not half-replaced.
+  [/الايين/g, "اللايين"],
+  [/الايي/g, "اللايي"],
+  // سأل family: the Uthmani text drops the alef after ف/و (فَسْـَٔلُوا،
+  // وَسْـَٔلِ) while the modern spelling keeps it (فاسألوا، واسأل).
+  // Longer form first.
+  [/فسالوا/g, "فاسالوا"],
+  [/فسال/g, "فاسال"],
+  [/وسال/g, "واسال"],
+  // يئوس / اخسئوا: the hamza's seat is ئ by the root's own vowel pattern
+  // (يَئِسَ، خَسِئَ), which no local context rule can see — the general
+  // rule gives ؤ here, so correct these four words explicitly.
+  [/ليووس/g, "لييوس"],
+  [/يووسا/g, "ييوسا"],
+  [/فيووس/g, "فييوس"],
+  [/اخسووا/g, "اخسيوا"],
 ];
+
+// Helpers for the bare-hamza seat rule in normalizeArabic: the scan skips
+// the same marks the strip removes, EXCEPT dagger alif (U+0670) and the
+// small waw/yeh (U+06E5/U+06E6), which are letters, not marks.
+const HAMZA_SCAN_SKIP =
+  /[\u064B-\u0653\u0640\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/;
+const HAMZA_VOWEL = /[\u064B\u064C\u064D\u064E\u064F\u0650\u0652]/;
+function hamzaVowelStrength(c: string): number {
+  if (c === "\u0650" || c === "\u064D") return 3; // kasra / kasratan
+  if (c === "\u064F" || c === "\u064C") return 2; // damma / dammatan
+  if (c === "\u064E" || c === "\u064B") return 1; // fatha / fathatan
+  return 0; // sukun / none
+}
 
 // Strip tashkeel/tatweel and normalise alef/ya forms so a search typed
 // without diacritics still matches the fully vocalised Uthmani text.
@@ -228,9 +259,14 @@ const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
 // The dagger alif (U+0670) needs special care — it is a real alef in some
 // words (الصِّرَٰطَ = الصراط، مَٰلِكِ = مالك، ٱلسَّمَٰوَٰتِ = السماوات)
 // and only a flourish in others (هَٰذَا = هذا، عَلَىٰ = على، ٱلرَّحْمَٰنِ
-// = الرحمن). The strip set also removes maddah (U+0653) and hamza-above /
-// hamza-below (U+0654/U+0655), which are pure diacritics — without them
-// الضَّآلِّينَ، ٱلسَّمَآءُ، جَآءَ، شَآءَ never matched. The default is to map
+// = الرحمن). The strip set also removes maddah (U+0653) — without it
+// الضَّآلِّينَ، ٱلسَّمَآءُ، جَآءَ، شَآءَ never matched. Hamza-above (U+0654)
+// is NOT a pure diacritic here: in the bundled text it always stands
+// bare after a consonant (يَسْـَٔلُونَكَ = يسألونك — 496 occurrences,
+// 0 seated), so it is mapped to «ا» BEFORE the strip; deleting it made
+// those words unsearchable (يسألونك → يسلونك ≠ يسالونك). Hamza-below
+// (U+0655) does not occur in the bundled text at all, so it stays in the
+// strip set. The default is to map
 // U+0670 to «ا»; DAGGER_ALIF_FIXES (generated from the bundled text, see
 // dagger-alif-fixes.ts) then corrects, per word, the cases where the dagger
 // alif is a flourish. That table must run on the TEXT side only — queries
@@ -238,6 +274,56 @@ const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
 // (a query word like «عليا» must stay «عليا», not become «علي»).
 export function normalizeArabic(s: string, applyDaggerFixes = true): string {
   let out = s
+    // A bare hamza-above (U+0654) is written on a tatweel seat (ـٔ) and its
+    // true seat depends on context — a blanket map to «ا» fixed يسألونك
+    // but broke الآن (→ الاان) and شيئا (→ شياا). Seat rules, in order:
+    //  - after a sakinah/kasra yeh → ئ (ي): شَيْـًٔا = شيئا، سَيِّـَٔاتِ = سيئات
+    //  - after waw / small waw → ؤ (و)
+    //  - on an already-written alef with a weak vowel → drop it:
+    //    ٱدَّٰرَْٰٔتُمْ = ادارأتم (the dagger alif IS the seat)
+    //  - before an alef (آ = hamza + alef) → drop it: ٱلْـَٰٔنَ = الآن، بِـَٔايَٰتِ = بآيات
+    //  - otherwise the stronger vowel decides (kasra > damma > fatha):
+    //    ئ (ي) / ؤ (و) / أ (ا) — أَفْـِٔدَة = أفئدة، مَسْـُٔول = مسؤول، يَسْـَٔل = يسأل
+    .replace(/\u0654/g, (_m: string, off: number, str: string) => {
+      // previous base letter + its vowel (scan back past tatweel/diacritics;
+      // dagger alif, small waw/yeh are letters, not skipped)
+      let prev = "";
+      let vPrev = "";
+      for (let j = off - 1; j >= 0; j--) {
+        const c = str[j];
+        if (HAMZA_SCAN_SKIP.test(c)) {
+          if (!vPrev && HAMZA_VOWEL.test(c)) vPrev = c;
+          continue;
+        }
+        prev = c;
+        break;
+      }
+      // next base letter + the hamza's own vowel
+      let next = "";
+      let vNext = "";
+      for (let j = off + 1; j < str.length; j++) {
+        const c = str[j];
+        if (HAMZA_SCAN_SKIP.test(c)) {
+          if (!vNext && HAMZA_VOWEL.test(c)) vNext = c;
+          continue;
+        }
+        next = c;
+        break;
+      }
+      const sPrev = hamzaVowelStrength(vPrev);
+      const sNext = hamzaVowelStrength(vNext);
+      const isAlef = (c: string) =>
+        c === "\u0627" || c === "\u0622" || c === "\u0670" || c === "\u0671";
+      if ((prev === "\u064A" || prev === "\u06E6") && (sPrev === 0 || sPrev === 3))
+        return "\u064A";
+      if (prev === "\u0648" || prev === "\u06E5") return "\u0648";
+      if (isAlef(prev) && Math.max(sPrev, sNext) <= 1 && !isAlef(next)) return "";
+      if (isAlef(next)) return "";
+      const st = Math.max(sPrev, sNext);
+      if (st === 3) return "\u064A";
+      if (st === 2) return "\u0648";
+      return "\u0627";
+    })
     .replace(/[\u064B-\u0655\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
     .replace(/\u0670/g, "\u0627")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
