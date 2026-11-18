@@ -16,6 +16,7 @@ import { Capacitor } from "@capacitor/core";
 import { getLastMushafPage } from "@/data/mushaf-pages";
 import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
+import AnnouncementBar from "@/components/AnnouncementBar";
 import { Link } from "wouter";
 
 interface HomeProps {
@@ -182,6 +183,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
       </header>
 
       <div className="max-w-5xl mx-auto px-4 py-8">
+        <AnnouncementBar />
+
         {/* البطل: البسملة + التاريخ الهجري + الصلاة القادمة */}
         <div className="hero-gradient rounded-[2rem] p-6 mb-6 shadow-lg relative overflow-hidden">
           <div className="bismillah-text text-3xl sm:text-4xl text-center mb-2" style={{ color: "#F2CE6B" }}>
