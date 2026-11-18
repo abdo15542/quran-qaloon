@@ -236,12 +236,12 @@ export default function MushafPage({
           <button
             onClick={() => goTo(page - 1)}
             disabled={page <= 1}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 transition-colors"
+            className="flex items-center gap-1 px-4 py-2 rounded-full bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 active:scale-95 transition-all"
           >
             <ChevronRight className="w-4 h-4" />
             السابقة
           </button>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm text-muted-foreground bg-card border border-border px-3 py-1.5 rounded-full">
             صفحة {toArabicNum(page)} / {toArabicNum(604)}
           </span>
           <button

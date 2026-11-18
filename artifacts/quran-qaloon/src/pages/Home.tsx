@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, ScrollText, Info, SearchIcon, RotateCcw, CheckCircle2, WifiOff, Heart, Clock, BarChart3, Compass, Sparkles, Quote } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -14,7 +14,6 @@ import { refreshAfterPrayerAthkar } from "@/hooks/useAthkarReminders";
 import { updateWidgetData } from "@/lib/widget-data";
 import { Capacitor } from "@capacitor/core";
 import { getLastMushafPage } from "@/data/mushaf-pages";
-import { useOffline } from "@/context/OfflineContext";
 import DownloadButton from "@/components/DownloadButton";
 import AnnouncementBar from "@/components/AnnouncementBar";
 import { Link } from "wouter";
@@ -61,8 +60,6 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   const { getAllProgress } = useListeningProgress();
   const allProgress = getAllProgress();
   const inProgressSurahs = Object.values(allProgress);
-
-  const { cachedItems } = useOffline();
 
   const {
     totalCompleted,
@@ -154,29 +151,12 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           </div>
           <div className="flex items-center gap-1">
             <Link href="/search">
-              <button className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground" title="البحث في القرآن">
-                <SearchIcon className="w-4 h-4" />
+              <button className="p-2.5 rounded-full hover:bg-muted transition-colors text-muted-foreground active:scale-95" title="البحث في القرآن">
+                <SearchIcon className="w-5 h-5" />
               </button>
             </Link>
-            <Link href="/downloads">
-              <button
-                className="relative p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground"
-                title="الملفات المحفوظة"
-              >
-                <WifiOff className="w-4 h-4" />
-                {cachedItems.length > 0 && (
-                  <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-500" />
-                )}
-              </button>
-            </Link>
-            <Link href="/athkar">
-              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-arabic">
-                <ScrollText className="w-4 h-4" />
-                <span className="hidden sm:inline">الأذكار</span>
-              </button>
-            </Link>
-            <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-muted transition-colors">
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <button onClick={toggleDarkMode} className="p-2.5 rounded-full hover:bg-muted transition-colors text-muted-foreground active:scale-95" title={darkMode ? "الوضع النهاري" : "الوضع الليلي"}>
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
           </div>
         </div>
@@ -186,78 +166,89 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         <AnnouncementBar />
 
         {/* البطل: البسملة + التاريخ الهجري + الصلاة القادمة */}
-        <div className="hero-gradient rounded-[2rem] p-6 mb-6 shadow-lg relative overflow-hidden">
-          <div className="bismillah-text text-3xl sm:text-4xl text-center mb-2" style={{ color: "#F2CE6B" }}>
-            بسم الله الرحمن الرحيم
-          </div>
-          <p className="hero-muted text-center text-sm mb-4">
-            {formatHijriDate(now)} — {activeLoc.label}
-          </p>
-          <Link href="/prayer-times">
-            <div className="bg-white/10 backdrop-blur rounded-2xl px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-white/15 transition-colors">
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-5 h-5 shrink-0" style={{ color: "#F2CE6B" }} />
-                <div>
-                  <div className="text-sm font-bold">الصلاة القادمة: {PRAYER_NAMES[nextPrayer.key]}</div>
-                  <div className="hero-muted text-xs">متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())}</div>
+        <div className="hero-gradient rounded-[2rem] p-6 pt-7 mb-6 shadow-xl relative overflow-hidden animate-fade-up">
+          <div className="hero-pattern absolute inset-0 pointer-events-none" />
+          <div className="relative">
+            <div className="bismillah-text text-[2rem] sm:text-4xl text-center mb-1.5 leading-relaxed" style={{ color: "#F2CE6B", textShadow: "0 2px 12px rgba(0,0,0,0.25)" }}>
+              بسم الله الرحمن الرحيم
+            </div>
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="w-8 h-px bg-[#F2CE6B]/50" />
+              <span className="w-1.5 h-1.5 rotate-45 bg-[#F2CE6B]" />
+              <span className="w-8 h-px bg-[#F2CE6B]/50" />
+            </div>
+            <div className="flex justify-center mb-5">
+              <span className="hero-muted text-xs bg-white/10 backdrop-blur px-3 py-1.5 rounded-full">
+                {formatHijriDate(now)} — {activeLoc.label}
+              </span>
+            </div>
+            <Link href="/prayer-times">
+              <div className="bg-white/10 backdrop-blur rounded-2xl px-4 py-3.5 flex items-center justify-between cursor-pointer hover:bg-white/15 active:scale-[0.99] transition-all">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5" style={{ color: "#F2CE6B" }} />
+                  </span>
+                  <div>
+                    <div className="text-[15px] font-bold">الصلاة القادمة: {PRAYER_NAMES[nextPrayer.key]}</div>
+                    <div className="hero-muted text-xs mt-0.5">اضغط لعرض أوقات الصلاة والأذان</div>
+                  </div>
+                </div>
+                <div className="text-left shrink-0">
+                  <div className="text-[1.7rem] leading-none font-bold tabular-nums">{formatPrayerTime(nextPrayer.time)}</div>
+                  <div className="text-[11px] font-bold mt-1.5 px-2 py-0.5 rounded-full bg-[#F2CE6B] text-emerald-950 inline-block">
+                    متبقٍّ {formatCountdown(nextPrayer.time.getTime() - now.getTime())}
+                  </div>
                 </div>
               </div>
-              <div className="text-2xl font-bold tabular-nums">{formatPrayerTime(nextPrayer.time)}</div>
-            </div>
-          </Link>
+            </Link>
+          </div>
         </div>
 
-        {/* Khatma Progress Card */}
-        <div className={`mb-6 card-modern overflow-hidden ${
+        {/* Khatma Progress Card — حلقة تقدم */}
+        <div className={`mb-6 card-modern overflow-hidden animate-fade-up ${
           isKhatmaComplete
             ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
             : "border-border bg-card"
-        }`}>
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between mb-3">
+        }`} style={{ animationDelay: "60ms" }}>
+          <div className="px-5 py-4 flex items-center gap-4">
+            <div className="relative w-[76px] h-[76px] shrink-0">
+              <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90">
+                <circle cx="38" cy="38" r="30" fill="none" strokeWidth="7" className="stroke-muted" />
+                <circle
+                  cx="38" cy="38" r="30" fill="none" strokeWidth="7" strokeLinecap="round"
+                  strokeDasharray={188.5}
+                  strokeDashoffset={188.5 * (1 - khatmaPct / 100)}
+                  className={isKhatmaComplete ? "stroke-emerald-500" : "stroke-primary"}
+                  style={{ transition: "stroke-dashoffset 0.6s ease" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className={`text-lg font-bold leading-none ${isKhatmaComplete ? "text-emerald-600 dark:text-emerald-400" : "text-primary"}`}>{khatmaPct}٪</span>
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-lg">{isKhatmaComplete ? "🎉" : "📿"}</span>
-                <div>
-                  <div className="font-arabic text-base text-foreground">
-                    {isKhatmaComplete ? "تبارك الله! أتممت الختمة" : "ختمة القرآن الكريم"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    بدأت بتاريخ {formatDate(startedAt)}
-                  </div>
+                <div className="font-arabic text-[15px] font-bold text-foreground">
+                  {isKhatmaComplete ? "تبارك الله! أتممت الختمة" : "ختمة القرآن الكريم"}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <div className={`text-2xl font-sans font-bold ${isKhatmaComplete ? "text-emerald-600 dark:text-emerald-400" : "text-primary"}`}>
-                    {totalCompleted}
-                    <span className="text-sm font-normal text-muted-foreground">/114</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground">سورة مكتملة</div>
-                </div>
-                {totalCompleted > 0 && (
-                  <button
-                    onClick={() => setShowResetConfirm(true)}
-                    className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
-                    title="بدء ختمة جديدة"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                )}
+              <div className="text-xs text-muted-foreground mt-1">
+                بدأت بتاريخ {formatDate(startedAt)} · {totalCompleted}/114 سورة مكتملة
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {114 - totalCompleted > 0 ? `${114 - totalCompleted} سورة متبقية` : "الختمة مكتملة"}
               </div>
             </div>
-
-            <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  isKhatmaComplete ? "bg-emerald-500" : "bg-primary"
-                }`}
-                style={{ width: `${khatmaPct}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-1.5 text-xs text-muted-foreground">
-              <span>{khatmaPct}٪ مكتمل</span>
-              <span>{114 - totalCompleted} سورة متبقية</span>
-            </div>
+            {totalCompleted > 0 && (
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground shrink-0 active:scale-95"
+                title="بدء ختمة جديدة"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {showResetConfirm && (
@@ -284,30 +275,35 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         {/* آية اليوم */}
         {verseAyah && verseSurah && (
           <Link href={`/surah/${verseOfDay.surah}?ayah=${verseOfDay.ayah}`}>
-            <div className="card-modern p-5 mb-6 cursor-pointer hover:shadow-md transition-all border-r-4 border-r-amber-500">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-8 h-8 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <div className="card-modern p-5 pt-4 mb-6 cursor-pointer hover:shadow-lg active:scale-[0.99] transition-all border-r-4 border-r-amber-500 animate-fade-up" style={{ animationDelay: "120ms" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-9 h-9 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
                   <Quote className="w-4 h-4" />
                 </span>
-                <span className="font-bold text-base text-foreground">آية اليوم</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="font-bold text-[15px] text-foreground">آية اليوم</span>
+                <span className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full">
                   سورة {verseSurah.name} — الآية {toArabicNum(verseOfDay.ayah)}
                 </span>
               </div>
-              <div className="quran-text text-2xl text-foreground text-center" dir="rtl">
+              <div className="quran-text text-foreground text-center" dir="rtl" style={{ fontSize: "1.65rem" }}>
                 {verseAyah.text} ﴿{toArabicNum(verseOfDay.ayah)}﴾
               </div>
+              <div className="text-center text-xs text-muted-foreground mt-1">اضغط للاستماع إلى الآية</div>
             </div>
           </Link>
         )}
 
-        {/* المفضلة والأجزاء وأوقات الصلاة والإحصائيات */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        {/* الوصول السريع */}
+        <div className="flex items-center gap-2 mb-3 animate-fade-up" style={{ animationDelay: "180ms" }}>
+          <span className="section-label text-sm">الوصول السريع</span>
+          <span className="flex-1 h-px bg-border" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-6 animate-fade-up" style={{ animationDelay: "180ms" }}>
           <Link href="/favourites">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-rose-500/25 bg-rose-500/[0.08] dark:bg-rose-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0"><Heart className="w-5 h-5 fill-rose-500" /></span>
-                <span className="font-arabic text-base text-foreground">المفضلة</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-rose-500 flex items-center justify-center shrink-0 shadow-sm"><Heart className="w-5 h-5 fill-rose-500" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">المفضلة</span>
               </div>
               <div className="text-xs text-muted-foreground">
                 {favouritesCount > 0
@@ -317,28 +313,28 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/juz">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-emerald-500/25 bg-emerald-500/[0.08] dark:bg-emerald-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">الأجزاء</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-primary flex items-center justify-center shrink-0 shadow-sm"><BookOpen className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">الأجزاء</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالجزء — ٣٠ جزءًا</div>
             </div>
           </Link>
           <Link href="/hizb">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-violet-500/25 bg-violet-500/[0.08] dark:bg-violet-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">الأحزاب</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 shadow-sm"><BookOpen className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">الأحزاب</span>
               </div>
               <div className="text-xs text-muted-foreground">تصفح المصحف بالحزب — ٦٠ حزبًا وآيات السجدة</div>
             </div>
           </Link>
           <Link href="/prayer-times">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-amber-500/25 bg-amber-500/[0.08] dark:bg-amber-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0"><Clock className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">أوقات الصلاة</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm"><Clock className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">أوقات الصلاة</span>
               </div>
               <div className="text-xs text-muted-foreground">أوقات الصلوات الخمس والأذان الكامل · {activeLoc.label}</div>
               {exactAlarmDenied && (
@@ -356,10 +352,10 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/stats">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-sky-500/25 bg-sky-500/[0.08] dark:bg-sky-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0"><BarChart3 className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">إحصائياتي</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 shadow-sm"><BarChart3 className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">إحصائياتي</span>
               </div>
               <div className="text-xs text-muted-foreground">
                 {totalCompleted}/١١٤ سورة مكتملة — وسلسلة الورد {streak} {streak === 1 ? "يوم" : streak === 2 ? "يومين" : "أيام"}
@@ -367,30 +363,30 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
           <Link href="/qibla">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
+            <div className="rounded-3xl border border-teal-500/25 bg-teal-500/[0.08] dark:bg-teal-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0"><Compass className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">اتجاه القبلة</span>
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0 shadow-sm"><Compass className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">اتجاه القبلة</span>
               </div>
               <div className="text-xs text-muted-foreground">
                 القبلة {getQibla(activeLoc.lat, activeLoc.lng).bearing.toFixed(1)}° من الشمال — {getQibla(activeLoc.lat, activeLoc.lng).distanceKm.toLocaleString("ar-EG")} كم من مكة
               </div>
             </div>
           </Link>
-          <Link href="/asma">
-            <div className="card-modern p-4 hover:shadow-md transition-all cursor-pointer">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-10 h-10 rounded-2xl bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0"><Sparkles className="w-5 h-5" /></span>
-                <span className="font-arabic text-base text-foreground">أسماء الله الحسنى</span>
+          <Link href="/asma" className="col-span-2">
+            <div className="rounded-3xl border border-indigo-500/25 bg-indigo-500/[0.08] dark:bg-indigo-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer flex items-center gap-3">
+              <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 shadow-sm"><Sparkles className="w-5 h-5" /></span>
+              <div className="min-w-0">
+                <div className="font-arabic text-[15px] font-bold text-foreground">أسماء الله الحسنى</div>
+                <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
               </div>
-              <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
             </div>
           </Link>
         </div>
 
         {/* وردي اليومي */}
         <Link href="/wird">
-          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-3xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-sm transition-all cursor-pointer">
+          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-3xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "240ms" }}>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-lg">📖</span>
               <span className="font-arabic text-base text-foreground">وردي اليومي</span>
@@ -415,7 +411,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
 
         {/* المصحف — قراءة صفحة صفحة مثل المصحف الورقي */}
         <Link href={`/mushaf/${lastMushafPage}`}>
-          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-sm transition-all cursor-pointer">
+          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "280ms" }}>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
               <span className="font-arabic text-base text-foreground">المصحف</span>
@@ -504,7 +500,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         </div>
 
         {/* Search & Filter */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="flex flex-col sm:flex-row gap-3 mb-6 animate-fade-up" style={{ animationDelay: "320ms" }}>
           <div className="relative flex-1">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
@@ -512,7 +508,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               placeholder="ابحث عن سورة..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-card border border-border rounded-full pr-10 pl-4 py-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
+              className="w-full bg-card border border-border rounded-full pr-10 pl-4 py-3.5 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
             />
           </div>
           <div className="flex gap-2">
@@ -561,10 +557,10 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                     )}
 
                     <div className="flex items-start justify-between mb-2">
-                      <span className={`text-xs rounded-full w-6 h-6 flex items-center justify-center font-sans flex-shrink-0 ${
+                      <span className={`text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center font-sans flex-shrink-0 ${
                         done
                           ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          : "text-muted-foreground bg-muted"
+                          : "bg-primary/10 text-primary"
                       }`}>
                         {done ? <CheckCircle2 className="w-3.5 h-3.5" /> : surah.number}
                       </span>

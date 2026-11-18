@@ -1059,6 +1059,7 @@ export default function SurahPlayer({
             </button>
           </div>
         </div>
+        <div className="h-0.5 bg-gradient-to-l from-transparent via-amber-500/60 to-transparent" />
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
