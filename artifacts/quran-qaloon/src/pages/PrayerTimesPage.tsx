@@ -44,7 +44,6 @@ import {
   detectPrayerLocation,
   locationErrorMessage,
   openLocationSettings,
-  scheduleTestAdhanNotification,
   enableReminderIfFirstRun,
   isExactAlarmGranted,
   openExactAlarmSettingsPage,
@@ -77,8 +76,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [preAlert, setPreAlert] = useState<boolean>(isPreAlertEnabled);
   const [iqamaOn, setIqamaOn] = useState<boolean>(isIqamaEnabled);
   const [iqamaDelays, setIqamaDelaysState] = useState<Record<PrayerKey, number>>(getIqamaDelays);
-  const [testStatus, setTestStatus] = useState<string | null>(null);
-  const [testBusy, setTestBusy] = useState(false);
 
   // Live clock for the countdown (updates every 30 seconds — enough for
   // a minute-level countdown and cheap on battery).
@@ -199,28 +196,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
       schedulePrayerReminders(id).then((msg) => {
         if (msg) setReminderStatus(msg);
       });
-    }
-  };
-
-  const handleTestAdhan = async () => {
-    if (testBusy) return;
-    setTestBusy(true);
-    try {
-      const msg = await scheduleTestAdhanNotification();
-      setTestStatus(msg ?? "اختبار الأذان يعمل على الهاتف فقط — سيصلك الإشعار بعد تثبيت النسخة");
-    } finally {
-      setTestBusy(false);
-    }
-  };
-
-  const handleTestFajrAdhan = async () => {
-    if (testBusy) return;
-    setTestBusy(true);
-    try {
-      const msg = await scheduleTestAdhanNotification(true);
-      setTestStatus(msg ?? "اختبار أذان الفجر يعمل على الهاتف فقط — سيصلك الإشعار بعد تثبيت النسخة");
-    } finally {
-      setTestBusy(false);
     }
   };
 
@@ -572,23 +547,6 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
             </div>
           )}
 
-          <button
-            onClick={handleTestAdhan}
-            disabled={testBusy}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
-          >
-            🔊 جرّب صوت الأذان
-          </button>
-          <button
-            onClick={handleTestFajrAdhan}
-            disabled={testBusy}
-            className="mt-3 mr-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card border border-border text-xs text-foreground hover:border-primary/40 transition-colors disabled:opacity-50"
-          >
-            🌙 جرّب أذان الفجر
-          </button>
-          {testStatus && (
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">{testStatus}</p>
-          )}
           {reminderStatus && (
             <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-3">{reminderStatus}</p>
           )}
