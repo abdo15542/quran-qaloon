@@ -19,6 +19,9 @@ import PrayerTimesPage from "@/pages/PrayerTimesPage";
 import StatsPage from "@/pages/StatsPage";
 import QiblaPage from "@/pages/QiblaPage";
 import AsmaAlHusnaPage from "@/pages/AsmaAlHusnaPage";
+import HifzPage from "@/pages/HifzPage";
+import ReadingsPage from "@/pages/ReadingsPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 
@@ -95,6 +98,16 @@ function AppRoutes() {
           <Route path="/stats" component={() => <StatsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/qibla" component={() => <QiblaPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/asma" component={() => <AsmaAlHusnaPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/hifz" component={() => <HifzPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/readings/:surah/:ayah">
+            {(params) => {
+              const s = parseInt(params.surah, 10);
+              const a = parseInt(params.ayah, 10);
+              if (isNaN(s) || s < 1 || s > 114 || isNaN(a) || a < 1) return <NotFound />;
+              return <ReadingsPage surahNumber={s} ayahNumber={a} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
+            }}
+          </Route>
+          <Route path="/analytics" component={() => <AnalyticsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>

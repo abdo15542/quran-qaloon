@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -380,6 +380,34 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <div className="font-arabic text-[15px] font-bold text-foreground">أسماء الله الحسنى</div>
                 <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
               </div>
+            </div>
+          </Link>
+          {/* [1.0.74] المميزات العميقة دون إنترنت */}
+          <Link href="/hifz">
+            <div className="rounded-3xl border border-emerald-500/25 bg-emerald-500/[0.08] dark:bg-emerald-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 shadow-sm"><Brain className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">الحفظ الذكي</span>
+              </div>
+              <div className="text-xs text-muted-foreground">مراجعة اليوم بتكرار متباعد — قيّم حفظك بعد التسميع</div>
+            </div>
+          </Link>
+          <Link href="/readings/1/1">
+            <div className="rounded-3xl border border-teal-500/25 bg-teal-500/[0.08] dark:bg-teal-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0 shadow-sm"><BookCopy className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">مقارنة الروايات</span>
+              </div>
+              <div className="text-xs text-muted-foreground">حفص وقالون وورش جنبًا إلى جنب لكل آية</div>
+            </div>
+          </Link>
+          <Link href="/analytics">
+            <div className="rounded-3xl border border-sky-500/25 bg-sky-500/[0.08] dark:bg-sky-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 shadow-sm"><ChartLine className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">تحليلات القراءة</span>
+              </div>
+              <div className="text-xs text-muted-foreground">الوتيرة والسلاسل وأضعف السور وتوقع إتمام الختمة</div>
             </div>
           </Link>
         </div>

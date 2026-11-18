@@ -81,6 +81,7 @@ export default function TajweedText({ surahNumber, ayahNumber, text, enabled, wi
         seg.rule ? (
           <span
             key={i}
+            data-tajweed-rule={seg.rule}
             className={`${RULE_CLASS[seg.rule] ?? ""}${onRuleClick ? " cursor-pointer underline decoration-dotted underline-offset-4" : ""}`}
             onClick={
               onRuleClick

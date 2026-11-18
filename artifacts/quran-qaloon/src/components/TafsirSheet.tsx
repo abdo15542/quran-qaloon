@@ -4,6 +4,7 @@ import { SURAHS } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
 import { getTafsirJalalayn, TAFSIR_JALALAYN_EDITION_NAME } from "@/data/tafsir-jalalayn";
+import AsbabSection from "@/components/AsbabSection";
 import { getTranslation, TRANSLATION_EDITION_NAME } from "@/data/translation-en";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import { useFavourites } from "@/hooks/useFavourites";
@@ -169,6 +170,9 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
               <p className="text-sm text-muted-foreground text-center py-8">لا يوجد تفسير لهذه الآية</p>
             )}
           </div>
+
+          {/* [1.0.74] سبب النزول (الواحدي) — يظهر فقط للآيات المشمولة (٥٦٤ آية) */}
+          <AsbabSection surahNumber={surahNumber} ayahNumber={currentAyah} />
         </div>
       </div>
 

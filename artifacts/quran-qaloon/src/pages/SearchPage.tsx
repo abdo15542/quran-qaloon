@@ -1,11 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash } from "lucide-react";
-import { SURAHS, QIRAAT, getGlobalAyahNumber } from "@/data/surahs";
+import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout } from "lucide-react";
+import { SURAHS, QIRAAT, getGlobalAyahNumber, type RevelationType } from "@/data/surahs";
 import { getJuzNumber } from "@/data/juz";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
-import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
+import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, QURAN_TEXT, matchWord, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
+// [1.0.74 advanced search] Topic + revelation-order data (offline, bundled).
+import { TOPICS, TOPIC_PARENTS, TOPIC_COVERAGE_NOTE, getTopicAyahRefs, getTopicAyahCount, getTopicParentName, type QuranTopic } from "@/data/topics";
+import { REVELATION_ORDER } from "@/data/revelation-order";
 import TafsirSheet from "@/components/TafsirSheet";
+import RootSearch from "@/components/RootSearch";
 
 interface SearchResult {
   number: number;
@@ -292,9 +296,191 @@ function searchAthkar(query: string): AthkarResult[] {
   return results.slice(0, 20);
 }
 
+// ---- [1.0.74 advanced search] ----
+// Pure helpers for the new search modes. All offline, computed from the
+// bundled Hafs text (QURAN_TEXT) and the bundled topics data — no network,
+// no new dependencies. Exported so the 1.0.74 harness can call them
+// directly (via the Vite dev server) and check them against
+// searchQuranDetailed.
+
+// Lazy normalised-words cache over the bundled text, using the same
+// normalisation as searchQuranDetailed. Built once, on first use in a
+// word-position mode, so the plain text search path pays nothing for it.
+let cachedNormWords74: string[][][] | null = null;
+function getNormWords74(): string[][][] {
+  if (!cachedNormWords74) {
+    cachedNormWords74 = QURAN_TEXT.map((texts) =>
+      texts.map((t) => normalizeArabic(t).split(/\s+/).filter(Boolean))
+    );
+  }
+  return cachedNormWords74;
+}
+
+function ayahRefToResult(surahNumber: number, ayahNumber: number): SearchResult | null {
+  const surah = SURAHS.find((s) => s.number === surahNumber);
+  const a = getAyah(surahNumber, ayahNumber, "hafs");
+  if (!surah || !a) return null;
+  return {
+    number: ayahNumber,
+    numberInSurah: ayahNumber,
+    text: a.text,
+    surahNumber,
+    surahName: surah.name,
+    juz: getJuzNumber(getGlobalAyahNumber(surahNumber, ayahNumber)),
+    occurrences: 1,
+  };
+}
+
+function firstQueryWord(query: string): string {
+  return normalizeArabic(query.trim(), false).split(/\s+/).filter(Boolean)[0] ?? "";
+}
+
+/** Ayahs whose FIRST word (after normalizeArabic) matches the query word. */
+export function searchByFirstWord(query: string): SearchResult[] {
+  const q = firstQueryWord(query);
+  if (!q) return [];
+  const words = getNormWords74();
+  const out: SearchResult[] = [];
+  for (let s = 0; s < words.length; s++) {
+    for (let i = 0; i < words[s].length; i++) {
+      if (words[s][i].length > 0 && matchWord(words[s][i][0], q)) {
+        const r = ayahRefToResult(s + 1, i + 1);
+        if (r) out.push(r);
+      }
+    }
+  }
+  return out;
+}
+
+/** Ayahs whose LAST word (after normalizeArabic) matches the query word. */
+export function searchByLastWord(query: string): SearchResult[] {
+  const q = firstQueryWord(query);
+  if (!q) return [];
+  const words = getNormWords74();
+  const out: SearchResult[] = [];
+  for (let s = 0; s < words.length; s++) {
+    for (let i = 0; i < words[s].length; i++) {
+      const w = words[s][i];
+      if (w.length > 0 && matchWord(w[w.length - 1], q)) {
+        const r = ayahRefToResult(s + 1, i + 1);
+        if (r) out.push(r);
+      }
+    }
+  }
+  return out;
+}
+
+export interface RhymeGroup {
+  /** Normalised last word shared by every ayah in the group. */
+  ending: string;
+  count: number;
+  ayahs: Array<{ surah: number; ayah: number }>;
+}
+
+// Ayahs grouped by their normalised last word (the rhyme / الفاصلة),
+// most common ending first. Built once from the bundled text.
+let cachedRhymeGroups74: RhymeGroup[] | null = null;
+export function getRhymeGroups(): RhymeGroup[] {
+  if (cachedRhymeGroups74) return cachedRhymeGroups74;
+  const words = getNormWords74();
+  const byEnding = new Map<string, Array<{ surah: number; ayah: number }>>();
+  for (let s = 0; s < words.length; s++) {
+    for (let i = 0; i < words[s].length; i++) {
+      const w = words[s][i];
+      if (w.length === 0) continue;
+      const ending = w[w.length - 1];
+      const list = byEnding.get(ending);
+      if (list) list.push({ surah: s + 1, ayah: i + 1 });
+      else byEnding.set(ending, [{ surah: s + 1, ayah: i + 1 }]);
+    }
+  }
+  const groups: RhymeGroup[] = [...byEnding.entries()].map(([ending, ayahs]) => ({
+    ending,
+    count: ayahs.length,
+    ayahs,
+  }));
+  groups.sort((a, b) => b.count - a.count || (a.ending < b.ending ? -1 : 1));
+  cachedRhymeGroups74 = groups;
+  return groups;
+}
+
+/** Ayahs sharing one rhyme ending (a normalised last word). */
+export function searchByRhyme(ending: string): SearchResult[] {
+  const norm = normalizeArabic(ending.trim(), false);
+  if (!norm) return [];
+  const group = getRhymeGroups().find((g) => g.ending === norm);
+  if (!group) return [];
+  const out: SearchResult[] = [];
+  for (const ref of group.ayahs) {
+    const r = ayahRefToResult(ref.surah, ref.ayah);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * Topics whose Arabic name (or parent-topic name) contains the query,
+ * diacritic-insensitive. With no query, the best-covered topics first
+ * (TOPICS is already sorted by ayah count descending) — browsing.
+ */
+export function searchTopics74(query: string): QuranTopic[] {
+  const q = normalizeArabic(query.trim(), false);
+  if (!q) return TOPICS;
+  return TOPICS.filter((t) => {
+    if (normalizeArabic(t.name, false).includes(q)) return true;
+    if (t.parentId !== null) {
+      const parentName = TOPIC_PARENTS[t.parentId] ?? "";
+      if (parentName && normalizeArabic(parentName, false).includes(q)) return true;
+    }
+    return false;
+  });
+}
+
+/** The ayahs carrying one topic, as search results (occurrences: 1). */
+export function getTopicResults(topic: QuranTopic): SearchResult[] {
+  const out: SearchResult[] = [];
+  for (const ref of getTopicAyahRefs(topic)) {
+    const r = ayahRefToResult(ref.surah, ref.ayah);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+// Mode chips for the Quran tab (text is the pre-1.0.74 search).
+import type { LucideIcon } from "lucide-react";
+const MODES74: Array<{ id: "text" | "topic" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root"; label: string; Icon: LucideIcon }> = [
+  { id: "text", label: "بحث نصي", Icon: Search },
+  { id: "root", label: "الجذر", Icon: Sprout },
+  { id: "topic", label: "المواضيع", Icon: Tags },
+  { id: "makki", label: "مكي / مدني", Icon: BookOpen },
+  { id: "revelation", label: "ترتيب النزول", Icon: ListOrdered },
+  { id: "first", label: "أول الكلمة", Icon: AlignStartVertical },
+  { id: "last", label: "آخر الكلمة", Icon: AlignEndVertical },
+  { id: "rhyme", label: "الفاصلة", Icon: Music },
+];
+
+const MODE_PLACEHOLDERS74: Record<string, string> = {
+  topic: "ابحث في المواضيع... (مثال: الصلاة)",
+  first: "اكتب كلمة للبحث عن الآيات التي تبدأ بها...",
+  last: "اكتب كلمة للبحث عن الآيات التي تنتهي بها...",
+  rhyme: "ابحث في نهايات الآيات (الفاصلة)...",
+};
+// ---- [/1.0.74 advanced search] ----
+
 export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps) {
+  const [, navigate] = useLocation();
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<SearchTab>("quran");
+  // [1.0.74 advanced search] Modes inside the Quran tab. The root-search
+  // tab (added later by the coordinator) sits above these — these modes
+  // only change what the Quran tab shows, nothing else.
+  type AdvancedMode = "text" | "topic" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root";
+  const [mode, setMode] = useState<AdvancedMode>("text");
+  const [selectedTopic, setSelectedTopic] = useState<QuranTopic | null>(null);
+  const [selectedRhyme, setSelectedRhyme] = useState<string | null>(null);
+  const [makkiFilter, setMakkiFilter] = useState<RevelationType | "all">("all");
+  const [showAllTopics, setShowAllTopics] = useState(false);
+  const [showAllRhymes, setShowAllRhymes] = useState(false);
   const [detailed, setDetailed] = useState<QuranSearchDetailed | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [athkarResults, setAthkarResults] = useState<AthkarResult[]>([]);
@@ -354,7 +540,11 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   // Live search as the user types (debounced), so results appear while
   // typing without a search on every keystroke — in both tabs (the
   // athkar tab used to search only on submit or tab switch).
+  // [1.0.74] Plain-text mode only: first/last-word modes have their own
+  // debounced effect below, and topic/rhyme/makki/revelation are browse
+  // modes that filter live without a search call.
   useEffect(() => {
+    if (tab === "quran" && mode !== "text") return;
     const trimmed = query.trim();
     if (!trimmed) {
       setDetailed(null);
@@ -366,7 +556,29 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
     }
     const t = setTimeout(() => { doSearch(query, tab); }, 600);
     return () => clearTimeout(t);
-  }, [query, tab, doSearch]);
+  }, [query, tab, mode, doSearch]);
+
+  // [1.0.74 advanced search] First-word / last-word search (debounced
+  // like the text search). Runs over the bundled text, fully offline.
+  useEffect(() => {
+    if (tab !== "quran" || (mode !== "first" && mode !== "last")) return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setResults([]);
+      setSearched(false);
+      return;
+    }
+    setLoading(true);
+    const t = setTimeout(() => {
+      const hits = mode === "first" ? searchByFirstWord(trimmed) : searchByLastWord(trimmed);
+      setResults(hits);
+      setDetailed(null);
+      setSearched(true);
+      setVisibleCount(PAGE_SIZE);
+      setLoading(false);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [query, tab, mode]);
 
   // Infinite scroll: load more results as the user reaches the end.
   useEffect(() => {
@@ -386,6 +598,18 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // [1.0.74] Non-text Quran modes filter/browse live. Submitting runs
+    // the first/last-word search at once (topic/rhyme already filter live).
+    if (tab === "quran" && mode !== "text") {
+      if (mode === "first" || mode === "last") {
+        const hits = mode === "first" ? searchByFirstWord(query) : searchByLastWord(query);
+        setResults(hits);
+        setDetailed(null);
+        setSearched(true);
+        setVisibleCount(PAGE_SIZE);
+      }
+      return;
+    }
     doSearch(query, tab);
   };
 
@@ -410,6 +634,61 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
     setQuery(word);
     doSearch(word, "quran");
   };
+
+  // [1.0.74 advanced search] Switching modes clears the previous mode's
+  // results/selection; the query text itself is kept, so typing a word
+  // and switching modes re-uses it (e.g. first-word -> last-word).
+  const handleModeChange = (newMode: typeof mode) => {
+    setMode(newMode);
+    setSelectedTopic(null);
+    setSelectedRhyme(null);
+    setShowAllTopics(false);
+    setShowAllRhymes(false);
+    setDetailed(null);
+    setResults([]);
+    setAthkarResults([]);
+    setSearched(false);
+    setError(null);
+    setVisibleCount(PAGE_SIZE);
+    lastQueryRef.current = "";
+  };
+
+  const handleSelectTopic = (topic: QuranTopic) => {
+    setSelectedTopic(topic);
+    setResults(getTopicResults(topic));
+    setSearched(true);
+    setVisibleCount(PAGE_SIZE);
+  };
+
+  const handleSelectRhyme = (ending: string) => {
+    setSelectedRhyme(ending);
+    setResults(searchByRhyme(ending));
+    setSearched(true);
+    setVisibleCount(PAGE_SIZE);
+  };
+
+  // [1.0.74] Live-filtered lists for the browse modes.
+  const topicList = useMemo(() => {
+    if (mode !== "topic" || selectedTopic) return [];
+    return searchTopics74(query);
+  }, [mode, query, selectedTopic]);
+
+  const rhymeGroups = useMemo(() => (mode === "rhyme" ? getRhymeGroups() : []), [mode]);
+  const filteredRhymes = useMemo(() => {
+    const q = normalizeArabic(query.trim(), false);
+    if (!q) return rhymeGroups;
+    return rhymeGroups.filter((g) => g.ending.includes(q));
+  }, [rhymeGroups, query]);
+
+  const makkiSurahs = useMemo(
+    () => SURAHS.filter((s) => makkiFilter === "all" || s.revelationType === makkiFilter),
+    [makkiFilter]
+  );
+  const makkiCounts = useMemo(() => {
+    const c = { all: SURAHS.length, Meccan: 0, Medinan: 0, Disputed: 0 } as Record<RevelationType | "all", number>;
+    for (const s of SURAHS) c[s.revelationType]++;
+    return c;
+  }, []);
 
   const totalResults = tab === "quran" ? results.length : athkarResults.length;
   const visibleResults = results.slice(0, visibleCount);
@@ -474,13 +753,37 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </button>
         </div>
 
+        {/* [1.0.74 advanced search] Search modes inside the Quran tab */}
+        {tab === "quran" && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1 mb-5 -mx-1 px-1" dir="rtl">
+            {MODES74.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                data-mode={id}
+                data-testid={`mode-${id}`}
+                onClick={() => handleModeChange(id)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-arabic flex items-center gap-1.5 border transition-colors ${
+                  mode === id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* [1.0.74] Makki/Madani + revelation-order + root are browse modes — no query input */}
+        {!(tab === "quran" && (mode === "makki" || mode === "revelation" || mode === "root")) && (
         <form onSubmit={handleSubmit} className="mb-4">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="search"
-                placeholder={tab === "quran" ? "اكتب كلمة أو عبارة للبحث في القرآن..." : "ابحث في الأذكار والأدعية..."}
+                placeholder={tab === "quran" ? (MODE_PLACEHOLDERS74[mode] ?? "اكتب كلمة أو عبارة للبحث في القرآن...") : "ابحث في الأذكار والأدعية..."}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full bg-card border border-border rounded-xl pr-10 pl-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground font-arabic"
@@ -496,9 +799,10 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
             </button>
           </div>
         </form>
+        )}
 
         {/* Popular words */}
-        {tab === "quran" && !searched && (
+        {tab === "quran" && mode === "text" && !searched && (
           <div className="mb-6">
             <div className="text-xs text-muted-foreground mb-2 text-center">كلمات يبحث عنها كثيرًا — اضغط للبحث مباشرة</div>
             <div className="flex flex-wrap justify-center gap-2">
@@ -538,7 +842,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
         )}
 
         {/* Summary card: how many times the word occurs, and where */}
-        {searched && !loading && !error && tab === "quran" && detailed && detailed.totalOccurrences > 0 && (
+        {searched && !loading && !error && tab === "quran" && mode === "text" && detailed && detailed.totalOccurrences > 0 && (
           <div className="mb-5 bg-primary/5 border border-primary/20 rounded-2xl px-5 py-4 text-center">
             <div className="text-sm text-muted-foreground mb-1">
               كلمة «<span className="text-primary font-arabic">{detailed.query}</span>» ذُكرت
@@ -571,6 +875,249 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </div>
         )}
 
+        {/* ---- [1.0.74 advanced search] Mode panels ---- */}
+
+        {/* [1.0.74] Root search: every ayah containing a word from this root */}
+        {tab === "quran" && mode === "root" && (
+          <RootSearch onNavigateAyah={(sn, an) => navigate(`/surah/${sn}?ayah=${an}`)} />
+        )}
+
+        {/* Topic search: browse / filter the topic list, tap a topic for its ayahs */}
+        {tab === "quran" && mode === "topic" && !selectedTopic && (
+          <>
+            <div data-testid="topics-coverage-note" className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 rounded-xl px-4 py-3 text-sm text-center">
+              {TOPIC_COVERAGE_NOTE} — المصدر: Quranpedia.net
+            </div>
+            <div className="mb-3 text-sm text-muted-foreground text-center">
+              {query.trim()
+                ? `وُجد ${toArabicNum(topicList.length)} موضوع لـ «${query.trim()}»`
+                : `${toArabicNum(topicList.length)} موضوع — مرتبة حسب عدد الآيات`}
+            </div>
+            <div className="space-y-2 mb-5">
+              {(showAllTopics ? topicList : topicList.slice(0, 100)).map((t) => (
+                <button
+                  key={t.id}
+                  data-testid="topic-row"
+                  data-topic-id={t.id}
+                  onClick={() => handleSelectTopic(t)}
+                  className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-arabic text-base text-foreground">{t.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                      {toArabicNum(getTopicAyahCount(t))} آية
+                    </span>
+                  </div>
+                  {getTopicParentName(t) && (
+                    <div className="text-xs text-muted-foreground mt-1">ضمن: {getTopicParentName(t)}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+            {topicList.length > 100 && !showAllTopics && (
+              <div className="text-center mb-5">
+                <button
+                  onClick={() => setShowAllTopics(true)}
+                  className="px-4 py-2 bg-card border border-border rounded-xl text-sm font-arabic text-primary hover:border-primary/50 transition-colors"
+                >
+                  عرض كل المواضيع ({toArabicNum(topicList.length)})
+                </button>
+              </div>
+            )}
+            {topicList.length === 0 && (
+              <div className="text-center py-8 text-sm text-muted-foreground">لا توجد مواضيع مطابقة — جرّب كلمة أخرى</div>
+            )}
+          </>
+        )}
+
+        {/* A topic's ayahs */}
+        {tab === "quran" && mode === "topic" && selectedTopic && (
+          <div className="mb-4">
+            <button
+              onClick={() => { setSelectedTopic(null); setResults([]); setSearched(false); }}
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline mb-3"
+            >
+              <ArrowRight className="w-4 h-4" />
+              كل المواضيع
+            </button>
+            <div data-testid="topics-coverage-note" className="mb-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 rounded-xl px-4 py-3 text-sm text-center">
+              {TOPIC_COVERAGE_NOTE}
+            </div>
+            <div className="text-center mb-1">
+              <span className="font-arabic text-lg text-primary">موضوع «{selectedTopic.name}»</span>
+            </div>
+            <div className="text-sm text-muted-foreground text-center">
+              {toArabicNum(results.length)} آية في هذا الموضوع
+              {getTopicParentName(selectedTopic) ? ` — ضمن: ${getTopicParentName(selectedTopic)}` : ""}
+            </div>
+          </div>
+        )}
+
+        {/* Makki / Madani filter: browse surahs by revelation type */}
+        {tab === "quran" && mode === "makki" && (
+          <>
+            <div className="flex gap-1.5 flex-wrap justify-center mb-4">
+              {([
+                { id: "all" as const, label: "الكل" },
+                { id: "Meccan" as const, label: "مكية" },
+                { id: "Medinan" as const, label: "مدنية" },
+                { id: "Disputed" as const, label: "مختلف فيها" },
+              ]).map(({ id, label }) => (
+                <button
+                  key={id}
+                  data-testid={`makki-filter-${id}`}
+                  onClick={() => setMakkiFilter(id)}
+                  className={`px-3.5 py-1.5 rounded-full text-sm font-arabic border transition-colors ${
+                    makkiFilter === id
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label} ({toArabicNum(makkiCounts[id])})
+                </button>
+              ))}
+            </div>
+            <div className="mb-3 text-sm text-muted-foreground text-center">
+              {toArabicNum(makkiSurahs.length)} سورة
+              {makkiFilter === "Meccan" ? " مكية" : makkiFilter === "Medinan" ? " مدنية" : makkiFilter === "Disputed" ? " مختلف فيها" : ""}
+            </div>
+            <div className="space-y-2 mb-5">
+              {makkiSurahs.map((s) => (
+                <button
+                  key={s.number}
+                  data-testid="surah-row"
+                  data-surah={s.number}
+                  onClick={() => navigate(`/surah/${s.number}`)}
+                  className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-arabic text-base text-foreground">
+                      {toArabicNum(s.number)} — سورة {s.name}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
+                      s.revelationType === "Meccan"
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                        : s.revelationType === "Medinan"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                    }`}>
+                      {s.revelationType === "Meccan" ? "مكية" : s.revelationType === "Medinan" ? "مدنية" : "مختلف فيها"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{toArabicNum(s.numberOfAyahs)} آية</div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Revelation-order browse: surahs in the order they were revealed */}
+        {tab === "quran" && mode === "revelation" && (
+          <>
+            <div className="mb-3 text-sm text-muted-foreground text-center">
+              سور القرآن بترتيب النزول — أول ما نزل سورة العلق
+            </div>
+            <div className="space-y-2 mb-5">
+              {REVELATION_ORDER.map((surahNum, idx) => {
+                const s = SURAHS.find((x) => x.number === surahNum)!;
+                return (
+                  <button
+                    key={surahNum}
+                    data-testid="surah-row"
+                    data-surah={surahNum}
+                    data-revelation-order={idx + 1}
+                    onClick={() => navigate(`/surah/${surahNum}`)}
+                    className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-arabic flex-shrink-0">
+                        {toArabicNum(idx + 1)}
+                      </span>
+                      <span className="font-arabic text-base text-foreground flex-1">
+                        سورة {s.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground flex-shrink-0">
+                        السورة {toArabicNum(s.number)} في المصحف • {toArabicNum(s.numberOfAyahs)} آية
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* First-word / last-word result count */}
+        {tab === "quran" && (mode === "first" || mode === "last") && searched && !loading && (
+          <div className="mb-4 text-sm text-muted-foreground text-center">
+            {results.length > 0
+              ? `وُجد ${toArabicNum(results.length)} آية ${mode === "first" ? "تبدأ" : "تنتهي"} بـ «${query.trim()}»`
+              : `لا توجد آيات ${mode === "first" ? "تبدأ" : "تنتهي"} بـ «${query.trim()}»`}
+          </div>
+        )}
+
+        {/* Rhyme endings (الفاصلة): pick an ending, see its ayahs */}
+        {tab === "quran" && mode === "rhyme" && !selectedRhyme && (
+          <>
+            <div className="mb-3 text-sm text-muted-foreground text-center">
+              نهايات الآيات (الفاصلة) — اختر نهاية لعرض الآيات التي تنتهي بها
+              {query.trim() ? ` — ${toArabicNum(filteredRhymes.length)} نهاية مطابقة` : ` — ${toArabicNum(rhymeGroups.length)} نهاية مميزة`}
+            </div>
+            <div className="space-y-2 mb-5">
+              {(showAllRhymes ? filteredRhymes : filteredRhymes.slice(0, 80)).map((g) => (
+                <button
+                  key={g.ending}
+                  data-testid="rhyme-row"
+                  data-rhyme={g.ending}
+                  onClick={() => handleSelectRhyme(g.ending)}
+                  className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="quran-text text-lg text-foreground">...{g.ending}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                      {toArabicNum(g.count)} آية
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            {filteredRhymes.length > 80 && !showAllRhymes && (
+              <div className="text-center mb-5">
+                <button
+                  onClick={() => setShowAllRhymes(true)}
+                  className="px-4 py-2 bg-card border border-border rounded-xl text-sm font-arabic text-primary hover:border-primary/50 transition-colors"
+                >
+                  عرض كل النهايات ({toArabicNum(filteredRhymes.length)})
+                </button>
+              </div>
+            )}
+            {filteredRhymes.length === 0 && (
+              <div className="text-center py-8 text-sm text-muted-foreground">لا توجد نهايات مطابقة — جرّب كلمة أخرى</div>
+            )}
+          </>
+        )}
+
+        {/* A rhyme ending's ayahs */}
+        {tab === "quran" && mode === "rhyme" && selectedRhyme && (
+          <div className="mb-4">
+            <button
+              onClick={() => { setSelectedRhyme(null); setResults([]); setSearched(false); }}
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline mb-3"
+            >
+              <ArrowRight className="w-4 h-4" />
+              كل النهايات
+            </button>
+            <div className="text-center">
+              <span className="font-arabic text-lg text-primary">آيات تنتهي بـ «{selectedRhyme}»</span>
+            </div>
+            <div className="text-sm text-muted-foreground text-center">
+              {toArabicNum(results.length)} آية
+            </div>
+          </div>
+        )}
+
+        {/* ---- [/1.0.74 advanced search] ---- */}
+
         {!loading && tab === "quran" && visibleResults.length > 0 && (
           <div className="space-y-3">
             {visibleResults.map((r, idx) => {
@@ -584,7 +1131,9 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
                         سورة {r.surahName}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {toArabicNum(perSurahCount.get(r.surahNumber) ?? 0)} آية فيها «{detailed?.query}»
+                        {mode === "text"
+                          ? `${toArabicNum(perSurahCount.get(r.surahNumber) ?? 0)} آية فيها «${detailed?.query}»`
+                          : `${toArabicNum(perSurahCount.get(r.surahNumber) ?? 0)} آية`}
                       </span>
                     </div>
                   )}
@@ -615,7 +1164,9 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </div>
         )}
 
-        {searched && !loading && totalResults === 0 && !error && (
+        {/* [1.0.74] First/last-word modes show their own "no ayahs" line
+            above, so the generic empty state stays with text/athkar. */}
+        {searched && !loading && totalResults === 0 && !error && (mode === "text" || tab === "athkar") && (
           <div className="text-center py-16 text-muted-foreground">
             <div className="text-5xl mb-4">🔍</div>
             <div className="text-base mb-2">لا توجد نتائج</div>

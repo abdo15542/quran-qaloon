@@ -238,7 +238,7 @@ const UTHMANI_WORD_FIXES: Array<[RegExp, string]> = [
 // the same marks the strip removes, EXCEPT dagger alif (U+0670) and the
 // small waw/yeh (U+06E5/U+06E6), which are letters, not marks.
 const HAMZA_SCAN_SKIP =
-  /[\u064B-\u0653\u0640\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/;
+  /[\u064B-\u0653\u065C\u0640\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06ED\u08F0-\u08F2]/;
 const HAMZA_VOWEL = /[\u064B\u064C\u064D\u064E\u064F\u0650\u0652]/;
 function hamzaVowelStrength(c: string): number {
   if (c === "\u0650" || c === "\u064D") return 3; // kasra / kasratan
@@ -274,6 +274,14 @@ function hamzaVowelStrength(c: string): number {
 // (a query word like «عليا» must stay «عليا», not become «علي»).
 export function normalizeArabic(s: string, applyDaggerFixes = true): string {
   let out = s
+    // QAC quirk: shadda (U+0651) is written BEFORE the vowel it doubles
+    // in 22,420 QAC lines. Canonicalise to vowel-then-shadda so both
+    // sides compare the same way. Also strip U+200F (right-to-left mark),
+    // which appears in some copied text. Both are no-ops for the search
+    // (the strip below removes shadda and vowels anyway); they only make
+    // the pre-strip form canonical.
+    .replace(/\u200F/g, "")
+    .replace(/\u0651([\u064B-\u0650\u0652])/g, "$1\u0651")
     // A bare hamza-above (U+0654) is written on a tatweel seat (ـٔ) and its
     // true seat depends on context — a blanket map to «ا» fixed يسألونك
     // but broke الآن (→ الاان) and شيئا (→ شياا). Seat rules, in order:
@@ -324,7 +332,13 @@ export function normalizeArabic(s: string, applyDaggerFixes = true): string {
       if (st === 2) return "\u0648";
       return "\u0627";
     })
-    .replace(/[\u064B-\u0655\u0640\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u08F0-\u08F2]/g, "")
+    // U+065C (imala mark, QAC writes it in 11:41 مَجْر۪ىٰهَا where the
+    // bundled text uses a different mark) and U+06E9 (place of sajdah ۩,
+    // which QAC attaches to the word at each sajdah while the bundled
+    // text keeps it as a separate token) are non-letter Quranic marks:
+    // strip them too, so a QAC form and its bundled form normalise the
+    // same way. Both are marks only — no Arabic letter is ever removed.
+    .replace(/[\u064B-\u0655\u065C\u0640\u06D6-\u06DC\u06DF-\u06ED\u08F0-\u08F2]/g, "")
     .replace(/\u0670/g, "\u0627")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
     .replace(/\u0621\u0627/g, "\u0627")

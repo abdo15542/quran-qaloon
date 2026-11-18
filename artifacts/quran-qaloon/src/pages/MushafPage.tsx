@@ -5,6 +5,8 @@ import { SURAHS } from "@/data/surahs";
 import { getSurahAyahs, type LocalAyah } from "@/data/quran-text";
 import { getMushafPageRange, getLastMushafPage, setLastMushafPage } from "@/data/mushaf-pages";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
+import WordTapText from "@/components/WordTapText";
+import WordSheet from "@/components/WordSheet";
 import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 
 function toArabicNum(n: number): string {
@@ -82,6 +84,13 @@ export default function MushafPage({
 
   // حكم التجويد المضغوط عليه — تُعرض ورقة شرحه.
   const [selectedRule, setSelectedRule] = useState<string | null>(null);
+  // [1.0.74] Word sheet for a tapped word (root / meanings).
+  const [wordSheet, setWordSheet] = useState<{
+    surahNumber: number;
+    ayahNumber: number;
+    wordIndex: number;
+    wordText: string;
+  } | null>(null);
 
   const range = getMushafPageRange(page);
   const items = useMemo(() => buildPageAyahs(page), [page]);
@@ -212,13 +221,14 @@ export default function MushafPage({
                     onClick={() => navigate(`/surah/${b.item.surah}?ayah=${b.item.ayah.numberInSurah}`)}
                     className="cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10"
                   >
-                    <TajweedText
+                    <WordTapText
                       surahNumber={b.item.surah}
                       ayahNumber={b.item.ayah.numberInSurah}
                       text={b.item.rest}
-                      enabled={tajweed}
-                      window={[b.item.ayah.text.length - b.item.rest.length, b.item.ayah.text.length]}
+                      windowBase={b.item.ayah.text.length - b.item.rest.length}
+                      tajweed={tajweed}
                       onRuleClick={setSelectedRule}
+                      onWordClick={(wi, wt) => setWordSheet({ surahNumber: b.item.surah, ayahNumber: b.item.ayah.numberInSurah, wordIndex: wi, wordText: wt })}
                     />{" "}
                     <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
                   </span>
@@ -282,6 +292,20 @@ export default function MushafPage({
 
       {/* شرح حكم التجويد المضغوط عليه */}
       <TajweedRuleSheet rule={selectedRule} onClose={() => setSelectedRule(null)} />
+      {/* Word sheet for a tapped word (1.0.74: root / meanings) */}
+      {wordSheet && (
+        <WordSheet
+          surahNumber={wordSheet.surahNumber}
+          ayahNumber={wordSheet.ayahNumber}
+          wordIndex={wordSheet.wordIndex}
+          wordText={wordSheet.wordText}
+          onClose={() => setWordSheet(null)}
+          onNavigateAyah={(sn, an) => {
+            setWordSheet(null);
+            navigate(`/surah/${sn}?ayah=${an}`);
+          }}
+        />
+      )}
     </div>
   );
 }
