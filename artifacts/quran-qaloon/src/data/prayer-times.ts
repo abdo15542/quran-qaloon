@@ -650,10 +650,10 @@ export async function schedulePrayerRemindersForCoords(lat: number, lng: number)
     } catch {
       // storage unavailable
     }
-    const parts = [nativeAdhan ? "أذان كامل عند وقت كل صلاة" : "أذان عند وقت كل صلاة"];
+    const parts = ["التذكير مفعّل"];
     if (preAlert) parts.push("تنبيه قبلها بـ 5 دقائق");
     if (iqamaOn) parts.push("تنبيه الإقامة");
-    return "التذكير مفعّل — " + parts.join("، ");
+    return parts.join("، ");
   } catch {
     return "تعذّر ضبط التذكير — حاول مجددًا";
   }
