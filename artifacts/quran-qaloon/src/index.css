@@ -214,3 +214,15 @@ html,
 body {
   overflow-x: clip;
 }
+
+body {
+  overscroll-behavior-x: none;
+}
+
+/* شريط أزرار بلا شريط تمرير ظاهر — يُمرَّر داخلياً عند الحاجة فقط. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
