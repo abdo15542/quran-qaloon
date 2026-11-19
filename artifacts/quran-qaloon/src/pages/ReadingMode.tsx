@@ -6,6 +6,13 @@
 // على كلمة يفتح ورقتها (مع إجراءات الآية: تفسير/روايات/حفظ/مشاركة/نسخ
 // + تقييم الحفظ)، والصفحة الأخيرة محفوظة بنفس مفتاح المصحف الأول —
 // الوضعان يتشاركان موضعك.
+// (1.0.81) قلب سلس كالمصحف الحقيقي: الصفحتان المجاورتان مرسومتان
+// تحت الصفحة الجارية (التالية والسابقة)، فالسحب يكشف الصفحة التالية
+// فعلًا بدل فراغ أبيض؛ الصفحة تتبع الإصبع بميلان أخف (٦°) وظل يكبر
+// مع السحب، والإفلات بحركة نابضة انسيابية، والسحبة السريعة تقلب
+// حتى لمسافة قصيرة. الجزء العلوي نزل قليلًا (pt-10). فهرس السور
+// مع بحث سريع (اسم/رقم) يقفز لأول صفحة السورة. وتكبير/تصغير الخط
+// من شريط الأدوات (يدوي ١٥–٣٦، أو تلقائي = الملاءمة الكاملة).
 // (1.0.80) الضغط على آية يشغّل صوتها فقط — بلا لوحة وبلا ورقة:
 // لا شيء يظهر فوق النص؛ الآية الجارية تُظلَّل بخفة فقط، والضغط
 // عليها مجددًا يعيدها من أولها. ورقة الكلمة (معاني/تفسير/إجراءات)
@@ -15,7 +22,7 @@
 // (1.0.79) الصفحة كاملة بلا تمرير عمودي: الخط يتكيّف حتى تدخل الصفحة
 // كلها في الشاشة. والصوت ملف MP3 لكل آية فلا حاجة لجداول توقيت.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Moon, Palette, SlidersHorizontal, Sun, X } from "lucide-react";
+import { ArrowRight, List, Moon, Palette, SlidersHorizontal, Sun, X } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import {
   SURAHS,
@@ -39,6 +46,7 @@ import { useOffline } from "@/context/OfflineContext";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
 import WordTapText from "@/components/WordTapText";
 import WordSheet from "@/components/WordSheet";
+import SurahIndexSheet from "@/components/SurahIndexSheet";
 import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
@@ -47,6 +55,116 @@ import { copyTextToClipboard } from "@/lib/copy";
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d, 10)]);
+}
+
+// [1.0.81] محتوى صفحة مصحف واحدة — يُستعمل للصفحة الجارية وللصفحتين
+// المجاورتين تحتها أثناء السحب (معاينة غير تفاعلية: بلا ضغطات ولا
+// تظليل). innerRef يُمرَّر للصفحة الجارية فقط لقياس الملاءمة.
+function PageContent({
+  page,
+  fontSize,
+  tajweed,
+  interactive,
+  playingAyah,
+  onRuleClick,
+  onPlayAyah,
+  onWordLongPress,
+  innerRef,
+}: {
+  page: number;
+  fontSize: number;
+  tajweed: boolean;
+  interactive: boolean;
+  playingAyah: { surah: number; ayah: number } | null;
+  onRuleClick: (rule: string) => void;
+  onPlayAyah: (surah: number, ayah: number) => void;
+  onWordLongPress: (surah: number, ayah: number, wordIndex: number, wordText: string) => void;
+  innerRef?: React.Ref<HTMLDivElement>;
+}) {
+  const items = useMemo(() => buildPageAyahs(page), [page]);
+  // Surah headers: a new header whenever the surah changes within the page.
+  let lastSurah = -1;
+  const blocks: Array<{ type: "header"; surah: number } | { type: "ayah"; item: PageAyah }> = [];
+  for (const item of items) {
+    if (item.surah !== lastSurah) {
+      blocks.push({ type: "header", surah: item.surah });
+      lastSurah = item.surah;
+    }
+    blocks.push({ type: "ayah", item });
+  }
+  return (
+    <div
+      ref={innerRef}
+      className="quran-text text-right leading-[1.6]"
+      style={{ fontSize: `${fontSize}px` }}
+      dir="rtl"
+    >
+      {blocks.map((b, i) =>
+        b.type === "header" ? (
+          <div key={`h-${b.surah}-${i}`} className="text-center my-4">
+            <div className="inline-block border-y-2 border-amber-500/40 px-6 py-1.5">
+              <span className="font-arabic text-xl text-primary">سورة {SURAHS[b.surah - 1].name}</span>
+              <span className="text-xs text-muted-foreground mr-2">
+                {SURAHS[b.surah - 1].revelationType === "Meccan"
+                  ? "مكية"
+                  : SURAHS[b.surah - 1].revelationType === "Medinan"
+                    ? "مدنية"
+                    : ""}{" "}
+                • {toArabicNum(SURAHS[b.surah - 1].numberOfAyahs)} آية
+              </span>
+            </div>
+          </div>
+        ) : (
+          <Fragment key={`${b.item.surah}-${b.item.ayah.numberInSurah}`}>
+            {b.item.basmala && (
+              <span className="block text-center my-3 text-[0.9em] text-foreground">
+                <TajweedText
+                  surahNumber={b.item.surah}
+                  ayahNumber={b.item.ayah.numberInSurah}
+                  text={BASMALA}
+                  enabled={tajweed}
+                  window={[0, BASMALA.length]}
+                  onRuleClick={onRuleClick}
+                />
+              </span>
+            )}
+            <span
+              data-ayah={b.item.ayah.numberInSurah}
+              data-surah={b.item.surah}
+              onClick={interactive ? () => onPlayAyah(b.item.surah, b.item.ayah.numberInSurah) : undefined}
+              className={
+                interactive
+                  ? `cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
+                      playingAyah?.surah === b.item.surah &&
+                      playingAyah?.ayah === b.item.ayah.numberInSurah
+                        ? "bg-primary/10"
+                        : ""
+                    }`
+                  : "rounded px-0.5"
+              }
+            >
+              <WordTapText
+                surahNumber={b.item.surah}
+                ayahNumber={b.item.ayah.numberInSurah}
+                text={b.item.rest}
+                windowBase={b.item.ayah.text.length - b.item.rest.length}
+                tajweed={tajweed}
+                onRuleClick={onRuleClick}
+                onWordClick={interactive ? () => onPlayAyah(b.item.surah, b.item.ayah.numberInSurah) : undefined}
+                onWordLongPress={
+                  interactive
+                    ? (wi, wt) =>
+                        onWordLongPress(b.item.surah, b.item.ayah.numberInSurah, wi, wt)
+                    : undefined
+                }
+              />{" "}
+              <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
+            </span>
+          </Fragment>
+        ),
+      )}
+    </div>
+  );
 }
 
 export default function ReadingMode({
@@ -65,6 +183,23 @@ export default function ReadingMode({
   });
   const [jump, setJump] = useState("");
   const [showTools, setShowTools] = useState(false);
+  const [showIndex, setShowIndex] = useState(false);
+  // [1.0.81] حجم الخط اليدوي: 0 = تلقائي (ملاءمة الصفحة كاملة).
+  const [manualFont, setManualFont] = useState<number>(() => {
+    try {
+      const v = parseInt(localStorage.getItem("quran_reading_font_size") ?? "0", 10);
+      return isNaN(v) ? 0 : v;
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("quran_reading_font_size", String(manualFont));
+    } catch {
+      // storage unavailable
+    }
+  }, [manualFont]);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
 
@@ -287,7 +422,6 @@ export default function ReadingMode({
   }, []);
 
   const range = getMushafPageRange(page);
-  const items = useMemo(() => buildPageAyahs(page), [page]);
 
   // Keep the URL and the last-read page in sync (same key as the old
   // Mushaf — both modes share the reader's position).
@@ -309,11 +443,18 @@ export default function ReadingMode({
   // الصفحة كاملة ممكنة، وهو قريب من تباعد المصحف المطبوع نفسه.
   // [1.0.80] لا لوحة آية بعد اليوم، فلا تمرير لإظهارها ولا إعادة
   // قياس بسببها.
+  // [1.0.81] خط يدوي (manualFont > 0): يُستعمل كما هو؛ وإن زاد عن
+  // الشاشة يُمرَّر عموديًا (الحاوية قابلة للتمرير أصلًا).
   const [fitFontSize, setFitFontSize] = useState(30);
   const fitPage = useCallback(() => {
     const el = contentRef.current;
     const inner = innerRef.current;
     if (!el || !inner) return;
+    if (manualFont > 0) {
+      inner.style.fontSize = `${manualFont}px`;
+      setFitFontSize(manualFont);
+      return;
+    }
     let size = 30;
     inner.style.fontSize = `${size}px`;
     let guard = 0;
@@ -322,10 +463,10 @@ export default function ReadingMode({
       inner.style.fontSize = `${size}px`;
     }
     setFitFontSize(size);
-  }, []);
+  }, [manualFont]);
   useLayoutEffect(() => {
     fitPage();
-  }, [page, tajweed, fitPage]);
+  }, [page, tajweed, manualFont, fitPage]);
   useEffect(() => {
     window.addEventListener("resize", fitPage);
     return () => window.removeEventListener("resize", fitPage);
@@ -342,31 +483,82 @@ export default function ReadingMode({
     if (p >= 1 && p <= 604) setPage(p);
   }, []);
 
-  // [1.0.80] قلب الصفحة باليد — كالمصحف الحقيقي: الصفحة تتبع
-  // إصبعك أثناء السحب (إزاحة + ميلان خفيف + ظل)؛ إن تجاوز السحب
-  // ربع عرض الشاشة (أو ١٢٠ بكسل) أكملت الصفحة دورتها إلى التالية
-  // (يسار) أو السابقة (يمين)، وإلا عادت مكانها بنابض. عند أول
+  // [1.0.81] تكبير/تصغير الخط: من الحجم الملائم الحالي إن كان
+  // تلقائيًا، وإلا من اليدوي؛ بين ١٥ و٣٦.
+  const bumpFont = (delta: number) => {
+    setManualFont((prev) => {
+      const base = prev > 0 ? prev : fitFontSize;
+      return Math.max(15, Math.min(36, base + delta));
+    });
+  };
+
+  // [1.0.81] قلب الصفحة باليد — كالمصحف الحقيقي: الصفحتان
+  // المجاورتان مرسومتان تحت الصفحة الجارية، فالسحب يكشف الصفحة
+  // التالية فعلًا بدل فراغ أبيض؛ الصفحة تتبع إصبعك بميلان أخف
+  // (٦°) وظل يكبر مع السحب، والمعاينة تزداد وضوحًا كلما ابتعدت
+  // الصفحة. الإفلات بحركة انسيابية نابضة (٣٨٠ms مع تجاوز خفيف)،
+  // وإكمال الدورة بتسارع-تباطؤ ناعم (٣٠٠ms). والسحبة السريعة
+  // تقلب حتى لمسافة قصيرة (>٠٫٥ بكسل/ms و>٤٠ بكسل). عند أول
   // صفحة أو آخرها يُقاوَم السحب (مطاط) ويعود دائمًا. السحب حركة
   // لا نقرة، فيُكبَت النقر الذي يليه حتى لا يُشغَّل صوت آية بالخطأ.
   // (بلا setPointerCapture: الالتقاط يغيّر هدف النقر فيكسر ضغطة
   // الكلمة؛ وtouch-pan-y على الحاوية يكفي ليوصل السحب الأفقي.)
   const flipRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+  const previewNextRef = useRef<HTMLDivElement | null>(null);
+  const previewPrevRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; dragging: boolean; dir: 1 | -1 | null; startT: number } | null>(null);
   const turningRef = useRef(false);
   const swipedRef = useRef(false);
 
-  const resetFlip = useCallback((animate: boolean) => {
-    const el = flipRef.current;
-    if (!el) return;
-    el.style.transition = animate ? "transform 250ms ease-out, opacity 250ms ease-out" : "none";
-    el.style.transform = "";
-    el.style.opacity = "";
-    el.style.boxShadow = "";
+  const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
+  const EASE_SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+
+  const hidePreviews = useCallback((animate: boolean) => {
+    for (const pv of [previewNextRef.current, previewPrevRef.current]) {
+      if (!pv) continue;
+      pv.style.transition = animate ? "opacity 300ms ease-out" : "none";
+      pv.style.opacity = "0";
+      pv.style.filter = "";
+      pv.style.top = "";
+    }
   }, []);
+
+  const showPreview = useCallback(
+    (dir: 1 | -1, progress: number) => {
+      const pv = dir === 1 ? previewNextRef.current : previewPrevRef.current;
+      const other = dir === 1 ? previewPrevRef.current : previewNextRef.current;
+      if (other) {
+        other.style.transition = "none";
+        other.style.opacity = "0";
+        other.style.filter = "";
+      }
+      if (!pv) return;
+      pv.style.transition = "none";
+      pv.style.opacity = "1";
+      // المعاينة تلتصق بأعلى ما يُرى (قد تكون الصفحة مُمرَّرة بخط يدوي).
+      pv.style.top = `${contentRef.current?.scrollTop ?? 0}px`;
+      pv.style.filter = `brightness(${0.88 + 0.12 * Math.min(1, progress)})`;
+    },
+    []
+  );
+
+  const resetFlip = useCallback(
+    (animate: boolean) => {
+      const el = flipRef.current;
+      if (!el) return;
+      el.style.transition = animate
+        ? `transform 380ms ${EASE_SPRING}, opacity 380ms ${EASE_SPRING}`
+        : "none";
+      el.style.transform = "";
+      el.style.opacity = "";
+      el.style.boxShadow = "";
+    },
+    [EASE_SPRING]
+  );
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (turningRef.current) return;
-    dragRef.current = { x: e.clientX, y: e.clientY, dragging: false };
+    dragRef.current = { x: e.clientX, y: e.clientY, dragging: false, dir: null, startT: performance.now() };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -383,14 +575,24 @@ export default function ReadingMode({
       if (Math.abs(dx) <= 10) return;
       d.dragging = true;
     }
+    const dir: 1 | -1 = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
+    const w = contentRef.current?.clientWidth ?? 360;
+    const threshold = Math.max(100, w * 0.25);
+    if (d.dir !== dir) {
+      d.dir = dir;
+      showPreview(dir, Math.abs(dx) / threshold);
+    } else {
+      const pv = dir === 1 ? previewNextRef.current : previewPrevRef.current;
+      if (pv) pv.style.filter = `brightness(${0.88 + 0.12 * Math.min(1, Math.abs(dx) / threshold)})`;
+    }
     // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
     let eff = dx;
     if ((dx < 0 && page >= 604) || (dx > 0 && page <= 1)) eff = dx * 0.4;
-    const w = contentRef.current?.clientWidth ?? 360;
-    const rot = Math.max(-10, Math.min(10, (eff / w) * 12));
+    const rot = Math.max(-6, Math.min(6, (eff / w) * 8));
+    const mag = Math.abs(eff);
     el.style.transition = "none";
     el.style.transform = `translateX(${eff}px) rotateY(${rot}deg)`;
-    el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.35)";
+    el.style.boxShadow = `0 ${10 + mag / 12}px ${28 + mag / 3}px rgba(0,0,0,0.35)`;
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -402,12 +604,20 @@ export default function ReadingMode({
     const threshold = Math.max(100, w * 0.25);
     const dir = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
     const atEdge = (dir === 1 && page >= 604) || (dir === -1 && page <= 1);
+    const velocity = Math.abs(dx) / Math.max(1, performance.now() - d.startT);
+    const flick = velocity > 0.5 && Math.abs(dx) > 40;
     // أي سحب — حتى المرتد — يكبت النقرة التي تليه.
     swipedRef.current = true;
     window.setTimeout(() => {
       swipedRef.current = false;
     }, 150);
-    if (Math.abs(dx) < threshold || atEdge) {
+    if (Math.abs(dx) < threshold && !flick) {
+      hidePreviews(true);
+      resetFlip(true);
+      return;
+    }
+    if (atEdge) {
+      hidePreviews(true);
       resetFlip(true);
       return;
     }
@@ -415,34 +625,38 @@ export default function ReadingMode({
     turningRef.current = true;
     const el = flipRef.current;
     if (el) {
-      el.style.transition = "transform 180ms ease-in, opacity 180ms ease-in";
-      el.style.transform = `translateX(${dir * (w + 80)}px) rotateY(${dir * 18}deg)`;
-      el.style.opacity = "0.6";
+      el.style.transition = `transform 300ms ${EASE_OUT}, opacity 300ms ${EASE_OUT}`;
+      el.style.transform = `translateX(${dir * (w + 80)}px) rotateY(${dir * 14}deg)`;
+      el.style.opacity = "0.7";
     }
     window.setTimeout(() => {
       goTo(page + dir);
+      hidePreviews(false);
       // الصفحة الجديدة تدخل بانزلاق قصير من الجهة المقابلة.
       requestAnimationFrame(() => {
         const el2 = flipRef.current;
         if (el2) {
           el2.style.transition = "none";
-          el2.style.transform = `translateX(${-dir * 60}px)`;
-          el2.style.opacity = "0.7";
+          el2.style.transform = `translateX(${-dir * 50}px)`;
+          el2.style.opacity = "0.75";
           el2.style.boxShadow = "";
           requestAnimationFrame(() => {
-            el2.style.transition = "transform 220ms ease-out, opacity 220ms ease-out";
+            el2.style.transition = `transform 280ms ${EASE_OUT}, opacity 280ms ${EASE_OUT}`;
             el2.style.transform = "";
             el2.style.opacity = "";
           });
         }
         turningRef.current = false;
       });
-    }, 180);
+    }, 300);
   };
 
   const onPointerCancel = () => {
     dragRef.current = null;
-    if (!turningRef.current) resetFlip(true);
+    if (!turningRef.current) {
+      hidePreviews(true);
+      resetFlip(true);
+    }
   };
   const onClickCapture = (e: React.MouseEvent) => {
     if (swipedRef.current) {
@@ -494,17 +708,6 @@ export default function ReadingMode({
   const startSurah = range ? SURAHS[range.startSurah - 1] : null;
   const endSurah = range ? SURAHS[range.endSurah - 1] : null;
 
-  // Surah headers: a new header whenever the surah changes within the page.
-  let lastSurah = -1;
-  const blocks: Array<{ type: "header"; surah: number } | { type: "ayah"; item: PageAyah }> = [];
-  for (const item of items) {
-    if (item.surah !== lastSurah) {
-      blocks.push({ type: "header", surah: item.surah });
-      lastSurah = item.surah;
-    }
-    blocks.push({ type: "ayah", item });
-  }
-
   return (
     <div className="fixed inset-0 z-[100] bg-background flex flex-col" data-testid="reading-mode">
       {/* Hidden ayah-audio elements (same pattern as the player). */}
@@ -516,7 +719,7 @@ export default function ReadingMode({
           page, and the fit measures only the page itself. */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y"
+        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y relative"
         style={{ perspective: "1200px" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -526,78 +729,67 @@ export default function ReadingMode({
         onClickCapture={onClickCapture}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div ref={flipRef} className="min-h-full px-5 py-6">
+        {/* [1.0.81] الصفحتان المجاورتان تحت الجارية — السحب يكشف
+            التالية (أو السابقة) فعلًا بدل فراغ أبيض. شفافة حتى يبدأ
+            السحب (opacity تُدار مباشرة من معالجات المؤشر). */}
+        {page < 604 && (
           <div
-            ref={innerRef}
-            className="quran-text text-right leading-[1.6]"
-            style={{ fontSize: `${fitFontSize}px` }}
-            dir="rtl"
+            ref={previewNextRef}
+            data-testid="reading-preview-next"
+            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none"
+            style={{ opacity: 0 }}
+            aria-hidden
           >
-            {blocks.map((b, i) =>
-              b.type === "header" ? (
-                <div key={`h-${b.surah}-${i}`} className="text-center my-4">
-                  <div className="inline-block border-y-2 border-amber-500/40 px-6 py-1.5">
-                    <span className="font-arabic text-xl text-primary">سورة {SURAHS[b.surah - 1].name}</span>
-                    <span className="text-xs text-muted-foreground mr-2">
-                      {SURAHS[b.surah - 1].revelationType === "Meccan"
-                        ? "مكية"
-                        : SURAHS[b.surah - 1].revelationType === "Medinan"
-                          ? "مدنية"
-                          : ""}{" "}
-                      • {toArabicNum(SURAHS[b.surah - 1].numberOfAyahs)} آية
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <Fragment key={`${b.item.surah}-${b.item.ayah.numberInSurah}`}>
-                  {b.item.basmala && (
-                    <span className="block text-center my-3 text-[0.9em] text-foreground">
-                      <TajweedText
-                        surahNumber={b.item.surah}
-                        ayahNumber={b.item.ayah.numberInSurah}
-                        text={BASMALA}
-                        enabled={tajweed}
-                        window={[0, BASMALA.length]}
-                        onRuleClick={setSelectedRule}
-                      />
-                    </span>
-                  )}
-                  <span
-                    data-ayah={b.item.ayah.numberInSurah}
-                    data-surah={b.item.surah}
-                    onClick={() => void playAyah(b.item.surah, b.item.ayah.numberInSurah, true)}
-                    className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                      playingAyah?.surah === b.item.surah &&
-                      playingAyah?.ayah === b.item.ayah.numberInSurah
-                        ? "bg-primary/10"
-                        : ""
-                    }`}
-                  >
-                    <WordTapText
-                      surahNumber={b.item.surah}
-                      ayahNumber={b.item.ayah.numberInSurah}
-                      text={b.item.rest}
-                      windowBase={b.item.ayah.text.length - b.item.rest.length}
-                      tajweed={tajweed}
-                      onRuleClick={setSelectedRule}
-                      onWordClick={() =>
-                        void playAyah(b.item.surah, b.item.ayah.numberInSurah, true)
-                      }
-                      onWordLongPress={(wi, wt) =>
-                        setWordSheet({
-                          surahNumber: b.item.surah,
-                          ayahNumber: b.item.ayah.numberInSurah,
-                          wordIndex: wi,
-                          wordText: wt,
-                        })
-                      }
-                    />{" "}
-                    <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
-                  </span>
-                </Fragment>
-              ),
-            )}
+            <PageContent
+              page={page + 1}
+              fontSize={fitFontSize}
+              tajweed={tajweed}
+              interactive={false}
+              playingAyah={null}
+              onRuleClick={setSelectedRule}
+              onPlayAyah={() => {}}
+              onWordLongPress={() => {}}
+            />
           </div>
+        )}
+        {page > 1 && (
+          <div
+            ref={previewPrevRef}
+            data-testid="reading-preview-prev"
+            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none"
+            style={{ opacity: 0 }}
+            aria-hidden
+          >
+            <PageContent
+              page={page - 1}
+              fontSize={fitFontSize}
+              tajweed={tajweed}
+              interactive={false}
+              playingAyah={null}
+              onRuleClick={setSelectedRule}
+              onPlayAyah={() => {}}
+              onWordLongPress={() => {}}
+            />
+          </div>
+        )}
+        <div
+          ref={flipRef}
+          className="relative min-h-full px-5 pt-10 pb-6 bg-background"
+          style={{ willChange: "transform" }}
+        >
+          <PageContent
+            page={page}
+            fontSize={fitFontSize}
+            tajweed={tajweed}
+            interactive
+            playingAyah={playingAyah}
+            onRuleClick={setSelectedRule}
+            onPlayAyah={(s, a) => void playAyah(s, a, true)}
+            onWordLongPress={(s, a, wi, wt) =>
+              setWordSheet({ surahNumber: s, ayahNumber: a, wordIndex: wi, wordText: wt })
+            }
+            innerRef={innerRef}
+          />
           {/* Clearance for the floating page pill / tools button, so the
               last line of the page is never hidden behind them. */}
           <div className="h-6" aria-hidden />
@@ -659,6 +851,14 @@ export default function ReadingMode({
               >
                 <Palette className="w-4 h-4" />
               </button>
+              <button
+                onClick={() => setShowIndex(true)}
+                className="p-2 rounded-full hover:bg-muted transition-colors"
+                aria-label="فهرس السور"
+                title="فهرس السور"
+              >
+                <List className="w-4 h-4" />
+              </button>
               <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="تبديل الوضع الليلي">
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
@@ -705,6 +905,38 @@ export default function ReadingMode({
                 صفحة {toArabicNum(page)} / {toArabicNum(604)}
               </span>
             </div>
+            {/* [1.0.81] تكبير/تصغير الخط — يدوي (١٥–٣٦) أو تلقائي
+                (ملاءمة الصفحة كاملة). */}
+            <div className="mt-3 flex items-center justify-center gap-2">
+              <span className="text-sm text-muted-foreground">حجم الخط</span>
+              <button
+                onClick={() => bumpFont(-2)}
+                className="w-9 h-9 rounded-full bg-card border border-border text-lg leading-none active:scale-95 transition-transform"
+                aria-label="تصغير الخط"
+                title="تصغير الخط"
+              >
+                −
+              </button>
+              <span className="text-sm min-w-14 text-center" aria-live="polite">
+                {manualFont > 0 ? toArabicNum(manualFont) : "تلقائي"}
+              </span>
+              <button
+                onClick={() => bumpFont(2)}
+                className="w-9 h-9 rounded-full bg-card border border-border text-lg leading-none active:scale-95 transition-transform"
+                aria-label="تكبير الخط"
+                title="تكبير الخط"
+              >
+                +
+              </button>
+              {manualFont > 0 && (
+                <button
+                  onClick={() => setManualFont(0)}
+                  className="px-3 py-1.5 rounded-full bg-card border border-border text-xs active:scale-95 transition-transform"
+                >
+                  تلقائي
+                </button>
+              )}
+            </div>
             <form
               className="mt-3 flex items-center justify-center gap-2"
               onSubmit={(e) => {
@@ -731,6 +963,18 @@ export default function ReadingMode({
             </form>
           </div>
         </div>
+      )}
+
+      {/* [1.0.81] فهرس السور — بحث سريع والقفز لأول صفحة السورة. */}
+      {showIndex && (
+        <SurahIndexSheet
+          onClose={() => setShowIndex(false)}
+          onSelectPage={(p) => {
+            setShowIndex(false);
+            setShowTools(false);
+            goTo(p);
+          }}
+        />
       )}
 
       {/* شرح حكم التجويد المضغوط عليه */}
