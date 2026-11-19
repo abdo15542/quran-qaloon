@@ -121,7 +121,7 @@ export default function WordSheet({
           <div className="bg-primary/5 border border-primary/20 rounded-2xl p-5 text-center">
             <div
               className="text-4xl leading-relaxed"
-              style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
+              style={{ fontFamily: "'Amiri Quran', serif" }}
               data-testid="word-text"
             >
               {info.wordText}
@@ -337,7 +337,7 @@ export default function WordSheet({
                       </div>
                       <div
                         className="text-sm text-muted-foreground leading-relaxed mt-1 line-clamp-2"
-                        style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
+                        style={{ fontFamily: "'Amiri Quran', serif" }}
                       >
                         {text}
                       </div>

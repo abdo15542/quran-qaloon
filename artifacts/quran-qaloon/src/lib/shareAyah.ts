@@ -49,7 +49,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
 async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement> {
   const W = 1080;
   const PAD = 90;
-  const ARABIC_FONT = '64px "Scheherazade New", "Amiri Quran", serif';
+  const ARABIC_FONT = '64px "Amiri Quran", serif';
   const ARABIC_LINE = 122;
   const TRANS_FONT = '30px system-ui, sans-serif';
   const TRANS_LINE = 48;
@@ -61,7 +61,7 @@ async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
     if (fonts) {
       await Promise.race([
-        fonts.load('64px "Scheherazade New"'),
+        fonts.load('64px "Amiri Quran"'),
         new Promise((resolve) => setTimeout(resolve, 1500)),
       ]);
     }
@@ -126,7 +126,7 @@ async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement
   }
   // Ayah number marker in gold, on its own line.
   ctx.fillStyle = "#D4AF37";
-  ctx.font = '56px "Scheherazade New", "Amiri Quran", serif';
+  ctx.font = '56px "Amiri Quran", serif';
   ctx.fillText(`﴿${toArabicNum(opts.ayahNumber)}﴾`, W / 2, y + 10);
   y += 96;
 

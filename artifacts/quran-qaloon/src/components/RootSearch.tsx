@@ -91,7 +91,7 @@ export default function RootSearch({ onNavigateAyah }: RootSearchProps) {
                   </div>
                   <div
                     className="text-sm text-muted-foreground leading-relaxed mt-1 line-clamp-2"
-                    style={{ fontFamily: "'Scheherazade New', 'Amiri Quran', serif" }}
+                    style={{ fontFamily: "'Amiri Quran', serif" }}
                   >
                     {text}
                   </div>

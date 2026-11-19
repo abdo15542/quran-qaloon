@@ -124,7 +124,7 @@ function PageContent({
   // على أداة Tailwind (غير المطبَّقة تتغلب على المطبَّقة)، فكان
   // التباعد الفعلي 2.6 والملاءمة التلقائية تُصغّر كل صفحة إلى أرضية
   // 15px (فيديو المستخدم: نص صغير وفراغ أسفل الصفحة). 2.0 هو تباعد
-  // Scheherazade New القياسي للنص القرآني — الحروف تملأ الصفحة
+  // Amiri Quran القياسي للنص القرآني — الحروف تملأ الصفحة
   // كالمصحف المطبوع وتبقى للتشكيل مساحة كافية (1.6 يصطدم التشكيل).
   return (
     <div
@@ -592,7 +592,7 @@ export default function ReadingMode({
   useLayoutEffect(() => {
     fitPage();
   }, [page, tajweed, manualFont, showBottomBar, showTools, fitPage]);
-  // [1.0.84] أعد الملاءمة بعد تحميل خط Scheherazade: القياس الأول
+  // [1.0.84] أعد الملاءمة بعد تحميل خط Amiri Quran: القياس الأول
   // يجري بخط بديل أعرض فيُصغّر الخط أكثر من اللازم (19px بدل 21px
   // في ص69 — أثبته الفحص)، وإعادة القياس بعد تبديل الخط تصل للحد
   // الأقصى الصحيح.
@@ -1339,7 +1339,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.88
+              قالون عن نافع — الإصدار 1.0.89
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
