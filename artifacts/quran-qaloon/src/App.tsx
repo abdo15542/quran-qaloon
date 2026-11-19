@@ -27,6 +27,7 @@ import ReadingsPage from "@/pages/ReadingsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
+import { refreshLocationIfStale } from "@/data/prayer-times";
 
 const queryClient = new QueryClient();
 
@@ -92,8 +93,21 @@ function AppRoutes() {
     }).then((h) => {
       handle = h;
     });
+    // Automatic position refresh on resume (1.0.88): the app may have
+    // sat in the background while the user travelled to another city —
+    // when it comes back to the foreground, refresh the position (auto
+    // mode only, 15-minute throttle inside refreshLocationIfStale), so
+    // the times follow without any tap. Home's mount effect covers a
+    // fresh launch; this covers a warm resume on any page.
+    let resumeHandle: PluginListenerHandle | null = null;
+    CapacitorApp.addListener("appStateChange", ({ isActive }) => {
+      if (isActive) refreshLocationIfStale().catch(() => {});
+    }).then((h) => {
+      resumeHandle = h;
+    });
     return () => {
       void handle?.remove();
+      void resumeHandle?.remove();
     };
   }, [navigate]);
 

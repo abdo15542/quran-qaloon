@@ -7,11 +7,13 @@
 // via @AwqafLibya; Khoms/Tripoli/Benghazi 19-Nov-2026 Awqaf tables):
 // the mosque calls Fajr ~3 min EARLIER and Dhuhr/Maghrib ~3 min and
 // Isha ~6 min LATER than raw MWL. With the adjustments below all four
-// checkpoints reproduce the published times within ±1 minute. The user
-// can still fine-tune each prayer by ±10 minutes (ضبط دقائق الأوقات)
-// to match his own mosque exactly. No network, no location permission:
-// the user picks their city from the list. Times are in the device's
-// local timezone, so they are correct on the user's phone.
+// checkpoints reproduce the published times within ±1 minute.
+// The times are verified against the Awqaf timetable by the app
+// itself — there is NO manual per-prayer tuning in the UI any more
+// (1.0.88 removed «ضبط دقائق الأوقات»): the user asked to check the
+// accuracy himself, not to adjust it himself. No network, no location
+// permission: the user picks their city from the list. Times are in the
+// device's local timezone, so they are correct on the user's phone.
 // Reminders are native local notifications (id ranges 100-134 adhan,
 // 200-234 five-minute pre-alert, 300-334 iqama — 7 days x 5 prayers
 // each), re-scheduled whenever the app opens so the window never
@@ -262,6 +264,44 @@ export function getActiveLocation(): { lat: number; lng: number; label: string; 
   return { lat: city.lat, lng: city.lng, label: city.name, cityId: city.id };
 }
 
+// Automatic location refresh (1.0.88): when the user travels to
+// another city, the times must follow WITHOUT him pressing anything
+// — no «تحديد الموقع» tap, no GPS button. Home (the app's landing)
+// and the app-resume event call this: in auto mode only, and only
+// when the stored position is older than 15 minutes (so opening the
+// app at home does not wake GPS every time — the cached fix, up to
+// 5 min old, makes repeat detections instant anyway). On success the
+// new position is stored, so the Home countdown, the prayer page and
+// the reminders all switch to the new city by themselves; the Home
+// card re-renders on its 1s tick. Silent on failure — the stored
+// position stays as the fallback. Concurrent calls share one flight.
+const AUTO_DETECT_MIN_AGE_MS = 15 * 60 * 1000;
+let autoDetectInFlight: Promise<StoredCoords | null> | null = null;
+
+export async function refreshLocationIfStale(): Promise<StoredCoords | null> {
+  if (getStoredMode() !== "auto") return null;
+  const stored = getStoredCoords();
+  if (stored && Date.now() - stored.updatedAt < AUTO_DETECT_MIN_AGE_MS) return null;
+  if (autoDetectInFlight) return autoDetectInFlight;
+  autoDetectInFlight = (async () => {
+    try {
+      const pos = await detectPrayerLocation();
+      const coords = setStoredCoords(pos.lat, pos.lng);
+      if (isPrayerReminderEnabled()) {
+        await schedulePrayerRemindersForCoords(coords.lat, coords.lng).catch(() => null);
+      } else {
+        await enableReminderIfFirstRun(coords.lat, coords.lng).catch(() => null);
+      }
+      return coords;
+    } catch {
+      return null;
+    } finally {
+      autoDetectInFlight = null;
+    }
+  })();
+  return autoDetectInFlight;
+}
+
 export function getStoredCityId(): string {
   try {
     const stored = localStorage.getItem(CITY_KEY);
@@ -413,48 +453,18 @@ export const AWQAF_ADJUSTMENTS: Record<PrayerKey | "sunrise", number> = {
   isha: 6,
 };
 
-// Per-prayer fine-tuning by the user (minutes, −10..+10, default 0),
-// so each prayer can be matched to his own mosque exactly. Applied on
-// top of the Awqaf adjustments, everywhere times are computed.
-const TIME_ADJUSTMENTS_KEY = "quran_prayer_time_adjustments";
-
-export function getPrayerTimeAdjustments(): Record<PrayerKey, number> {
-  const zero: Record<PrayerKey, number> = { fajr: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 };
-  try {
-    const raw = localStorage.getItem(TIME_ADJUSTMENTS_KEY);
-    if (!raw) return zero;
-    const parsed = JSON.parse(raw) as Partial<Record<PrayerKey, unknown>>;
-    const out = { ...zero };
-    for (const key of PRAYER_ORDER) {
-      const v = parsed[key];
-      if (typeof v === "number" && Number.isFinite(v)) {
-        out[key] = Math.min(10, Math.max(-10, Math.round(v)));
-      }
-    }
-    return out;
-  } catch {
-    return zero;
-  }
-}
-
-export function setPrayerTimeAdjustments(adj: Record<PrayerKey, number>): void {
-  try {
-    localStorage.setItem(TIME_ADJUSTMENTS_KEY, JSON.stringify(adj));
-  } catch {
-    // storage unavailable
-  }
-}
-
 export function getPrayerTimesForCoords(date: Date, lat: number, lng: number): DayPrayerTimes {
   const params = CalculationMethod.MuslimWorldLeague();
-  const user = getPrayerTimeAdjustments();
+  // Awqaf adjustments only — the official timetable, verified against
+  // the Awqaf's published times (see the file header). No per-prayer
+  // user offsets any more (1.0.88 removed «ضبط دقائق الأوقات»).
   params.adjustments = {
-    fajr: AWQAF_ADJUSTMENTS.fajr + user.fajr,
+    fajr: AWQAF_ADJUSTMENTS.fajr,
     sunrise: AWQAF_ADJUSTMENTS.sunrise,
-    dhuhr: AWQAF_ADJUSTMENTS.dhuhr + user.dhuhr,
-    asr: AWQAF_ADJUSTMENTS.asr + user.asr,
-    maghrib: AWQAF_ADJUSTMENTS.maghrib + user.maghrib,
-    isha: AWQAF_ADJUSTMENTS.isha + user.isha,
+    dhuhr: AWQAF_ADJUSTMENTS.dhuhr,
+    asr: AWQAF_ADJUSTMENTS.asr,
+    maghrib: AWQAF_ADJUSTMENTS.maghrib,
+    isha: AWQAF_ADJUSTMENTS.isha,
   };
   const pt = new PrayerTimes(new Coordinates(lat, lng), date, params);
   return {

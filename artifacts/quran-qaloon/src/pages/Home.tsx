@@ -9,7 +9,7 @@ import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useWird } from "@/hooks/useWird";
-import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled, isPrayerReminderEnabled, isExactAlarmGranted, openExactAlarmSettingsPage } from "@/data/prayer-times";
+import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCountdown, PRAYER_NAMES, ensurePrayerRemindersScheduled, refreshLocationIfStale, isPrayerReminderEnabled, isExactAlarmGranted, openExactAlarmSettingsPage } from "@/data/prayer-times";
 import { refreshAfterPrayerAthkar } from "@/hooks/useAthkarReminders";
 import { updateWidgetData } from "@/lib/widget-data";
 import { Capacitor } from "@capacitor/core";
@@ -76,7 +76,11 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
   // Next prayer for the Home card (live countdown, 30s tick) + keep the
   // prayer-reminder window fresh whenever the app opens. The location is
   // the active one: stored GPS coordinates in auto mode, the selected
-  // city otherwise (detected on the prayer page).
+  // city otherwise. Opening the app refreshes the position by itself
+  // (refreshLocationIfStale — auto mode only, and only when the stored
+  // position is older than 15 minutes), so travelling to another city
+  // changes the times without any tap; the card re-renders on its 1s
+  // tick once the new position lands.
   const [now, setNow] = useState(() => new Date());
   const activeLoc = getActiveLocation();
   const nextPrayer = useMemo(
@@ -93,6 +97,11 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     // minute, and a 30s tick left the seconds frozen for up to half
     // a minute before jumping.
     const t = window.setInterval(() => setNow(new Date()), 1000);
+    // Automatic position refresh on app open (1.0.88): travelling to
+    // another city updates the times by itself — no tap on any GPS
+    // button. Runs before the reminder refresh, so the alarms follow
+    // the new position too. Silent on failure (keeps stored position).
+    refreshLocationIfStale().catch(() => {});
     ensurePrayerRemindersScheduled().catch(() => {});
     // تذكيرات أذكار بعد الصلاة (اليوم وغدًا) + بيانات ويدجت الشاشة الرئيسية.
     refreshAfterPrayerAthkar().catch(() => {});
