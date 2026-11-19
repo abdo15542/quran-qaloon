@@ -2,7 +2,7 @@
 // ومصدرها ونوعها ومعناها في غريب القرآن، وكل آية فيها نفس الجذر.
 // Bottom sheet like TajweedRuleSheet (z-[100], above the bottom nav).
 import { useEffect, useMemo } from "react";
-import { X, BookOpen, Hash, Type, Tag, ListOrdered, BookCopy, Heart, Share2, Copy, Check } from "lucide-react";
+import { X, BookOpen, Hash, Type, Tag, ListOrdered, BookCopy, Heart, Share2, Copy, Check, RotateCcw } from "lucide-react";
 import { getWordInfo, searchByRoot, surahName } from "@/lib/word-root";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import HifzRating from "@/components/HifzRating";
@@ -31,6 +31,11 @@ interface WordSheetProps {
     onShare: () => void;
     onCopy: () => void;
     copied: boolean;
+    /** [1.0.77] replay the ayah, the «متواصل» toggle, and exit the mode. */
+    onReplay: () => void;
+    continueOn: boolean;
+    onToggleContinue: () => void;
+    onClose: () => void;
   };
   /** Called after a hifz rating inside the sheet (parent refreshes the
       inline rating under the ayah). */
@@ -172,6 +177,34 @@ export default function WordSheet({
                 >
                   {actions.copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                   {actions.copied ? "تم النسخ ✓" : "نسخ"}
+                </button>
+                <button
+                  onClick={actions.onReplay}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
+                  aria-label="إعادة تشغيل الآية"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  إعادة
+                </button>
+                <button
+                  onClick={actions.onToggleContinue}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors whitespace-nowrap ${
+                    actions.continueOn
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                  aria-label="متابعة قراءة الآيات التالية"
+                  aria-pressed={actions.continueOn}
+                >
+                  متواصل
+                </button>
+                <button
+                  onClick={actions.onClose}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-destructive transition-colors whitespace-nowrap"
+                  aria-label="الخروج من وضع الآية"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  خروج
                 </button>
               </div>
               <div className="mt-2">

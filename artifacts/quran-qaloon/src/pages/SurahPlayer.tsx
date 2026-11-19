@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff, Palette, BookCopy } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff, Palette, BookCopy, RotateCcw, X } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
 import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
 import { getAyahTimings } from "@/data/ayah-timings";
@@ -56,6 +56,10 @@ function AyahActions({
   memorization,
   revealed,
   onToggleReveal,
+  onReplay,
+  continueOn,
+  onToggleContinue,
+  onClose,
 }: {
   surahNumber: number;
   ayahNumber: number;
@@ -69,6 +73,10 @@ function AyahActions({
   memorization: boolean;
   revealed: boolean;
   onToggleReveal: () => void;
+  onReplay: () => void;
+  continueOn: boolean;
+  onToggleContinue: () => void;
+  onClose: () => void;
 }) {
   // In the translation layout the buttons sit inside the clickable ayah
   // block, so stop the click from bubbling up and re-triggering playback.
@@ -131,6 +139,44 @@ function AyahActions({
       >
         {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
         {copied ? "تم النسخ ✓" : "نسخ"}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onReplay();
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
+        aria-label="إعادة تشغيل الآية"
+      >
+        <RotateCcw className="w-3.5 h-3.5" />
+        إعادة
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleContinue();
+        }}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors whitespace-nowrap ${
+          continueOn
+            ? "bg-primary text-primary-foreground border-primary"
+            : "bg-background border-border text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label="متابعة قراءة الآيات التالية"
+        aria-pressed={continueOn}
+      >
+        <Repeat className="w-3.5 h-3.5" />
+        متواصل
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-destructive transition-colors whitespace-nowrap"
+        aria-label="الخروج من وضع الآية"
+      >
+        <X className="w-3.5 h-3.5" />
+        خروج
       </button>
       {memorization && (
         <button
@@ -288,7 +334,15 @@ export default function SurahPlayer({
   // مضمّن في التطبيق ولا يعتمد على الصوت ولا على تحميل المصحف.
   const [selectedAyah, setSelectedAyah] = useState<number | null>(null);
   const [ayahRepeat, setAyahRepeat] = useState<number>(1);
-  const [ayahContinuous, setAyahContinuous] = useState(false);
+  // [1.0.77] «متواصل» — هل يقرأ الآيات التي بعد الآية المضغوطة أم يقف
+  // عندها. محفوظ: اختيار المستخدم يبقى بين الجلسات.
+  const [ayahContinuous, setAyahContinuous] = useState(() => {
+    try {
+      return localStorage.getItem("quran_ayah_continuous") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [ayahError, setAyahError] = useState<string | null>(null);
   const [pauseSignal, setPauseSignal] = useState(0);
   // English translation (Sahih International) under each ayah — persisted.
@@ -441,6 +495,11 @@ export default function SurahPlayer({
   const ayahContinuousRef = useRef(false);
   useEffect(() => {
     ayahContinuousRef.current = ayahContinuous;
+    try {
+      localStorage.setItem("quran_ayah_continuous", ayahContinuous ? "1" : "0");
+    } catch {
+      // storage unavailable
+    }
   }, [ayahContinuous]);
 
   const ayahSeekTimerRef = useRef<number | null>(null);
@@ -604,9 +663,10 @@ export default function SurahPlayer({
   }, [seekAyahAudio]);
 
   const playAyah = useCallback(
-    async (ayahNumberInSurah: number, fromTap = false) => {
-      // الضغط على الآية الجارية يوقفها ويغلق اللوحة.
-      if (playingAyah === ayahNumberInSurah) {
+    async (ayahNumberInSurah: number, fromTap = false, force = false) => {
+      // الضغط على الآية الجارية يوقفها ويغلق اللوحة — إلا عند الإعادة
+      // الصريحة (force)، فتعيد التشغيل من أول الآية بدل الإيقاف.
+      if (!force && playingAyah === ayahNumberInSurah) {
         stopAyah();
         setSelectedAyah(null);
         return;
@@ -756,6 +816,27 @@ export default function SurahPlayer({
     },
     [selectedAyah, surahNumber, playAyah]
   );
+
+  // [1.0.77] Replay the ayah from its start: stop first, then force
+  // play (plain playAyah would toggle and STOP a playing ayah).
+  const replayAyah = useCallback(
+    (ayahNumberInSurah: number) => {
+      stopAyah();
+      const audio = ayahAudioRef.current;
+      if (audio) audio.currentTime = 0;
+      playAyah(ayahNumberInSurah, true, true);
+    },
+    [stopAyah, playAyah]
+  );
+
+  // [1.0.77] Exit the selected-ayah mode entirely: stop the audio,
+  // close the word sheet if open, and deselect — the layout returns
+  // to plain reading and the previous ayah is visible again.
+  const exitAyahMode = useCallback(() => {
+    stopAyah();
+    setWordSheet(null);
+    setSelectedAyah(null);
+  }, [stopAyah]);
 
   const finishAyah = useCallback(() => {
     clearAyahStopTimer();
@@ -1521,6 +1602,10 @@ export default function SurahPlayer({
                                   memorization={memorization}
                                   revealed={revealedAyahs.has(ayah.numberInSurah)}
                                   onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
+                                  onReplay={() => replayAyah(ayah.numberInSurah)}
+                                  continueOn={ayahContinuous}
+                                  onToggleContinue={() => setAyahContinuous((c) => !c)}
+                                  onClose={exitAyahMode}
                                 />
                               )}
                               {selectedAyah === ayah.numberInSurah && (
@@ -1535,30 +1620,6 @@ export default function SurahPlayer({
                         <div className="quran-text text-right leading-loose" style={{ fontSize: `${fontSize}px` }} dir="rtl">
                           {ayahs.map((ayah, idx) => (
                             <Fragment key={ayah.number}>
-                              {/* أزرار الآية المضغوطة مباشرة فوقها — التفسير /
-                                  حفظ في المفضلة / مشاركة كصورة — حتى لا يضطر
-                                  المستخدم للرجوع إلى أول السورة ليجدها. */}
-                              {selectedAyah === ayah.numberInSurah && (
-                                <AyahActions
-                                  surahNumber={surahNumber}
-                                  ayahNumber={ayah.numberInSurah}
-                                  isFav={isFavourite(surahNumber, ayah.numberInSurah)}
-                                  onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
-                                  onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
-                                  onReadings={() => navigate(`/readings/${surahNumber}/${ayah.numberInSurah}`)}
-                                  onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
-                                  onCopy={() => handleCopyAyah(ayah.numberInSurah)}
-                                  copied={copiedAyah === ayah.numberInSurah}
-                                  memorization={memorization}
-                                  revealed={revealedAyahs.has(ayah.numberInSurah)}
-                                  onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
-                                />
-                              )}
-                              {selectedAyah === ayah.numberInSurah && (
-                                <div className="my-2" onClick={(e) => e.stopPropagation()}>
-                                  <HifzRating key={`hifz-${ayah.numberInSurah}-${hifzVersion}`} surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} />
-                                </div>
-                              )}
                               <span
                                 data-ayah={ayah.numberInSurah}
                                 onClick={() => playAyah(ayah.numberInSurah, true)}
@@ -1582,6 +1643,34 @@ export default function SurahPlayer({
                                   </span>
                                 )}{" "}
                               </span>
+                              {/* [1.0.77] أزرار الآية تحت نصها — لا فوقه: عندما
+                                  كانت فوقها كانت اللوحة تغطي الآية التي قبلها
+                                  وتضيع من الشاشة. */}
+                              {selectedAyah === ayah.numberInSurah && (
+                                <AyahActions
+                                  surahNumber={surahNumber}
+                                  ayahNumber={ayah.numberInSurah}
+                                  isFav={isFavourite(surahNumber, ayah.numberInSurah)}
+                                  onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
+                                  onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
+                                  onReadings={() => navigate(`/readings/${surahNumber}/${ayah.numberInSurah}`)}
+                                  onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
+                                  onCopy={() => handleCopyAyah(ayah.numberInSurah)}
+                                  copied={copiedAyah === ayah.numberInSurah}
+                                  memorization={memorization}
+                                  revealed={revealedAyahs.has(ayah.numberInSurah)}
+                                  onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
+                                  onReplay={() => replayAyah(ayah.numberInSurah)}
+                                  continueOn={ayahContinuous}
+                                  onToggleContinue={() => setAyahContinuous((c) => !c)}
+                                  onClose={exitAyahMode}
+                                />
+                              )}
+                              {selectedAyah === ayah.numberInSurah && (
+                                <div className="my-2" onClick={(e) => e.stopPropagation()}>
+                                  <HifzRating key={`hifz-${ayah.numberInSurah}-${hifzVersion}`} surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} />
+                                </div>
+                              )}
                             </Fragment>
                           ))}
                         </div>
@@ -1642,6 +1731,10 @@ export default function SurahPlayer({
             },
             onCopy: () => handleCopyAyah(wordSheet.ayahNumber),
             copied: copiedAyah === wordSheet.ayahNumber,
+            onReplay: () => replayAyah(wordSheet.ayahNumber),
+            continueOn: ayahContinuous,
+            onToggleContinue: () => setAyahContinuous((c) => !c),
+            onClose: exitAyahMode,
           }}
           onRated={() => setHifzVersion((v) => v + 1)}
         />
@@ -1655,7 +1748,7 @@ export default function SurahPlayer({
           onClose={() => setTafsirAyah(null)}
           onPlayAyah={(n) => {
             setTafsirAyah(null);
-            playAyah(n, true);
+            replayAyah(n);
           }}
         />
       )}
