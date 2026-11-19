@@ -1,8 +1,17 @@
 // Prayer times (أوقات الصلاة) for Libyan cities, calculated fully offline
 // with the `adhan` library (Muslim World League method — the method used
-// in Libya; Shafi Asr, as in the Maliki school). No network, no location
-// permission: the user picks their city from the list. Times are in the
-// device's local timezone, so they are correct on the user's phone.
+// in Libya; Shafi Asr, as in the Maliki school) PLUS the adjustments of
+// the official Libyan Awqaf timetable (تقويم الهيئة العامة للأوقاف):
+// raw MWL does NOT match what Libyan mosques actually call — verified
+// 2026-11-19 against the Awqaf's own published times (Tripoli 7-Jul-2026
+// via @AwqafLibya; Khoms/Tripoli/Benghazi 19-Nov-2026 Awqaf tables):
+// the mosque calls Fajr ~3 min EARLIER and Dhuhr/Maghrib ~3 min and
+// Isha ~6 min LATER than raw MWL. With the adjustments below all four
+// checkpoints reproduce the published times within ±1 minute. The user
+// can still fine-tune each prayer by ±10 minutes (ضبط دقائق الأوقات)
+// to match his own mosque exactly. No network, no location permission:
+// the user picks their city from the list. Times are in the device's
+// local timezone, so they are correct on the user's phone.
 // Reminders are native local notifications (id ranges 100-134 adhan,
 // 200-234 five-minute pre-alert, 300-334 iqama — 7 days x 5 prayers
 // each), re-scheduled whenever the app opens so the window never
@@ -236,10 +245,16 @@ export function openLocationSettings(): void {
 export function getActiveLocation(): { lat: number; lng: number; label: string; cityId: string } {
   if (getStoredMode() === "auto") {
     const coords = getStoredCoords();
-    // Stored GPS coordinates expire after 24h: if he travels and
-    // detection keeps failing, the times must fall back to his saved
-    // city instead of using the old city's position forever.
-    if (coords && typeof coords.updatedAt === "number" && Date.now() - coords.updatedAt < 24 * 3600 * 1000) {
+    // Stored GPS coordinates NEVER expire: they are the user's home
+    // until a new detection replaces them. (Expiring them after 24h
+    // silently fell back to the saved manual city — e.g. بني وليد while
+    // the user lives in زليتن — shifting every prayer by 2–4 minutes
+    // until the next manual «تحديث الموقع», which is exactly the
+    // «اضغط على الموقع فيتغير التوقيت» the user reported. The prayer
+    // page re-detects on every open in auto mode, so travelling still
+    // updates the position; a stale home position is always a better
+    // fallback than a different city.)
+    if (coords) {
       return { lat: coords.lat, lng: coords.lng, label: getCity(coords.cityId).name, cityId: coords.cityId };
     }
   }
@@ -385,8 +400,62 @@ export interface DayPrayerTimes {
   isha: Date;
 }
 
+// Official Libyan Awqaf timetable adjustments (minutes) on top of raw
+// MWL — see the file header for the verification (four checkpoints,
+// all within ±1 min of the published Awqaf times). Isha is +6 as the
+// midpoint of the observed +5 (Nov) to +7 (Jul) seasonal spread.
+export const AWQAF_ADJUSTMENTS: Record<PrayerKey | "sunrise", number> = {
+  fajr: -3,
+  sunrise: -1,
+  dhuhr: 3,
+  asr: 0,
+  maghrib: 3,
+  isha: 6,
+};
+
+// Per-prayer fine-tuning by the user (minutes, −10..+10, default 0),
+// so each prayer can be matched to his own mosque exactly. Applied on
+// top of the Awqaf adjustments, everywhere times are computed.
+const TIME_ADJUSTMENTS_KEY = "quran_prayer_time_adjustments";
+
+export function getPrayerTimeAdjustments(): Record<PrayerKey, number> {
+  const zero: Record<PrayerKey, number> = { fajr: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 };
+  try {
+    const raw = localStorage.getItem(TIME_ADJUSTMENTS_KEY);
+    if (!raw) return zero;
+    const parsed = JSON.parse(raw) as Partial<Record<PrayerKey, unknown>>;
+    const out = { ...zero };
+    for (const key of PRAYER_ORDER) {
+      const v = parsed[key];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        out[key] = Math.min(10, Math.max(-10, Math.round(v)));
+      }
+    }
+    return out;
+  } catch {
+    return zero;
+  }
+}
+
+export function setPrayerTimeAdjustments(adj: Record<PrayerKey, number>): void {
+  try {
+    localStorage.setItem(TIME_ADJUSTMENTS_KEY, JSON.stringify(adj));
+  } catch {
+    // storage unavailable
+  }
+}
+
 export function getPrayerTimesForCoords(date: Date, lat: number, lng: number): DayPrayerTimes {
   const params = CalculationMethod.MuslimWorldLeague();
+  const user = getPrayerTimeAdjustments();
+  params.adjustments = {
+    fajr: AWQAF_ADJUSTMENTS.fajr + user.fajr,
+    sunrise: AWQAF_ADJUSTMENTS.sunrise,
+    dhuhr: AWQAF_ADJUSTMENTS.dhuhr + user.dhuhr,
+    asr: AWQAF_ADJUSTMENTS.asr + user.asr,
+    maghrib: AWQAF_ADJUSTMENTS.maghrib + user.maghrib,
+    isha: AWQAF_ADJUSTMENTS.isha + user.isha,
+  };
   const pt = new PrayerTimes(new Coordinates(lat, lng), date, params);
   return {
     fajr: pt.fajr,

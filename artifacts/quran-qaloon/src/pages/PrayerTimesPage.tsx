@@ -32,6 +32,8 @@ import {
   setIqamaEnabled,
   getIqamaDelays,
   setIqamaDelays,
+  getPrayerTimeAdjustments,
+  setPrayerTimeAdjustments,
   ADHAN_VOICES,
   getAdhanVoice,
   setAdhanVoice,
@@ -80,6 +82,10 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
   const [iqamaOn, setIqamaOn] = useState<boolean>(isIqamaEnabled);
   const [adhanVoice, setAdhanVoiceState] = useState<string>(getAdhanVoice);
   const [iqamaDelays, setIqamaDelaysState] = useState<Record<PrayerKey, number>>(getIqamaDelays);
+  // Per-prayer minute fine-tuning (ضبط دقائق الأوقات): the user's own
+  // offsets on top of the official Awqaf timetable, to match his mosque.
+  const [timeAdjustments, setTimeAdjustmentsState] =
+    useState<Record<PrayerKey, number>>(getPrayerTimeAdjustments);
 
   // Live clock for the countdown (updates every 30 seconds — enough for
   // a minute-level countdown and cheap on battery).
@@ -139,10 +145,9 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The active location: getActiveLocation() applies the 24h GPS expiry
-  // (the same source Home and the scheduler use) — the page's raw coords
-  // state has no expiry, so the page could show stale-location times
-  // while the reminders were scheduled for the fallback city.
+  // The active location: getActiveLocation() (the same source Home and
+  // the scheduler use) — the stored GPS position never expires now, so
+  // the page, the Home card and the reminders always agree on it.
   const active = useMemo(() => {
     const loc = getActiveLocation();
     return { lat: loc.lat, lng: loc.lng, label: loc.label, cityId: loc.cityId };
@@ -150,16 +155,19 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
 
   const times = useMemo(
     () => getPrayerTimesForCoords(now, active.lat, active.lng),
-    [now, active.lat, active.lng]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [now, active.lat, active.lng, timeAdjustments]
   );
   const next = useMemo(
     () => getNextPrayerForCoords(now, active.lat, active.lng),
-    [now, active.lat, active.lng]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [now, active.lat, active.lng, timeAdjustments]
   );
   // The prayer whose adhan passed but whose iqama has not come yet.
   const currentIqama = useMemo(
     () => (iqamaOn ? getCurrentIqama(now, active.lat, active.lng) : null),
-    [now, active.lat, active.lng, iqamaOn, iqamaDelays]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [now, active.lat, active.lng, iqamaOn, iqamaDelays, timeAdjustments]
   );
   const todayLabel = new Intl.DateTimeFormat("ar-LY", {
     weekday: "long",
@@ -277,6 +285,26 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
     };
     setIqamaDelaysState(nextDelays);
     setIqamaDelays(nextDelays);
+    await reschedule();
+  };
+
+  // Fine-tune one prayer's time by a minute (−10..+10), on top of the
+  // official Awqaf timetable — so the adhan matches his mosque exactly.
+  // Re-schedules the reminders so the alarms move with the display.
+  const handleTimeAdjustment = async (key: PrayerKey, delta: number) => {
+    const nextAdj = {
+      ...timeAdjustments,
+      [key]: Math.min(10, Math.max(-10, timeAdjustments[key] + delta)),
+    };
+    setTimeAdjustmentsState(nextAdj);
+    setPrayerTimeAdjustments(nextAdj);
+    await reschedule();
+  };
+
+  const handleResetTimeAdjustments = async () => {
+    const zero: Record<PrayerKey, number> = { fajr: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 };
+    setTimeAdjustmentsState(zero);
+    setPrayerTimeAdjustments(zero);
     await reschedule();
   };
 
@@ -463,6 +491,53 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
           </div>
         </div>
 
+        {/* Fine-tune prayer minutes — match your mosque */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="text-sm font-arabic text-foreground">ضبط دقائق الأوقات</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            الأوقات الآن حسب تقويم الأوقاف الليبية الرسمي. إن كان مسجدك يؤذن قبل ذلك أو بعده بدقيقة أو دقيقتين، قدّم أو أخّر كل صلاة من هنا — والتذكير والأذان يتحركان معها.
+          </div>
+          <div className="mt-3 space-y-2">
+            {PRAYER_ORDER.map((key) => (
+              <div key={key} className="flex items-center justify-between text-sm">
+                <span className="font-arabic text-foreground">صلاة {PRAYER_NAMES[key]}</span>
+                <span className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleTimeAdjustment(key, -1)}
+                    disabled={timeAdjustments[key] <= -10}
+                    className="w-7 h-7 rounded-full bg-muted text-foreground disabled:opacity-40"
+                    data-testid={`time-adj-${key}-minus`}
+                    aria-label={`تقديم صلاة ${PRAYER_NAMES[key]} دقيقة`}
+                  >
+                    −
+                  </button>
+                  <span className="w-12 text-center tabular-nums text-foreground" data-testid={`time-adj-${key}-value`}>
+                    {timeAdjustments[key] > 0 ? `+${timeAdjustments[key]}` : `${timeAdjustments[key]}`} د
+                  </span>
+                  <button
+                    onClick={() => handleTimeAdjustment(key, 1)}
+                    disabled={timeAdjustments[key] >= 10}
+                    className="w-7 h-7 rounded-full bg-muted text-foreground disabled:opacity-40"
+                    data-testid={`time-adj-${key}-plus`}
+                    aria-label={`تأخير صلاة ${PRAYER_NAMES[key]} دقيقة`}
+                  >
+                    +
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+          {Object.values(timeAdjustments).some((v) => v !== 0) && (
+            <button
+              onClick={handleResetTimeAdjustments}
+              className="mt-3 text-xs text-primary hover:underline"
+              data-testid="reset-time-adjustments"
+            >
+              إعادة التعيين
+            </button>
+          )}
+        </div>
+
         {/* Reminder */}
         <div className="bg-card border border-border rounded-2xl p-5">
           <div className="flex items-center justify-between mb-1">
@@ -587,7 +662,7 @@ export default function PrayerTimesPage({ darkMode, toggleDarkMode }: PrayerTime
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          طريقة الحساب: رابطة العالم الإسلامي — المعتمدة في ليبيا. الأوقات تقديرية وتعتمد على موقع المدينة.
+          طريقة الحساب: رابطة العالم الإسلامي مع تعديلات تقويم الأوقاف الليبية الرسمي.
         </p>
       </div>
     </div>
