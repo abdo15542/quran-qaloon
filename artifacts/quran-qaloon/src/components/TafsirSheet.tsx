@@ -87,7 +87,7 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-background" dir="rtl">
+    <div className="fixed inset-0 z-[115] flex flex-col bg-background" dir="rtl">
       {/* Header — pushed down like the main player header: the sheet is
           full-screen (fixed inset-0), so without top padding its bar
           sits right under the phone's status bar / notch and is not

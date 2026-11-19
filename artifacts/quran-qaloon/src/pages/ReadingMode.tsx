@@ -40,6 +40,7 @@ import {
   PanelBottom,
   Search,
   SlidersHorizontal,
+  Square,
   Sun,
   X,
 } from "lucide-react";
@@ -415,14 +416,12 @@ export default function ReadingMode({
   const playAyah = useCallback(
     async (surah: number, ayah: number, fromTap = false, force = false) => {
       void fromTap;
-      // [1.0.80] الضغط على الآية الجارية يعيدها من أولها — الصوت
-      // نفسه والملف نفسه، فتكفي إعادة المؤشر والتشغيل.
+      // [1.0.86] الضغط على الآية الجارية يوقفها — لا إعادة. المستخدم
+      // لا يجد زر إيقاف، والضغطة الثانية كانت تعيد التشغيل فيُحسّ
+      // أنه لا يقدر أن يوقف. الإعادة من زر «إعادة» في ورقة الكلمة،
+      // أو بالضغط على الآية بعد إيقافها (تشغّل من أولها).
       if (!force && playingAyah?.surah === surah && playingAyah?.ayah === ayah) {
-        const audio0 = ayahAudioRef.current;
-        if (audio0) {
-          audio0.currentTime = 0;
-          void audio0.play().catch(() => {});
-        }
+        stopAyah();
         return;
       }
       const audio = ayahAudioRef.current;
@@ -1038,8 +1037,21 @@ export default function ReadingMode({
       )}
 
       {/* Page pill — always visible, never blocks taps (hidden while
-          the bottom bar is shown — the bar is the interface then). */}
-      {!showTools && !showBottomBar && (
+          the bottom bar is shown — the bar is the interface then).
+          [1.0.86] وأثناء تشغيل صوت آية يحلّ محلّها زر «إيقاف» ظاهر
+          في نفس المكان — لا زر إيقاف في وضع القراءة، والضغطة على
+          الآية الجارية توقفها أيضًا. */}
+      {!showTools && !showBottomBar && playingAyah && (
+        <button
+          onClick={stopAyah}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-4 py-1.5 rounded-full text-xs shadow-md active:scale-95 transition-transform flex items-center gap-1.5 whitespace-nowrap"
+          aria-label="إيقاف الصوت"
+          data-testid="reading-stop-audio"
+        >
+          <Square className="w-3.5 h-3.5" /> إيقاف
+        </button>
+      )}
+      {!showTools && !showBottomBar && !playingAyah && (
         <div
           className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-card/85 backdrop-blur border border-border px-3 py-1.5 rounded-full text-xs text-muted-foreground pointer-events-none whitespace-nowrap"
           data-testid="reading-page-pill"
@@ -1327,7 +1339,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.85
+              قالون عن نافع — الإصدار 1.0.86
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني

@@ -1,6 +1,6 @@
 // ورقة الكلمة — تظهر عند الضغط على كلمة في السورة أو المصحف: جذرها
 // ومصدرها ونوعها ومعناها في غريب القرآن، وكل آية فيها نفس الجذر.
-// Bottom sheet like TajweedRuleSheet (z-[100], above the bottom nav).
+// Bottom sheet like TajweedRuleSheet (z-[115], above the bottom nav).
 import { useEffect, useMemo } from "react";
 import { X, BookOpen, Hash, Type, Tag, ListOrdered, BookCopy, Heart, Share2, Copy, Check, RotateCcw } from "lucide-react";
 import { getWordInfo, searchByRoot, surahName } from "@/lib/word-root";
@@ -87,7 +87,7 @@ export default function WordSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center"
+      className="fixed inset-0 z-[115] flex items-end justify-center"
       onClick={onClose}
       data-testid="word-sheet"
       dir="rtl"
