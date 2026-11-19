@@ -6,13 +6,16 @@
 // على كلمة يفتح ورقتها (مع إجراءات الآية: تفسير/روايات/حفظ/مشاركة/نسخ
 // + تقييم الحفظ)، والصفحة الأخيرة محفوظة بنفس مفتاح المصحف الأول —
 // الوضعان يتشاركان موضعك.
+// (1.0.80) الضغط على آية يشغّل صوتها فقط — بلا لوحة وبلا ورقة:
+// لا شيء يظهر فوق النص؛ الآية الجارية تُظلَّل بخفة فقط، والضغط
+// عليها مجددًا يعيدها من أولها. ورقة الكلمة (معاني/تفسير/إجراءات)
+// تُفتح بالضغطة المطوّلة على كلمة (٥٥٠ms). وقلب الصفحات باليد:
+// الصفحة تتبع إصبعك أثناء السحب (إزاحة + ميلان + ظل) وتكمل دورتها
+// إن تجاوزت ربع العرض، وإلا عادت مكانها — لا أزرار لتقليب الصفحات.
 // (1.0.79) الصفحة كاملة بلا تمرير عمودي: الخط يتكيّف حتى تدخل الصفحة
-// كلها في الشاشة. والضغط على آية يشغّل صوتها (أول ضغطة تشغّل، الثانية
-// على نفس الآية تفتح ورقة الكلمة)، مع لوحة الآية تحتها (تفسير/روايات/
-// حفظ/مشاركة/نسخ + تقييم الحفظ + إعادة + متواصل + خروج) — نفس قاعدة
-// المشغّل، والصوت ملف MP3 لكل آية فلا حاجة لجداول توقيت.
+// كلها في الشاشة. والصوت ملف MP3 لكل آية فلا حاجة لجداول توقيت.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight, Moon, Palette, SlidersHorizontal, Sun, X } from "lucide-react";
+import { ArrowRight, Moon, Palette, SlidersHorizontal, Sun, X } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import {
   SURAHS,
@@ -30,7 +33,7 @@ import {
 import { getSurahAyahs, displayAyahText } from "@/data/quran-text";
 import { getTranslation } from "@/data/translation-en";
 import { buildPageAyahs, BASMALA, type PageAyah } from "@/pages/MushafPage";
-import { AyahActions, getStoredQirahId, getStoredReciterId } from "@/pages/SurahPlayer";
+import { getStoredQirahId, getStoredReciterId } from "@/pages/SurahPlayer";
 import { getPlayerVolume, getPlayerRate } from "@/hooks/useAudio";
 import { useOffline } from "@/context/OfflineContext";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
@@ -39,7 +42,6 @@ import WordSheet from "@/components/WordSheet";
 import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
-import HifzRating from "@/components/HifzRating";
 import { useFavourites } from "@/hooks/useFavourites";
 import { copyTextToClipboard } from "@/lib/copy";
 
@@ -107,14 +109,11 @@ export default function ReadingMode({
   const [shareTarget, setShareTarget] = useState<{ surah: number; ayah: number } | null>(null);
   const [copiedAyah, setCopiedAyah] = useState<number | null>(null);
   const copyTimerRef = useRef<number | null>(null);
-  const [hifzVersion, setHifzVersion] = useState(0);
   const { isFavourite, toggleFavourite } = useFavourites();
 
-  // [1.0.79] صوت الآية في وضع القراءة (نفس قاعدة المشغّل).
-  const [selectedAyah, setSelectedAyah] = useState<{
-    surah: number;
-    ayah: number;
-  } | null>(null);
+  // [1.0.79] صوت الآية في وضع القراءة. [1.0.80] الضغطة = صوت فقط:
+  // لا لوحة تحت الآية ولا ورقة تفتح — الآية الجارية تُظلَّل بخفة
+  // (playingAyah) لا غير، وأي خطأ يظهر كرسالة صغيرة تختفي وحدها.
   const [playingAyah, setPlayingAyah] = useState<{
     surah: number;
     ayah: number;
@@ -128,8 +127,6 @@ export default function ReadingMode({
   });
   const ayahContinuousRef = useRef(ayahContinuous);
   const [ayahError, setAyahError] = useState<string | null>(null);
-  const [ayahBuffering, setAyahBuffering] = useState(false);
-  const [ayahStarted, setAyahStarted] = useState(false);
   const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
   const ayahPrefetchRef = useRef<HTMLAudioElement | null>(null);
   // الجلسة الجارية (لتجاهل نتائج بحث قديمة عن ملف مخزّن).
@@ -165,23 +162,22 @@ export default function ReadingMode({
     const audio = ayahAudioRef.current;
     if (audio) audio.pause();
     ayahSessionRef.current = null;
-    setAyahStarted(false);
     setPlayingAyah(null);
   }, []);
 
   const playAyah = useCallback(
     async (surah: number, ayah: number, fromTap = false, force = false) => {
       void fromTap;
-      // الضغط على الآية الجارية يوقفها ويغلق اللوحة — إلا عند الإعادة
-      // الصريحة (force)، فتعيد التشغيل من أول الآية بدل الإيقاف.
+      // [1.0.80] الضغط على الآية الجارية يعيدها من أولها — الصوت
+      // نفسه والملف نفسه، فتكفي إعادة المؤشر والتشغيل.
       if (!force && playingAyah?.surah === surah && playingAyah?.ayah === ayah) {
-        stopAyah();
-        setSelectedAyah(null);
+        const audio0 = ayahAudioRef.current;
+        if (audio0) {
+          audio0.currentTime = 0;
+          void audio0.play().catch(() => {});
+        }
         return;
       }
-      // حدّد الآية فور الضغط — قبل محاولة تشغيل الصوت — حتى تبقى
-      // اللوحة ظاهرة حتى لو فشل الصوت.
-      setSelectedAyah({ surah, ayah });
       const audio = ayahAudioRef.current;
       if (!audio) return;
       const reciter = getCurrentReciter();
@@ -194,7 +190,6 @@ export default function ReadingMode({
       audio.volume = getPlayerVolume();
       audio.playbackRate = getPlayerRate();
       setAyahError(null);
-      setAyahStarted(false);
       setPlayingAyah({ surah, ayah });
       ayahSessionRef.current = { surah, ayah };
       // Offline أولاً: آية محمّلة أو سُمعت من قبل تُشغَّل من الجهاز.
@@ -256,26 +251,14 @@ export default function ReadingMode({
     [stopAyah, playAyah]
   );
 
-  // [1.0.77] الخروج من وضع الآية كاملاً: أوقف الصوت وأغلق الورقة
-  // وألغِ التحديد — يعود التخطيط للقراءة العادية.
+  // [1.0.77] الخروج من وضع الآية كاملاً: أوقف الصوت وأغلق الورقة.
   const exitAyahMode = useCallback(() => {
     stopAyah();
     setWordSheet(null);
-    setSelectedAyah(null);
   }, [stopAyah]);
 
-  // [1.0.76] أول ضغطة على آية تشغّلها؛ الضغطة الثانية على نفس الآية
-  // تفتح ورقة الكلمة للكلمة المضغوطة.
-  const handleWordTap = useCallback(
-    (surah: number, ayah: number, wordIndex: number, wordText: string) => {
-      if (selectedAyah?.surah === surah && selectedAyah?.ayah === ayah) {
-        setWordSheet({ surahNumber: surah, ayahNumber: ayah, wordIndex, wordText });
-      } else {
-        void playAyah(surah, ayah, true);
-      }
-    },
-    [selectedAyah, playAyah]
-  );
+  // [1.0.80] الضغطة على أي كلمة تشغّل صوت الآية فقط (مثل الضغطة
+  // على الآية نفسها)؛ ورقة الكلمة تُفتح بالضغطة المطوّلة فقط.
 
   // مستمعو عنصر صوت الآية (مرة واحدة عند التركيب).
   const finishAyahRef = useRef(finishAyah);
@@ -294,23 +277,11 @@ export default function ReadingMode({
       );
       stopAyahRef.current();
     };
-    const onWaiting = () => setAyahBuffering(true);
-    const onPlaying = () => {
-      setAyahBuffering(false);
-      setAyahStarted(true);
-    };
-    const onCanPlay = () => setAyahBuffering(false);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
-    audio.addEventListener("waiting", onWaiting);
-    audio.addEventListener("playing", onPlaying);
-    audio.addEventListener("canplay", onCanPlay);
     return () => {
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      audio.removeEventListener("waiting", onWaiting);
-      audio.removeEventListener("playing", onPlaying);
-      audio.removeEventListener("canplay", onCanPlay);
       audio.pause();
     };
   }, []);
@@ -331,17 +302,14 @@ export default function ReadingMode({
 
   // [1.0.79] الصفحة كاملة: كيّف حجم الخط حتى تدخل الصفحة كلها في
   // الشاشة بلا تمرير عمودي. يبدأ من ٣٠ ويصغّر درجة درجة حتى يتسع
-  // المحتوى (أرضية ١٥). يعاد القياس عند تغيير الصفحة أو التجويد أو
-  // فتح لوحة الآية (تضيف ارتفاعًا) أو ظهور خطأ، وعند تدوير الجهاز
-  // أو تغيير حجم النافذة. سطر النص هنا ١٫٦ (لا ٢٫٠ كالمشغّل) لأن
-  // صفحة مدنية كاملة (١٥ سطرًا) لا تدخل في شاشة ٣٦٠×٨٠٤ بخط كبير
-  // وبتباعد واسع — السطر الأضيق هو ما يجعل الصفحة كاملة ممكنة،
-  // وهو قريب من تباعد المصحف المطبوع نفسه.
-  // عند فتح لوحة آية تُمرَّر اللوحة إلى داخل الشاشة (block: nearest)
-  // لأنها تضيف ارتفاعًا قد يتجاوز ما وفّره التصغير — الصفحة نفسها
-  // تبقى كاملة، والتمرير يحدث فقط لإظهار اللوحة.
+  // المحتوى (أرضية ١٥). يعاد القياس عند تغيير الصفحة أو التجويد
+  // أو عند تدوير الجهاز أو تغيير حجم النافذة. سطر النص هنا ١٫٦
+  // (لا ٢٫٠ كالمشغّل) لأن صفحة مدنية كاملة (١٥ سطرًا) لا تدخل في
+  // شاشة ٣٦٠×٨٠٤ بخط كبير وبتباعد واسع — السطر الأضيق هو ما يجعل
+  // الصفحة كاملة ممكنة، وهو قريب من تباعد المصحف المطبوع نفسه.
+  // [1.0.80] لا لوحة آية بعد اليوم، فلا تمرير لإظهارها ولا إعادة
+  // قياس بسببها.
   const [fitFontSize, setFitFontSize] = useState(30);
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const fitPage = useCallback(() => {
     const el = contentRef.current;
     const inner = innerRef.current;
@@ -357,43 +325,124 @@ export default function ReadingMode({
   }, []);
   useLayoutEffect(() => {
     fitPage();
-  }, [page, tajweed, selectedAyah, ayahError, fitPage]);
-  useEffect(() => {
-    if (selectedAyah) {
-      panelRef.current?.scrollIntoView({ behavior: "auto", block: "nearest" });
-    }
-  }, [selectedAyah, fitFontSize]);
+  }, [page, tajweed, fitPage]);
   useEffect(() => {
     window.addEventListener("resize", fitPage);
     return () => window.removeEventListener("resize", fitPage);
   }, [fitPage]);
 
+  // رسالة خطأ الصوت تختفي وحدها بعد ٤ ثوانٍ (بلا لوحة تحت الآية).
+  useEffect(() => {
+    if (!ayahError) return;
+    const t = window.setTimeout(() => setAyahError(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [ayahError]);
+
   const goTo = useCallback((p: number) => {
     if (p >= 1 && p <= 604) setPage(p);
   }, []);
 
-  // السحب للتنقل: يسار = الصفحة التالية، يمين = السابقة (اتجاه القراءة).
-  // السحب حركة لا نقرة، فيُكبَت حدث النقر الذي يليها حتى لا تُفتح ورقة
-  // كلمة أو يُشغَّل صوت آية بالخطأ.
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  // [1.0.80] قلب الصفحة باليد — كالمصحف الحقيقي: الصفحة تتبع
+  // إصبعك أثناء السحب (إزاحة + ميلان خفيف + ظل)؛ إن تجاوز السحب
+  // ربع عرض الشاشة (أو ١٢٠ بكسل) أكملت الصفحة دورتها إلى التالية
+  // (يسار) أو السابقة (يمين)، وإلا عادت مكانها بنابض. عند أول
+  // صفحة أو آخرها يُقاوَم السحب (مطاط) ويعود دائمًا. السحب حركة
+  // لا نقرة، فيُكبَت النقر الذي يليه حتى لا يُشغَّل صوت آية بالخطأ.
+  // (بلا setPointerCapture: الالتقاط يغيّر هدف النقر فيكسر ضغطة
+  // الكلمة؛ وtouch-pan-y على الحاوية يكفي ليوصل السحب الأفقي.)
+  const flipRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+  const turningRef = useRef(false);
   const swipedRef = useRef(false);
+
+  const resetFlip = useCallback((animate: boolean) => {
+    const el = flipRef.current;
+    if (!el) return;
+    el.style.transition = animate ? "transform 250ms ease-out, opacity 250ms ease-out" : "none";
+    el.style.transform = "";
+    el.style.opacity = "";
+    el.style.boxShadow = "";
+  }, []);
+
   const onPointerDown = (e: React.PointerEvent) => {
-    swipeStartRef.current = { x: e.clientX, y: e.clientY };
+    if (turningRef.current) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, dragging: false };
   };
-  const onPointerUp = (e: React.PointerEvent) => {
-    const s = swipeStartRef.current;
-    swipeStartRef.current = null;
-    if (!s) return;
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      swipedRef.current = true;
-      window.setTimeout(() => {
-        swipedRef.current = false;
-      }, 150);
-      if (dx < 0) goTo(page + 1);
-      else goTo(page - 1);
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    const el = flipRef.current;
+    if (!d || !el || turningRef.current) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.dragging) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+        dragRef.current = null; // تمرير عمودي — ليس سحب صفحة
+        return;
+      }
+      if (Math.abs(dx) <= 10) return;
+      d.dragging = true;
     }
+    // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
+    let eff = dx;
+    if ((dx < 0 && page >= 604) || (dx > 0 && page <= 1)) eff = dx * 0.4;
+    const w = contentRef.current?.clientWidth ?? 360;
+    const rot = Math.max(-10, Math.min(10, (eff / w) * 12));
+    el.style.transition = "none";
+    el.style.transform = `translateX(${eff}px) rotateY(${rot}deg)`;
+    el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.35)";
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || !d.dragging || turningRef.current) return;
+    const dx = e.clientX - d.x;
+    const w = contentRef.current?.clientWidth ?? 360;
+    const threshold = Math.max(100, w * 0.25);
+    const dir = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
+    const atEdge = (dir === 1 && page >= 604) || (dir === -1 && page <= 1);
+    // أي سحب — حتى المرتد — يكبت النقرة التي تليه.
+    swipedRef.current = true;
+    window.setTimeout(() => {
+      swipedRef.current = false;
+    }, 150);
+    if (Math.abs(dx) < threshold || atEdge) {
+      resetFlip(true);
+      return;
+    }
+    // أكمل الدورة: الصفحة تنزلق خارج الشاشة ثم تأتي الجديدة.
+    turningRef.current = true;
+    const el = flipRef.current;
+    if (el) {
+      el.style.transition = "transform 180ms ease-in, opacity 180ms ease-in";
+      el.style.transform = `translateX(${dir * (w + 80)}px) rotateY(${dir * 18}deg)`;
+      el.style.opacity = "0.6";
+    }
+    window.setTimeout(() => {
+      goTo(page + dir);
+      // الصفحة الجديدة تدخل بانزلاق قصير من الجهة المقابلة.
+      requestAnimationFrame(() => {
+        const el2 = flipRef.current;
+        if (el2) {
+          el2.style.transition = "none";
+          el2.style.transform = `translateX(${-dir * 60}px)`;
+          el2.style.opacity = "0.7";
+          el2.style.boxShadow = "";
+          requestAnimationFrame(() => {
+            el2.style.transition = "transform 220ms ease-out, opacity 220ms ease-out";
+            el2.style.transform = "";
+            el2.style.opacity = "";
+          });
+        }
+        turningRef.current = false;
+      });
+    }, 180);
+  };
+
+  const onPointerCancel = () => {
+    dragRef.current = null;
+    if (!turningRef.current) resetFlip(true);
   };
   const onClickCapture = (e: React.MouseEvent) => {
     if (swipedRef.current) {
@@ -467,12 +516,17 @@ export default function ReadingMode({
           page, and the fit measures only the page itself. */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto overscroll-contain"
+        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y"
+        style={{ perspective: "1200px" }}
         onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onPointerLeave={onPointerCancel}
         onClickCapture={onClickCapture}
+        onContextMenu={(e) => e.preventDefault()}
       >
-        <div className="min-h-full px-5 py-6">
+        <div ref={flipRef} className="min-h-full px-5 py-6">
           <div
             ref={innerRef}
             className="quran-text text-right leading-[1.6]"
@@ -513,8 +567,8 @@ export default function ReadingMode({
                     data-surah={b.item.surah}
                     onClick={() => void playAyah(b.item.surah, b.item.ayah.numberInSurah, true)}
                     className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                      selectedAyah?.surah === b.item.surah &&
-                      selectedAyah?.ayah === b.item.ayah.numberInSurah
+                      playingAyah?.surah === b.item.surah &&
+                      playingAyah?.ayah === b.item.ayah.numberInSurah
                         ? "bg-primary/10"
                         : ""
                     }`}
@@ -526,65 +580,20 @@ export default function ReadingMode({
                       windowBase={b.item.ayah.text.length - b.item.rest.length}
                       tajweed={tajweed}
                       onRuleClick={setSelectedRule}
-                      onWordClick={(wi, wt) =>
-                        handleWordTap(b.item.surah, b.item.ayah.numberInSurah, wi, wt)
+                      onWordClick={() =>
+                        void playAyah(b.item.surah, b.item.ayah.numberInSurah, true)
+                      }
+                      onWordLongPress={(wi, wt) =>
+                        setWordSheet({
+                          surahNumber: b.item.surah,
+                          ayahNumber: b.item.ayah.numberInSurah,
+                          wordIndex: wi,
+                          wordText: wt,
+                        })
                       }
                     />{" "}
                     <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
                   </span>
-                  {selectedAyah?.surah === b.item.surah &&
-                    selectedAyah?.ayah === b.item.ayah.numberInSurah && (
-                      <div ref={panelRef} className="my-2" onClick={(e) => e.stopPropagation()}>
-                        <AyahActions
-                          surahNumber={b.item.surah}
-                          ayahNumber={b.item.ayah.numberInSurah}
-                          isFav={isFavourite(b.item.surah, b.item.ayah.numberInSurah)}
-                          onToggleFavourite={() =>
-                            toggleFavourite(b.item.surah, b.item.ayah.numberInSurah)
-                          }
-                          onTafsir={() => {
-                            setWordSheet(null);
-                            setTafsirTarget({ surah: b.item.surah, ayah: b.item.ayah.numberInSurah });
-                          }}
-                          onReadings={() =>
-                            navigate(`/readings/${b.item.surah}/${b.item.ayah.numberInSurah}`)
-                          }
-                          onShare={() => {
-                            setWordSheet(null);
-                            setShareTarget({ surah: b.item.surah, ayah: b.item.ayah.numberInSurah });
-                          }}
-                          onCopy={() => handleCopyAyah(b.item.surah, b.item.ayah.numberInSurah)}
-                          copied={copiedAyah === b.item.ayah.numberInSurah}
-                          memorization={false}
-                          revealed={false}
-                          onToggleReveal={() => {}}
-                          onReplay={() => replayAyah(b.item.surah, b.item.ayah.numberInSurah)}
-                          continueOn={ayahContinuous}
-                          onToggleContinue={() => setAyahContinuous((c) => !c)}
-                          onClose={exitAyahMode}
-                        />
-                        <div className="my-2">
-                          <HifzRating
-                            key={`hifz-${b.item.surah}-${b.item.ayah.numberInSurah}-${hifzVersion}`}
-                            surahNumber={b.item.surah}
-                            ayahNumber={b.item.ayah.numberInSurah}
-                          />
-                        </div>
-                        {playingAyah?.surah === b.item.surah &&
-                          playingAyah?.ayah === b.item.ayah.numberInSurah &&
-                          ayahStarted && (
-                            <div className="text-center text-xs text-primary">تُشغَّل الآن…</div>
-                          )}
-                        {ayahBuffering && (
-                          <div className="text-center text-xs text-muted-foreground">
-                            جارٍ تحميل الصوت…
-                          </div>
-                        )}
-                        {ayahError && (
-                          <div className="text-center text-xs text-destructive">{ayahError}</div>
-                        )}
-                      </div>
-                    )}
                 </Fragment>
               ),
             )}
@@ -594,6 +603,13 @@ export default function ReadingMode({
           <div className="h-6" aria-hidden />
         </div>
       </div>
+
+      {/* خطأ صوت — رسالة صغيرة فوق الحبّة تختفي وحدها بعد ٤ ثوانٍ */}
+      {ayahError && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none">
+          {ayahError}
+        </div>
+      )}
 
       {/* Page pill — always visible, never blocks taps */}
       {!showTools && (
@@ -669,27 +685,25 @@ export default function ReadingMode({
           </div>
           <div className="absolute inset-x-0 bottom-0 bg-background/95 backdrop-blur border-t border-border px-4 py-3">
             <div className="flex items-center justify-between gap-2">
+              {/* [1.0.80] لا أزرار لتقليب الصفحات — التقليب باليد فقط.
+                  متواصل انتقل هنا من لوحة الآية الملغاة. */}
               <button
-                onClick={() => goTo(page - 1)}
-                disabled={page <= 1}
-                className="flex items-center gap-1 px-4 py-2 rounded-full bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 active:scale-95 transition-all"
-                aria-label="الصفحة السابقة"
+                onClick={() => setAyahContinuous((c) => !c)}
+                className={`px-4 py-2 rounded-full border text-sm active:scale-95 transition-all whitespace-nowrap ${
+                  ayahContinuous
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card border-border"
+                }`}
+                aria-label="تشغيل متواصل للآيات"
               >
-                <ChevronRight className="w-4 h-4" />
-                السابقة
+                متواصل {ayahContinuous ? "مفعّل" : "متوقف"}
               </button>
-              <span className="text-sm text-muted-foreground bg-card border border-border px-3 py-1.5 rounded-full">
+              <span className="text-xs text-muted-foreground text-center flex-1">
+                الضغط على الآية يشغّل صوتها فقط — اضغط مطوّلًا على كلمة لمعانيها والتفسير
+              </span>
+              <span className="text-sm text-muted-foreground bg-card border border-border px-3 py-1.5 rounded-full whitespace-nowrap">
                 صفحة {toArabicNum(page)} / {toArabicNum(604)}
               </span>
-              <button
-                onClick={() => goTo(page + 1)}
-                disabled={page >= 604}
-                className="flex items-center gap-1 px-4 py-2 rounded-full bg-card border border-border text-sm disabled:opacity-40 hover:border-primary/40 active:scale-95 transition-all"
-                aria-label="الصفحة التالية"
-              >
-                التالية
-                <ChevronLeft className="w-4 h-4" />
-              </button>
             </div>
             <form
               className="mt-3 flex items-center justify-center gap-2"
@@ -721,8 +735,9 @@ export default function ReadingMode({
 
       {/* شرح حكم التجويد المضغوط عليه */}
       <TajweedRuleSheet rule={selectedRule} onClose={() => setSelectedRule(null)} />
-      {/* Word sheet for a tapped word — with ayah actions + replay /
-          continue / exit (the reading mode has audio since 1.0.79). */}
+      {/* Word sheet for a long-pressed word [1.0.80] — with ayah actions
+          + replay / continue / exit (the reading mode has audio since
+          1.0.79); replay/close target this sheet's own ayah. */}
       {wordSheet && (
         <WordSheet
           surahNumber={wordSheet.surahNumber}
@@ -734,7 +749,6 @@ export default function ReadingMode({
             setWordSheet(null);
             navigate(`/surah/${sn}?ayah=${an}`);
           }}
-          onRated={() => setHifzVersion((v) => v + 1)}
           actions={{
             isFav: isFavourite(wordSheet.surahNumber, wordSheet.ayahNumber),
             onToggleFavourite: () => toggleFavourite(wordSheet.surahNumber, wordSheet.ayahNumber),
@@ -750,7 +764,7 @@ export default function ReadingMode({
             onCopy: () => handleCopyAyah(wordSheet.surahNumber, wordSheet.ayahNumber),
             copied: copiedAyah === wordSheet.ayahNumber,
             onReplay: () =>
-              selectedAyah && replayAyah(selectedAyah.surah, selectedAyah.ayah),
+              replayAyah(wordSheet.surahNumber, wordSheet.ayahNumber),
             continueOn: ayahContinuous,
             onToggleContinue: () => setAyahContinuous((c) => !c),
             onClose: exitAyahMode,
