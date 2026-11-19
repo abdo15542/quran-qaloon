@@ -104,12 +104,16 @@ function PageContent({
   innerRef?: React.Ref<HTMLDivElement>;
 }) {
   const items = useMemo(() => buildPageAyahs(page), [page]);
-  // Surah headers: a new header whenever the surah changes within the page.
+  // [1.0.83] ترويسة السورة تظهر فقط حيث تبدأ السورة فعلًا في هذه
+  // الصفحة (آيتها الأولى) — كالمصحف المطبوع تمامًا. صفحة المتابعة
+  // (مثل 521: أولها 51:7) لا تحمل ترويسة، فتتسع الصفحة للنص.
   let lastSurah = -1;
   const blocks: Array<{ type: "header"; surah: number } | { type: "ayah"; item: PageAyah }> = [];
   for (const item of items) {
-    if (item.surah !== lastSurah) {
+    if (item.surah !== lastSurah && item.ayah.numberInSurah === 1) {
       blocks.push({ type: "header", surah: item.surah });
+      lastSurah = item.surah;
+    } else if (item.surah !== lastSurah) {
       lastSurah = item.surah;
     }
     blocks.push({ type: "ayah", item });
@@ -581,7 +585,7 @@ export default function ReadingMode({
   }, [manualFont]);
   useLayoutEffect(() => {
     fitPage();
-  }, [page, tajweed, manualFont, fitPage]);
+  }, [page, tajweed, manualFont, showBottomBar, fitPage]);
   useEffect(() => {
     window.addEventListener("resize", fitPage);
     return () => window.removeEventListener("resize", fitPage);
@@ -763,11 +767,13 @@ export default function ReadingMode({
     // أكمل الدورة: الصفحة تنزلق خارج الشاشة، والجديدة — وهي
     // نفسها المعاينة التي كُشفت — تظهر في مكانها فورًا بلا
     // انزلاق دخول (فلا قفزة تُرى).
+    // [1.0.83] الانزلاق يستمر في اتجاه السحب نفسه (يسارًا
+    // للتالية، يمينًا للسابقة) — لا يرتدّ عبر الشاشة عكس السحب.
     turningRef.current = true;
     const el = flipRef.current;
     if (el) {
       el.style.transition = `transform 300ms ${EASE_OUT}, opacity 300ms ${EASE_OUT}`;
-      el.style.transform = `translateX(${dir * (w + 80)}px)`;
+      el.style.transform = `translateX(${-dir * (w + 80)}px)`;
       el.style.opacity = "0.7";
     }
     window.setTimeout(() => {
@@ -917,8 +923,10 @@ export default function ReadingMode({
             innerRef={innerRef}
           />
           {/* Clearance for the floating page pill / tools button, so the
-              last line of the page is never hidden behind them. */}
-          <div className="h-6" aria-hidden />
+              last line of the page is never hidden behind them.
+              [1.0.83] والشريط السفلي حين يظهر (96px): مساحة أكبر
+              تحته، ويُعاد قياس الملاءمة عند ظهوره/اختفائه. */}
+          <div className={showBottomBar ? "h-28" : "h-6"} aria-hidden />
         </div>
         {/* [1.0.82] تعتيم السطوع فوق الصفحة فقط (بلا تأثير على
             الأشرطة والأزرار). */}
@@ -1242,7 +1250,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.82
+              قالون عن نافع — الإصدار 1.0.83
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
