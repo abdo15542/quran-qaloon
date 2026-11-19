@@ -118,11 +118,18 @@ function PageContent({
     }
     blocks.push({ type: "ayah", item });
   }
+  // [1.0.84] تباعد الأسطر 2.0 بأسلوب مضمّن — لا بـ leading-[1.6]:
+  // قاعدة ‎.quran-text في index.css تفرض line-height: 2.6 وتغلب
+  // على أداة Tailwind (غير المطبَّقة تتغلب على المطبَّقة)، فكان
+  // التباعد الفعلي 2.6 والملاءمة التلقائية تُصغّر كل صفحة إلى أرضية
+  // 15px (فيديو المستخدم: نص صغير وفراغ أسفل الصفحة). 2.0 هو تباعد
+  // Scheherazade New القياسي للنص القرآني — الحروف تملأ الصفحة
+  // كالمصحف المطبوع وتبقى للتشكيل مساحة كافية (1.6 يصطدم التشكيل).
   return (
     <div
       ref={innerRef}
-      className="quran-text text-right leading-[1.6] text-[#1c1a14]"
-      style={{ fontSize: `${fontSize}px` }}
+      className="quran-text text-right text-[#1c1a14]"
+      style={{ fontSize: `${fontSize}px`, lineHeight: 2.0 }}
       dir="rtl"
     >
       {blocks.map((b, i) =>
@@ -586,6 +593,19 @@ export default function ReadingMode({
   useLayoutEffect(() => {
     fitPage();
   }, [page, tajweed, manualFont, showBottomBar, fitPage]);
+  // [1.0.84] أعد الملاءمة بعد تحميل خط Scheherazade: القياس الأول
+  // يجري بخط بديل أعرض فيُصغّر الخط أكثر من اللازم (19px بدل 21px
+  // في ص69 — أثبته الفحص)، وإعادة القياس بعد تبديل الخط تصل للحد
+  // الأقصى الصحيح.
+  useEffect(() => {
+    let on = true;
+    document.fonts?.ready.then(() => {
+      if (on) fitPage();
+    });
+    return () => {
+      on = false;
+    };
+  }, [fitPage]);
   useEffect(() => {
     window.addEventListener("resize", fitPage);
     return () => window.removeEventListener("resize", fitPage);
@@ -1250,7 +1270,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.83
+              قالون عن نافع — الإصدار 1.0.84
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
