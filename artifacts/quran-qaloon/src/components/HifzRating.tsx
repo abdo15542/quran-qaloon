@@ -34,6 +34,17 @@ const BUTTONS: Array<{ q: HifzQuality; label: string; cls: string; activeCls: st
  * يكتب عبر rateAyah (SM-2) ويُظهر التقييم المحفوظ الحالي إن وُجد.
  * يستخدمه منسّق SurahPlayer لاحقاً — لا يعدّل أي صفحة مشتركة.
  */
+function formatDueDate(due: string): string {
+  // السنة تُذكر فقط إن لم تكن سنة المراجعة هي السنة الحالية، حتى لا
+  // يُقرأ «١٤ يوليو» القادم بعد ٨ أشهر وكأنه يوليو الماضي.
+  const year = Number(due.slice(0, 4));
+  return new Date(`${due}T12:00:00`).toLocaleDateString("ar-EG", {
+    day: "numeric",
+    month: "long",
+    ...(year !== new Date().getFullYear() ? { year: "numeric" as const } : {}),
+  });
+}
+
 export default function HifzRating({ surahNumber, ayahNumber, onRated }: HifzRatingProps) {
   const [saved, setSaved] = useState<HifzEntry | null>(() => getRating(surahNumber, ayahNumber));
 
@@ -68,10 +79,7 @@ export default function HifzRating({ surahNumber, ayahNumber, onRated }: HifzRat
       {saved && (
         <p className="text-[11px] text-muted-foreground text-center">
           آخر تقييم: {saved.q === 1 ? "سهل" : saved.q === 2 ? "متوسط" : "صعب"} — المراجعة القادمة{" "}
-          {new Date(`${saved.due}T12:00:00`).toLocaleDateString("ar-EG", {
-            day: "numeric",
-            month: "long",
-          })}
+          {formatDueDate(saved.due)}
         </p>
       )}
     </div>

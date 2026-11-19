@@ -232,16 +232,6 @@ export default function SurahPlayer({
   // must also refresh the inline rating under the ayah (separate
   // HifzRating instance, reads its value on mount).
   const [hifzVersion, setHifzVersion] = useState(0);
-
-  // [1.0.75] Tapping a word opens its sheet AND selects the ayah, so
-  // the ayah's actions stay visible under the sheet when it closes.
-  const openWordSheet = useCallback(
-    (ayahNumberInSurah: number, wordIndex: number, wordText: string) => {
-      setSelectedAyah(ayahNumberInSurah);
-      setWordSheet({ surahNumber, ayahNumber: ayahNumberInSurah, wordIndex, wordText });
-    },
-    [surahNumber]
-  );
   const [ayahs, setAyahs] = useState<Ayah[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -750,6 +740,21 @@ export default function SurahPlayer({
       }
     },
     [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah, applyAyahRange, clearAyahSeek, getCachedAyahUrl, cacheAyahAudio]
+  );
+
+  // [1.0.76] First tap on an ayah plays it; tapping the selected ayah
+  // again opens the word sheet for the tapped word. The ayah stays
+  // selected after its audio ends, so the second tap still opens the
+  // sheet — replay is via the ayah-number marker or the player.
+  const handleWordTap = useCallback(
+    (ayahNumberInSurah: number, wordIndex: number, wordText: string) => {
+      if (selectedAyah === ayahNumberInSurah) {
+        setWordSheet({ surahNumber, ayahNumber: ayahNumberInSurah, wordIndex, wordText });
+      } else {
+        playAyah(ayahNumberInSurah, true);
+      }
+    },
+    [selectedAyah, surahNumber, playAyah]
   );
 
   const finishAyah = useCallback(() => {
@@ -1488,7 +1493,7 @@ export default function SurahPlayer({
                             >
                               <div className="quran-text leading-loose" style={{ fontSize: `${fontSize}px` }}>
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <WordTapText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} windowBase={ayahParts[idx].basmala ? ayah.text.length - ayahParts[idx].rest.length : 0} tajweed={tajweed} onRuleClick={setSelectedRule} onWordClick={memorization && !revealedAyahs.has(ayah.numberInSurah) ? undefined : (wi, wt) => openWordSheet(ayah.numberInSurah, wi, wt)} />
+                                  <WordTapText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} windowBase={ayahParts[idx].basmala ? ayah.text.length - ayahParts[idx].rest.length : 0} tajweed={tajweed} onRuleClick={setSelectedRule} onWordClick={memorization && !revealedAyahs.has(ayah.numberInSurah) ? undefined : (wi, wt) => handleWordTap(ayah.numberInSurah, wi, wt)} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾
@@ -1566,7 +1571,7 @@ export default function SurahPlayer({
                                 }`}
                               >
                                 <span className={memorization && !revealedAyahs.has(ayah.numberInSurah) ? "blur-md select-none" : ""}>
-                                  <WordTapText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} windowBase={ayahParts[idx].basmala ? ayah.text.length - ayahParts[idx].rest.length : 0} tajweed={tajweed} onRuleClick={setSelectedRule} onWordClick={memorization && !revealedAyahs.has(ayah.numberInSurah) ? undefined : (wi, wt) => openWordSheet(ayah.numberInSurah, wi, wt)} />
+                                  <WordTapText surahNumber={surahNumber} ayahNumber={ayah.numberInSurah} text={ayahParts[idx].rest} windowBase={ayahParts[idx].basmala ? ayah.text.length - ayahParts[idx].rest.length : 0} tajweed={tajweed} onRuleClick={setSelectedRule} onWordClick={memorization && !revealedAyahs.has(ayah.numberInSurah) ? undefined : (wi, wt) => handleWordTap(ayah.numberInSurah, wi, wt)} />
                                 </span>{" "}
                                 <span className="text-primary inline-block mx-1 text-base">
                                   ﴿{toArabicNum(ayah.numberInSurah)}﴾

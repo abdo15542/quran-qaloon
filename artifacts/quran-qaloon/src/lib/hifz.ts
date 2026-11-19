@@ -94,6 +94,19 @@ export function nextReview(
   q: HifzQuality,
   today: string,
 ): HifzEntry {
+  // [1.0.76] تقييم واحد في اليوم: الضغط على نفس الزر مراراً في يوم
+  // واحد كان يقدّم الجدول كل مرة (فاصل ٢٣٨ يوماً بعد ٦ ضغطات «سهل»)،
+  // فتختفي الآية من «مراجعة اليوم» لأشهر. نفس التقييم في نفس اليوم
+  // لا يغيّر شيئاً؛ وتغيير التقييم في نفس اليوم يصحّح النوع فقط دون
+  // تقديم الجدول من جديد — إلا «صعب» فيعيدها إلى الغد.
+  if (entry && entry.d === today) {
+    if (q === entry.q) return { ...entry };
+    if (q === 3) {
+      return { q, d: today, e: clampEasiness(entry.e - 0.2), i: 1, r: 0, due: addDays(today, 1) };
+    }
+    return { ...entry, q };
+  }
+
   const prev: HifzEntry =
     entry ?? { q, d: today, e: HIFZ_START_EASINESS, i: 0, r: 0, due: today };
 

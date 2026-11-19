@@ -22,9 +22,10 @@ interface WordTapTextProps {
 //
 // Tap discrimination: the handler runs on capture. A tap whose target
 // sits inside a coloured tajweed span is left alone — it bubbles to the
-// rule span's own onClick (rule sheet). Any other tap on a word opens
-// the word sheet and stops propagation, so the ayah's own onClick
-// (play ayah) does not fire.
+// rule span's own onClick (rule sheet). Any other tap on a word calls
+// onWordClick and stops propagation, so the ayah's own onClick (play
+// ayah) does not fire — the parent decides what the tap does (1.0.76:
+// first tap plays the ayah, tapping the selected ayah opens the sheet).
 export default function WordTapText({
   surahNumber,
   ayahNumber,
