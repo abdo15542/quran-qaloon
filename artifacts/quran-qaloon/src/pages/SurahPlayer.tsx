@@ -22,6 +22,7 @@ import { getPlayerVolume, getPlayerRate } from "@/hooks/useAudio";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useOffline } from "@/context/OfflineContext";
+import { copyTextToClipboard } from "@/lib/copy";
 
 interface Ayah {
   number: number;
@@ -193,33 +194,6 @@ function AyahActions({
       )}
     </span>
   );
-}
-
-// Copy text to the clipboard. The Clipboard API needs a secure context and
-// a user gesture; the textarea + execCommand fallback covers the Android
-// WebView when it is unavailable.
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // fall through to the textarea fallback
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
-  } catch {
-    return false;
-  }
 }
 
 function getStoredQirahId(): string {
@@ -1461,7 +1435,7 @@ export default function SurahPlayer({
                       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-muted-foreground">اضغط على أي آية لسماعها</span>
                         <button
-                          onClick={() => navigate(`/mushaf/${getPageOfAyah(surahNumber, selectedAyah ?? 1)}`)}
+                          onClick={() => navigate(`/reading/${getPageOfAyah(surahNumber, selectedAyah ?? 1)}`)}
                           className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full hover:bg-primary/20 transition-colors"
                           title="افتح هذه الآية في المصحف"
                         >

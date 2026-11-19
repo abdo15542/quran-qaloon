@@ -14,6 +14,7 @@ import FavouritesPage from "@/pages/FavouritesPage";
 import JuzPage from "@/pages/JuzPage";
 import HizbPage from "@/pages/HizbPage";
 import MushafPage from "@/pages/MushafPage";
+import ReadingMode from "@/pages/ReadingMode";
 import WirdPage from "@/pages/WirdPage";
 import PrayerTimesPage from "@/pages/PrayerTimesPage";
 import StatsPage from "@/pages/StatsPage";
@@ -93,6 +94,12 @@ function AppRoutes() {
           <Route path="/hizb" component={() => <HizbPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/mushaf" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/mushaf/:page" component={() => <MushafPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/reading">
+            <ReadingMode darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+          </Route>
+          <Route path="/reading/:page">
+            <ReadingMode darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+          </Route>
           <Route path="/wird" component={() => <WirdPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/prayer-times" component={() => <PrayerTimesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/stats" component={() => <StatsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />

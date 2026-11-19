@@ -437,8 +437,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           </div>
         </Link>
 
-        {/* المصحف — قراءة صفحة صفحة مثل المصحف الورقي */}
-        <Link href={`/mushaf/${lastMushafPage}`}>
+        {/* المصحف — وضع القراءة بملء الشاشة للقراءة السريعة */}
+        <Link href={`/reading/${lastMushafPage}`}>
           <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "280ms" }}>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
@@ -448,7 +448,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             <div className="text-xs text-muted-foreground">
               {lastMushafPage > 1
                 ? `متابعة القراءة — صفحة ${lastMushafPage}`
-                : "اقرأ صفحة صفحة مثل المصحف الورقي"}
+                : "وضع القراءة بملء الشاشة — اسحب للتنقل بين الصفحات"}
             </div>
           </div>
         </Link>

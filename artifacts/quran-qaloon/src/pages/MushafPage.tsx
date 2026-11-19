@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, Moon, Palette, Sun } from "lucide-react";
+import { ArrowRight, BookOpen, ChevronLeft, ChevronRight, Maximize, Moon, Palette, Sun } from "lucide-react";
 import { Link, useLocation, useRoute } from "wouter";
 import { SURAHS } from "@/data/surahs";
 import { getSurahAyahs, type LocalAyah } from "@/data/quran-text";
@@ -14,9 +14,10 @@ function toArabicNum(n: number): string {
 }
 
 // The Basmala as it prefixes ayah 1 of every surah (except 9) in the bundled text.
-const BASMALA = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+// [1.0.78] Exported for the full-screen reading mode, which renders the same pages.
+export const BASMALA = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
 
-interface PageAyah {
+export interface PageAyah {
   surah: number;
   ayah: LocalAyah;
   // Basmala split off ayah 1 of a surah, rendered as its own centred line.
@@ -24,7 +25,7 @@ interface PageAyah {
   rest: string;
 }
 
-function buildPageAyahs(page: number): PageAyah[] {
+export function buildPageAyahs(page: number): PageAyah[] {
   const range = getMushafPageRange(page);
   if (!range) return [];
   const out: PageAyah[] = [];
@@ -139,6 +140,15 @@ export default function MushafPage({
               صفحة {toArabicNum(page)} من {toArabicNum(604)}
             </span>
           </div>
+          <button
+            onClick={() => navigate(`/reading/${page}`)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/10 text-primary text-xs font-arabic hover:bg-primary/20 transition-colors whitespace-nowrap"
+            aria-label="وضع القراءة بملء الشاشة"
+            title="وضع القراءة بملء الشاشة"
+          >
+            <Maximize className="w-4 h-4" />
+            <span className="hidden sm:inline">وضع القراءة</span>
+          </button>
           <button
             onClick={toggleTajweed}
             className={`p-2 rounded-full hover:bg-muted transition-colors ${tajweed ? "bg-primary/10 text-primary" : ""}`}
