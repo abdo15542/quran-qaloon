@@ -44,7 +44,7 @@ function toArabicNum(n: number): string {
 // مشاركة كصورة / نسخ نص الآية. In memorization mode an إظهار/إخفاء
 // button is added, to reveal the hidden ayah text. Shared by the
 // continuous-text layout and the translation layout.
-function AyahActions({
+export function AyahActions({
   surahNumber,
   ayahNumber,
   isFav,
@@ -196,7 +196,7 @@ function AyahActions({
   );
 }
 
-function getStoredQirahId(): string {
+export function getStoredQirahId(): string {
   const stored = localStorage.getItem("quran_qirah");
   // A stored qira'ah from before the reciter cleanup (e.g. "qaloon")
   // no longer exists — fall back to hafs instead of an empty list.
@@ -204,7 +204,7 @@ function getStoredQirahId(): string {
   return "hafs";
 }
 
-function getStoredReciterId(qirahId: string): string {
+export function getStoredReciterId(qirahId: string): string {
   const stored = localStorage.getItem("quran_reciter");
   if (stored) {
     const reciter = RECITERS.find((r) => r.id === stored && r.qirahId === qirahId);

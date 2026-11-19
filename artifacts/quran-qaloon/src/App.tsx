@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OfflineProvider } from "@/context/OfflineContext";
 import Home from "@/pages/Home";
@@ -68,6 +70,32 @@ function AppRoutes() {
     document.addEventListener("contextmenu", onContextMenu);
     return () => document.removeEventListener("contextmenu", onContextMenu);
   }, []);
+
+  // زر الرجوع في أندرويد (1.0.79): افتراضيًا يخرج كاباسيتور من التطبيق
+  // عند كل ضغطة رجوع — حتى داخل الصفحات — لأن لا مستمع backButton
+  // مسجّل. نسجّل مستمعًا واحدًا هنا: في الرئيسية يخرج من التطبيق،
+  // وفي أي صفحة أخرى يعود للصفحة السابقة في السجل، وإن لم يكن هناك
+  // سجل (رابط عميق مباشر) يعود للرئيسية بدل الخروج. على الويب لا يوجد
+  // زر رجوع نظامي فلا يُسجَّل شيء.
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: PluginListenerHandle | null = null;
+    CapacitorApp.addListener("backButton", ({ canGoBack }) => {
+      if (canGoBack) {
+        window.history.back();
+      } else if (window.location.pathname !== "/") {
+        navigate("/");
+      } else {
+        void CapacitorApp.exitApp();
+      }
+    }).then((h) => {
+      handle = h;
+    });
+    return () => {
+      void handle?.remove();
+    };
+  }, [navigate]);
 
   return (
     <>

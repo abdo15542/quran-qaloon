@@ -32,8 +32,8 @@ interface WordSheetProps {
     onCopy: () => void;
     copied: boolean;
     /** [1.0.77] replay the ayah, the «متواصل» toggle, and exit the mode.
-        Optional: only the player provides them — the reading mode has no
-        audio, so its sheet shows the five actions only. */
+        Optional: provided by the player and (since 1.0.79) the reading
+        mode, both of which play ayah audio; omitted where there is none. */
     onReplay?: () => void;
     continueOn?: boolean;
     onToggleContinue?: () => void;
