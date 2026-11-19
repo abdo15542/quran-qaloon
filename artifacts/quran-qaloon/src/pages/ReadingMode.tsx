@@ -6,6 +6,10 @@
 // على كلمة يفتح ورقتها (مع إجراءات الآية: تفسير/روايات/حفظ/مشاركة/نسخ
 // + تقييم الحفظ)، والصفحة الأخيرة محفوظة بنفس مفتاح المصحف الأول —
 // الوضعان يتشاركان موضعك.
+// (1.0.82) مثل المصحف في الفيديو المرجعي: صفحة ورقية كريمية
+// بترويسة سورة مزخرفة، وسحب أفقي صافٍ بلا ميلان (كشريط صور)،
+// وشريط أيقونات سفلي بصفّين (سور/أحزاب/علامة/تفسير/بحث/سطوع/
+// حول) يظهر ويختفي بضغطة زر، وتنبيه «ربع الحزب» عند كل صفحة.
 // (1.0.81) قلب سلس كالمصحف الحقيقي: الصفحتان المجاورتان مرسومتان
 // تحت الصفحة الجارية (التالية والسابقة)، فالسحب يكشف الصفحة التالية
 // فعلًا بدل فراغ أبيض؛ الصفحة تتبع الإصبع بميلان أخف (٦°) وظل يكبر
@@ -22,8 +26,25 @@
 // (1.0.79) الصفحة كاملة بلا تمرير عمودي: الخط يتكيّف حتى تدخل الصفحة
 // كلها في الشاشة. والصوت ملف MP3 لكل آية فلا حاجة لجداول توقيت.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, List, Moon, Palette, SlidersHorizontal, Sun, X } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Bookmark,
+  BookmarkCheck,
+  ChevronDown,
+  Info,
+  LayoutGrid,
+  List,
+  Moon,
+  Palette,
+  PanelBottom,
+  Search,
+  SlidersHorizontal,
+  Sun,
+  X,
+} from "lucide-react";
 import { useLocation, useRoute } from "wouter";
+import { quarterLabelForAyah } from "@/data/hizb-quarters";
 import {
   SURAHS,
   RECITERS,
@@ -47,6 +68,7 @@ import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
 import WordTapText from "@/components/WordTapText";
 import WordSheet from "@/components/WordSheet";
 import SurahIndexSheet from "@/components/SurahIndexSheet";
+import HizbSheet from "@/components/HizbSheet";
 import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
@@ -95,16 +117,24 @@ function PageContent({
   return (
     <div
       ref={innerRef}
-      className="quran-text text-right leading-[1.6]"
+      className="quran-text text-right leading-[1.6] text-[#1c1a14]"
       style={{ fontSize: `${fontSize}px` }}
       dir="rtl"
     >
       {blocks.map((b, i) =>
         b.type === "header" ? (
           <div key={`h-${b.surah}-${i}`} className="text-center my-4">
-            <div className="inline-block border-y-2 border-amber-500/40 px-6 py-1.5">
-              <span className="font-arabic text-xl text-primary">سورة {SURAHS[b.surah - 1].name}</span>
-              <span className="text-xs text-muted-foreground mr-2">
+            {/* [1.0.82] ترويسة السورة كالمصحف المطبوع: إطار مزخرف
+                مزدوج (أخضر/ذهبي) يحمل اسم السورة ونوعها وعدد آياتها. */}
+            <div className="inline-block relative border-2 border-emerald-800/70 rounded-lg px-8 py-2">
+              <span
+                className="absolute inset-1 border border-amber-600/60 rounded-md pointer-events-none"
+                aria-hidden
+              />
+              <span className="block font-arabic text-2xl text-emerald-900 leading-tight">
+                سورة {SURAHS[b.surah - 1].name}
+              </span>
+              <span className="block text-xs text-[#6b6252] mt-0.5">
                 {SURAHS[b.surah - 1].revelationType === "Meccan"
                   ? "مكية"
                   : SURAHS[b.surah - 1].revelationType === "Medinan"
@@ -117,7 +147,7 @@ function PageContent({
         ) : (
           <Fragment key={`${b.item.surah}-${b.item.ayah.numberInSurah}`}>
             {b.item.basmala && (
-              <span className="block text-center my-3 text-[0.9em] text-foreground">
+              <span className="block text-center my-3 text-[0.9em]">
                 <TajweedText
                   surahNumber={b.item.surah}
                   ayahNumber={b.item.ayah.numberInSurah}
@@ -167,6 +197,39 @@ function PageContent({
   );
 }
 
+// [1.0.82] زر أيقونة في الشريط السفلي: أيقونة + تسمية صغيرة.
+function BarButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  active,
+  testId,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  testId?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+      className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1 active:bg-muted/60 transition-colors ${
+        disabled ? "opacity-40" : ""
+      } ${active ? "text-primary" : "text-foreground"}`}
+      aria-label={label}
+      title={label}
+    >
+      {icon}
+      <span className="text-[10px] leading-none">{label}</span>
+    </button>
+  );
+}
+
 export default function ReadingMode({
   darkMode,
   toggleDarkMode,
@@ -184,6 +247,44 @@ export default function ReadingMode({
   const [jump, setJump] = useState("");
   const [showTools, setShowTools] = useState(false);
   const [showIndex, setShowIndex] = useState(false);
+  // [1.0.82] شريط الأيقونات السفلي (مثل التطبيق المرجعي): مخفي
+  // أثناء القراءة، ويظهر بضغطة زر أسفل اليمين، ويختفي من زر
+  // «إخفاء» فيه. قائمة الأحزاب وحوار «حول التطبيق» ونافذة
+  // السطوع والعلامة المحفوظة كلها هنا.
+  const [showBottomBar, setShowBottomBar] = useState(false);
+  const [showHizb, setShowHizb] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showBrightness, setShowBrightness] = useState(false);
+  const [bookmarkPage, setBookmarkPage] = useState<number | null>(() => {
+    try {
+      const v = parseInt(localStorage.getItem("quran_bookmark_page") ?? "", 10);
+      return isNaN(v) || v < 1 || v > 604 ? null : v;
+    } catch {
+      return null;
+    }
+  });
+  const [brightness, setBrightness] = useState<number>(() => {
+    try {
+      const v = parseInt(localStorage.getItem("quran_reading_brightness") ?? "100", 10);
+      return isNaN(v) ? 100 : Math.max(20, Math.min(100, v));
+    } catch {
+      return 100;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("quran_reading_brightness", String(brightness));
+    } catch {
+      // storage unavailable
+    }
+  }, [brightness]);
+  const [infoToast, setInfoToast] = useState<string | null>(null);
+  const [quarterToast, setQuarterToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!infoToast) return;
+    const t = window.setTimeout(() => setInfoToast(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [infoToast]);
   // [1.0.81] حجم الخط اليدوي: 0 = تلقائي (ملاءمة الصفحة كاملة).
   const [manualFont, setManualFont] = useState<number>(() => {
     try {
@@ -423,6 +524,20 @@ export default function ReadingMode({
 
   const range = getMushafPageRange(page);
 
+  // [1.0.82] أول آية في الصفحة — لتفسير الصفحة ولتنبيه ربع الحزب.
+  const firstPageAyah = useMemo(() => buildPageAyahs(page)[0] ?? null, [page]);
+
+  // [1.0.82] تنبيه ربع الحزب عند كل صفحة (مثل الفيديو): تسمية
+  // الربع الذي تنتمي إليه أول آية في الصفحة، يظهر ٢٫٥ ثانية.
+  useEffect(() => {
+    if (!firstPageAyah) return;
+    setQuarterToast(
+      quarterLabelForAyah(firstPageAyah.surah, firstPageAyah.ayah.numberInSurah)
+    );
+    const t = window.setTimeout(() => setQuarterToast(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [firstPageAyah]);
+
   // Keep the URL and the last-read page in sync (same key as the old
   // Mushaf — both modes share the reader's position).
   useEffect(() => {
@@ -483,6 +598,29 @@ export default function ReadingMode({
     if (p >= 1 && p <= 604) setPage(p);
   }, []);
 
+  // [1.0.82] العلامة: حفظ الصفحة الجارية، والقفز إلى المحفوظة.
+  const saveBookmark = useCallback(() => {
+    try {
+      localStorage.setItem("quran_bookmark_page", String(page));
+    } catch {
+      // storage unavailable
+    }
+    setBookmarkPage(page);
+    setInfoToast(`تم حفظ العلامة في صفحة ${toArabicNum(page)}`);
+  }, [page]);
+
+  const goBookmark = useCallback(() => {
+    if (bookmarkPage) goTo(bookmarkPage);
+    else setInfoToast("لا توجد علامة محفوظة بعد");
+  }, [bookmarkPage, goTo]);
+
+  // [1.0.82] تفسير الصفحة: تفسير أول آية فيها.
+  const openPageTafsir = useCallback(() => {
+    if (firstPageAyah) {
+      setTafsirTarget({ surah: firstPageAyah.surah, ayah: firstPageAyah.ayah.numberInSurah });
+    }
+  }, [firstPageAyah]);
+
   // [1.0.81] تكبير/تصغير الخط: من الحجم الملائم الحالي إن كان
   // تلقائيًا، وإلا من اليدوي؛ بين ١٥ و٣٦.
   const bumpFont = (delta: number) => {
@@ -492,15 +630,16 @@ export default function ReadingMode({
     });
   };
 
-  // [1.0.81] قلب الصفحة باليد — كالمصحف الحقيقي: الصفحتان
-  // المجاورتان مرسومتان تحت الصفحة الجارية، فالسحب يكشف الصفحة
-  // التالية فعلًا بدل فراغ أبيض؛ الصفحة تتبع إصبعك بميلان أخف
-  // (٦°) وظل يكبر مع السحب، والمعاينة تزداد وضوحًا كلما ابتعدت
-  // الصفحة. الإفلات بحركة انسيابية نابضة (٣٨٠ms مع تجاوز خفيف)،
-  // وإكمال الدورة بتسارع-تباطؤ ناعم (٣٠٠ms). والسحبة السريعة
-  // تقلب حتى لمسافة قصيرة (>٠٫٥ بكسل/ms و>٤٠ بكسل). عند أول
-  // صفحة أو آخرها يُقاوَم السحب (مطاط) ويعود دائمًا. السحب حركة
-  // لا نقرة، فيُكبَت النقر الذي يليه حتى لا يُشغَّل صوت آية بالخطأ.
+  // [1.0.82] قلب الصفحة باليد — كشريط صور صافٍ (مثل الفيديو):
+  // لا ميلان إطلاقًا، الصفحة تنزلق أفقيًا فقط وتكشف التالية تحتها،
+  // وعند الإكمال تنزلق خارج الشاشة وتظهر الجديدة في مكانها فورًا
+  // بلا انزلاق دخول — الصفحة الجديدة هي نفسها المعاينة التي
+  // كُشفت أثناء السحب، فلا قفزة تُرى. (1.0.81) السحب يكشف
+  // الصفحة التالية فعلًا بدل فراغ أبيض؛ الإفلات بحركة انسيابية
+  // نابضة (٣٨٠ms مع تجاوز خفيف)، والسحبة السريعة تقلب حتى
+  // لمسافة قصيرة (>٠٫٥ بكسل/ms و>٤٠ بكسل). عند أول صفحة أو
+  // آخرها يُقاوَم السحب (مطاط) ويعود دائمًا. السحب حركة لا نقرة،
+  // فيُكبَت النقر الذي يليه حتى لا يُشغَّل صوت آية بالخطأ.
   // (بلا setPointerCapture: الالتقاط يغيّر هدف النقر فيكسر ضغطة
   // الكلمة؛ وtouch-pan-y على الحاوية يكفي ليوصل السحب الأفقي.)
   const flipRef = useRef<HTMLDivElement | null>(null);
@@ -588,10 +727,10 @@ export default function ReadingMode({
     // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
     let eff = dx;
     if ((dx < 0 && page >= 604) || (dx > 0 && page <= 1)) eff = dx * 0.4;
-    const rot = Math.max(-6, Math.min(6, (eff / w) * 8));
+    // [1.0.82] انزلاق أفقي صافٍ بلا ميلان — كشريط الصور في الفيديو.
     const mag = Math.abs(eff);
     el.style.transition = "none";
-    el.style.transform = `translateX(${eff}px) rotateY(${rot}deg)`;
+    el.style.transform = `translateX(${eff}px)`;
     el.style.boxShadow = `0 ${10 + mag / 12}px ${28 + mag / 3}px rgba(0,0,0,0.35)`;
   };
 
@@ -621,33 +760,21 @@ export default function ReadingMode({
       resetFlip(true);
       return;
     }
-    // أكمل الدورة: الصفحة تنزلق خارج الشاشة ثم تأتي الجديدة.
+    // أكمل الدورة: الصفحة تنزلق خارج الشاشة، والجديدة — وهي
+    // نفسها المعاينة التي كُشفت — تظهر في مكانها فورًا بلا
+    // انزلاق دخول (فلا قفزة تُرى).
     turningRef.current = true;
     const el = flipRef.current;
     if (el) {
       el.style.transition = `transform 300ms ${EASE_OUT}, opacity 300ms ${EASE_OUT}`;
-      el.style.transform = `translateX(${dir * (w + 80)}px) rotateY(${dir * 14}deg)`;
+      el.style.transform = `translateX(${dir * (w + 80)}px)`;
       el.style.opacity = "0.7";
     }
     window.setTimeout(() => {
       goTo(page + dir);
       hidePreviews(false);
-      // الصفحة الجديدة تدخل بانزلاق قصير من الجهة المقابلة.
-      requestAnimationFrame(() => {
-        const el2 = flipRef.current;
-        if (el2) {
-          el2.style.transition = "none";
-          el2.style.transform = `translateX(${-dir * 50}px)`;
-          el2.style.opacity = "0.75";
-          el2.style.boxShadow = "";
-          requestAnimationFrame(() => {
-            el2.style.transition = `transform 280ms ${EASE_OUT}, opacity 280ms ${EASE_OUT}`;
-            el2.style.transform = "";
-            el2.style.opacity = "";
-          });
-        }
-        turningRef.current = false;
-      });
+      resetFlip(false);
+      turningRef.current = false;
     }, 300);
   };
 
@@ -719,8 +846,7 @@ export default function ReadingMode({
           page, and the fit measures only the page itself. */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y relative"
-        style={{ perspective: "1200px" }}
+        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y relative bg-[#f8f2dc]"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -736,7 +862,7 @@ export default function ReadingMode({
           <div
             ref={previewNextRef}
             data-testid="reading-preview-next"
-            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none"
+            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]"
             style={{ opacity: 0 }}
             aria-hidden
           >
@@ -756,7 +882,7 @@ export default function ReadingMode({
           <div
             ref={previewPrevRef}
             data-testid="reading-preview-prev"
-            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none"
+            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]"
             style={{ opacity: 0 }}
             aria-hidden
           >
@@ -774,7 +900,7 @@ export default function ReadingMode({
         )}
         <div
           ref={flipRef}
-          className="relative min-h-full px-5 pt-10 pb-6 bg-background"
+          className="relative min-h-full px-5 pt-10 pb-6 bg-[#f8f2dc]"
           style={{ willChange: "transform" }}
         >
           <PageContent
@@ -794,7 +920,30 @@ export default function ReadingMode({
               last line of the page is never hidden behind them. */}
           <div className="h-6" aria-hidden />
         </div>
+        {/* [1.0.82] تعتيم السطوع فوق الصفحة فقط (بلا تأثير على
+            الأشرطة والأزرار). */}
+        {brightness < 100 && (
+          <div
+            className="absolute inset-0 bg-black pointer-events-none z-10"
+            style={{ opacity: ((100 - brightness) / 100) * 0.55 }}
+            aria-hidden
+          />
+        )}
       </div>
+
+      {/* [1.0.82] تنبيه ربع الحزب — حبّة داكنة أعلى الصفحة مثل الفيديو. */}
+      {quarterToast && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-black/70 text-white px-3 py-1 rounded-full text-xs whitespace-nowrap pointer-events-none">
+          {quarterToast}
+        </div>
+      )}
+
+      {/* [1.0.82] رسالة معلومات صغيرة (حفظ علامة وغيرها). */}
+      {infoToast && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 bg-foreground text-background px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none">
+          {infoToast}
+        </div>
+      )}
 
       {/* خطأ صوت — رسالة صغيرة فوق الحبّة تختفي وحدها بعد ٤ ثوانٍ */}
       {ayahError && (
@@ -803,8 +952,9 @@ export default function ReadingMode({
         </div>
       )}
 
-      {/* Page pill — always visible, never blocks taps */}
-      {!showTools && (
+      {/* Page pill — always visible, never blocks taps (hidden while
+          the bottom bar is shown — the bar is the interface then). */}
+      {!showTools && !showBottomBar && (
         <div
           className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-card/85 backdrop-blur border border-border px-3 py-1.5 rounded-full text-xs text-muted-foreground pointer-events-none whitespace-nowrap"
           data-testid="reading-page-pill"
@@ -814,8 +964,8 @@ export default function ReadingMode({
         </div>
       )}
 
-      {/* Floating tools button — only while the tools are hidden */}
-      {!showTools && (
+      {/* Floating tools button — only while the tools and the bar are hidden */}
+      {!showTools && !showBottomBar && (
         <button
           onClick={() => setShowTools(true)}
           className="absolute bottom-4 left-4 w-11 h-11 rounded-full bg-card/85 backdrop-blur border border-border text-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
@@ -823,6 +973,19 @@ export default function ReadingMode({
           title="أدوات القراءة"
         >
           <SlidersHorizontal className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* [1.0.82] زر إظهار شريط الأيقونات — أسفل اليمين (مثل
+          التطبيق المرجعي: الأيقونات تظهر وتختفي بضغطة). */}
+      {!showTools && !showBottomBar && (
+        <button
+          onClick={() => setShowBottomBar(true)}
+          className="absolute bottom-4 right-4 w-11 h-11 rounded-full bg-card/85 backdrop-blur border border-border text-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
+          aria-label="إظهار شريط الأيقونات"
+          title="شريط الأيقونات"
+        >
+          <PanelBottom className="w-5 h-5" />
         </button>
       )}
 
@@ -963,6 +1126,148 @@ export default function ReadingMode({
             </form>
           </div>
         </div>
+      )}
+
+      {/* [1.0.82] شريط الأيقونات السفلي — بصفّين مثل التطبيق
+          المرجعي: الصف الأول (علامة/سطوع/إخفاء)، والثاني
+          (أحزاب/سور/تفسير/حول/بحث). يغطي أسفل الصفحة وهو ظاهر،
+          ويختفي من زر «إخفاء» فيعيده زر أسفل اليمين. */}
+      {showBottomBar && (
+        <div
+          className="absolute inset-x-0 bottom-0 h-24 z-[105] bg-background/95 backdrop-blur border-t border-border flex flex-col"
+          data-testid="reading-bottom-bar"
+        >
+          <div className="flex-1 flex items-stretch">
+            <BarButton
+              icon={<BookmarkCheck className="w-5 h-5" />}
+              label="انتقال للعلامة"
+              onClick={goBookmark}
+              disabled={!bookmarkPage}
+              testId="reading-goto-bookmark"
+            />
+            <BarButton
+              icon={<Bookmark className="w-5 h-5" />}
+              label="حفظ علامة"
+              onClick={saveBookmark}
+              testId="reading-save-bookmark"
+            />
+            <BarButton
+              icon={<Sun className="w-5 h-5" />}
+              label="سطوع"
+              onClick={() => setShowBrightness((v) => !v)}
+              active={showBrightness}
+              testId="reading-brightness-btn"
+            />
+            <BarButton
+              icon={<ChevronDown className="w-5 h-5" />}
+              label="إخفاء"
+              onClick={() => setShowBottomBar(false)}
+              testId="reading-hide-bar"
+            />
+          </div>
+          <div className="flex-1 flex items-stretch border-t border-border/60">
+            <BarButton
+              icon={<LayoutGrid className="w-5 h-5" />}
+              label="الأحزاب"
+              onClick={() => setShowHizb(true)}
+              testId="reading-hizb-btn"
+            />
+            <BarButton
+              icon={<List className="w-5 h-5" />}
+              label="السور"
+              onClick={() => setShowIndex(true)}
+              testId="reading-surah-btn"
+            />
+            <BarButton
+              icon={<BookOpen className="w-5 h-5" />}
+              label="التفسير"
+              onClick={openPageTafsir}
+              testId="reading-tafsir-btn"
+            />
+            <BarButton
+              icon={<Info className="w-5 h-5" />}
+              label="حول التطبيق"
+              onClick={() => setShowAbout(true)}
+              testId="reading-about-btn"
+            />
+            <BarButton
+              icon={<Search className="w-5 h-5" />}
+              label="بحث"
+              onClick={() => navigate("/search")}
+              testId="reading-search-btn"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* [1.0.82] نافذة السطوع فوق الشريط. */}
+      {showBrightness && showBottomBar && (
+        <div
+          className="absolute bottom-28 right-3 z-[106] bg-card border border-border rounded-xl shadow-lg p-3 w-56"
+          data-testid="reading-brightness"
+        >
+          <div className="flex items-center gap-2 text-sm">
+            <Sun className="w-4 h-4 text-primary" />
+            <span className="flex-1">سطوع الصفحة</span>
+            <span className="text-xs text-muted-foreground">{toArabicNum(brightness)}٪</span>
+          </div>
+          <input
+            type="range"
+            min={20}
+            max={100}
+            value={brightness}
+            onChange={(e) => setBrightness(parseInt(e.target.value, 10))}
+            className="w-full mt-2"
+            aria-label="سطوع الصفحة"
+          />
+          <button
+            onClick={() => setShowBrightness(false)}
+            className="mt-1 text-xs text-muted-foreground"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
+
+      {/* [1.0.82] حول التطبيق. */}
+      {showAbout && (
+        <div
+          className="absolute inset-0 z-[130] bg-black/50 flex items-center justify-center p-6"
+          onClick={() => setShowAbout(false)}
+          data-testid="reading-about"
+        >
+          <div
+            className="bg-card border border-border rounded-2xl p-5 max-w-xs w-full text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              قالون عن نافع — الإصدار 1.0.82
+            </div>
+            <p className="text-sm mt-3 leading-relaxed">
+              المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
+              الكلمات وأحكام التجويد، ويعمل دون إنترنت إلا عند تحميل الصوت.
+            </p>
+            <button
+              onClick={() => setShowAbout(false)}
+              className="mt-4 px-5 py-2 rounded-full bg-primary text-primary-foreground text-sm"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* [1.0.82] قائمة الأحزاب — القفز إلى أول صفحة الحزب. */}
+      {showHizb && (
+        <HizbSheet
+          onClose={() => setShowHizb(false)}
+          onSelectPage={(p) => {
+            setShowHizb(false);
+            setShowTools(false);
+            goTo(p);
+          }}
+        />
       )}
 
       {/* [1.0.81] فهرس السور — بحث سريع والقفز لأول صفحة السورة. */}
