@@ -592,7 +592,7 @@ export default function ReadingMode({
   }, [manualFont]);
   useLayoutEffect(() => {
     fitPage();
-  }, [page, tajweed, manualFont, showBottomBar, fitPage]);
+  }, [page, tajweed, manualFont, showBottomBar, showTools, fitPage]);
   // [1.0.84] أعد الملاءمة بعد تحميل خط Scheherazade: القياس الأول
   // يجري بخط بديل أعرض فيُصغّر الخط أكثر من اللازم (19px بدل 21px
   // في ص69 — أثبته الفحص)، وإعادة القياس بعد تبديل الخط تصل للحد
@@ -634,9 +634,18 @@ export default function ReadingMode({
   }, [page]);
 
   const goBookmark = useCallback(() => {
-    if (bookmarkPage) goTo(bookmarkPage);
-    else setInfoToast("لا توجد علامة محفوظة بعد");
-  }, [bookmarkPage, goTo]);
+    if (!bookmarkPage) {
+      setInfoToast("لا توجد علامة محفوظة بعد");
+      return;
+    }
+    // [1.0.85] وأنت على صفحة العلامة أصلًا لا يحدث شيء مرئي —
+    // أعطِ تأكيدًا بدل الصمت حتى لا تبدو كأن الزر لا يعمل.
+    if (bookmarkPage === page) {
+      setInfoToast("أنت في صفحة العلامة الآن");
+      return;
+    }
+    goTo(bookmarkPage);
+  }, [bookmarkPage, page, goTo]);
 
   // [1.0.82] تفسير الصفحة: تفسير أول آية فيها.
   const openPageTafsir = useCallback(() => {
@@ -673,6 +682,41 @@ export default function ReadingMode({
   const turningRef = useRef(false);
   const swipedRef = useRef(false);
 
+  // [1.0.85] سلاسة القلب: تطبيق التحويل كان يجري مع كل حدث مؤشر
+  // (ظل يُعاد حسابه + فلتر المعاينة + قراءة عرض) فيعيد رسم ثلاث
+  // صفحات ملوّنة — فيتقطّع على الهاتف. الآن: عرض يُحفظ عند بدء
+  // السحب، ظل ثابت، فلتر بخطوات 5%، وتحويل translate3d عبر rAF.
+  const dragRafRef = useRef<number | null>(null);
+  const pendingDxRef = useRef<number | null>(null);
+  const dragWidthRef = useRef(360);
+  const lastFilterRef = useRef(-1);
+
+  const cancelDragRaf = useCallback(() => {
+    if (dragRafRef.current != null) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+    pendingDxRef.current = null;
+  }, []);
+
+  const applyDragFrame = useCallback(() => {
+    dragRafRef.current = null;
+    const el = flipRef.current;
+    const d = dragRef.current;
+    const eff = pendingDxRef.current;
+    if (!el || !d || eff == null || !d.dragging) return;
+    el.style.transition = "none";
+    el.style.transform = `translate3d(${eff}px, 0, 0)`;
+    const w = dragWidthRef.current;
+    const threshold = Math.max(100, w * 0.25);
+    const q = Math.round(Math.min(1, Math.abs(eff) / threshold) / 0.05);
+    if (q !== lastFilterRef.current && d.dir) {
+      lastFilterRef.current = q;
+      const pv = d.dir === 1 ? previewNextRef.current : previewPrevRef.current;
+      if (pv) pv.style.filter = `brightness(${0.88 + 0.12 * (q * 0.05)})`;
+    }
+  }, []);
+
   const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
   const EASE_SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 
@@ -707,6 +751,7 @@ export default function ReadingMode({
 
   const resetFlip = useCallback(
     (animate: boolean) => {
+      cancelDragRaf();
       const el = flipRef.current;
       if (!el) return;
       el.style.transition = animate
@@ -716,7 +761,7 @@ export default function ReadingMode({
       el.style.opacity = "";
       el.style.boxShadow = "";
     },
-    [EASE_SPRING]
+    [EASE_SPRING, cancelDragRaf]
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -737,30 +782,32 @@ export default function ReadingMode({
       }
       if (Math.abs(dx) <= 10) return;
       d.dragging = true;
+      dragWidthRef.current = contentRef.current?.clientWidth ?? 360;
+      lastFilterRef.current = -1;
+      // ظل ثابت طوال السحب بدل إعادة حسابه مع كل حركة.
+      el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.35)";
     }
     const dir: 1 | -1 = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
-    const w = contentRef.current?.clientWidth ?? 360;
+    const w = dragWidthRef.current;
     const threshold = Math.max(100, w * 0.25);
     if (d.dir !== dir) {
       d.dir = dir;
       showPreview(dir, Math.abs(dx) / threshold);
-    } else {
-      const pv = dir === 1 ? previewNextRef.current : previewPrevRef.current;
-      if (pv) pv.style.filter = `brightness(${0.88 + 0.12 * Math.min(1, Math.abs(dx) / threshold)})`;
     }
     // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
     let eff = dx;
     if ((dx < 0 && page >= 604) || (dx > 0 && page <= 1)) eff = dx * 0.4;
-    // [1.0.82] انزلاق أفقي صافٍ بلا ميلان — كشريط الصور في الفيديو.
-    const mag = Math.abs(eff);
-    el.style.transition = "none";
-    el.style.transform = `translateX(${eff}px)`;
-    el.style.boxShadow = `0 ${10 + mag / 12}px ${28 + mag / 3}px rgba(0,0,0,0.35)`;
+    // [1.0.85] طبّق التحويل مرة واحدة لكل إطار (rAF) بدل كل حدث.
+    pendingDxRef.current = eff;
+    if (dragRafRef.current == null) {
+      dragRafRef.current = requestAnimationFrame(applyDragFrame);
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
     const d = dragRef.current;
     dragRef.current = null;
+    cancelDragRaf();
     if (!d || !d.dragging || turningRef.current) return;
     const dx = e.clientX - d.x;
     const w = contentRef.current?.clientWidth ?? 360;
@@ -793,7 +840,7 @@ export default function ReadingMode({
     const el = flipRef.current;
     if (el) {
       el.style.transition = `transform 300ms ${EASE_OUT}, opacity 300ms ${EASE_OUT}`;
-      el.style.transform = `translateX(${-dir * (w + 80)}px)`;
+      el.style.transform = `translate3d(${-dir * (w + 80)}px, 0, 0)`;
       el.style.opacity = "0.7";
     }
     window.setTimeout(() => {
@@ -806,6 +853,7 @@ export default function ReadingMode({
 
   const onPointerCancel = () => {
     dragRef.current = null;
+    cancelDragRaf();
     if (!turningRef.current) {
       hidePreviews(true);
       resetFlip(true);
@@ -861,6 +909,11 @@ export default function ReadingMode({
   const startSurah = range ? SURAHS[range.startSurah - 1] : null;
   const endSurah = range ? SURAHS[range.endSurah - 1] : null;
 
+  // [1.0.85] لوحة الأدوات عائمة فوق الصفحة (مقاسة: 129px مع دليل
+  // التجويد، 81px بدونه) وpt-10 (40px) لا يكفي — فيُخفى أعلى النص
+  // (81px) خلفها حين تكون مفتوحة. الحشوة العلوية تكبر معها.
+  const toolsPadTop = showTools ? (tajweed ? "pt-[140px]" : "pt-24") : "pt-10";
+
   return (
     <div className="fixed inset-0 z-[100] bg-background flex flex-col" data-testid="reading-mode">
       {/* Hidden ayah-audio elements (same pattern as the player). */}
@@ -888,7 +941,7 @@ export default function ReadingMode({
           <div
             ref={previewNextRef}
             data-testid="reading-preview-next"
-            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]"
+            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc] ${toolsPadTop}`}
             style={{ opacity: 0 }}
             aria-hidden
           >
@@ -908,7 +961,7 @@ export default function ReadingMode({
           <div
             ref={previewPrevRef}
             data-testid="reading-preview-prev"
-            className="absolute inset-0 px-5 pt-10 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]"
+            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc] ${toolsPadTop}`}
             style={{ opacity: 0 }}
             aria-hidden
           >
@@ -926,7 +979,7 @@ export default function ReadingMode({
         )}
         <div
           ref={flipRef}
-          className="relative min-h-full px-5 pt-10 pb-6 bg-[#f8f2dc]"
+          className={`relative min-h-full px-5 pb-6 bg-[#f8f2dc] ${toolsPadTop}`}
           style={{ willChange: "transform" }}
         >
           <PageContent
@@ -966,16 +1019,20 @@ export default function ReadingMode({
         </div>
       )}
 
-      {/* [1.0.82] رسالة معلومات صغيرة (حفظ علامة وغيرها). */}
+      {/* [1.0.82] رسالة معلومات صغيرة (حفظ علامة وغيرها).
+          [1.0.85] كانت bottom-16 وz-20 فتختفي خلف الشريط السفلي
+          (96px وz-105) حين يكون مفتوحًا — فيضغط «حفظ علامة» ولا
+          يرى شيئًا فيظن الزر لا يعمل. حين يظهر الشريط ترتفع فوقه. */}
       {infoToast && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 bg-foreground text-background px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none">
+        <div className={`absolute left-1/2 -translate-x-1/2 bg-foreground text-background px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none ${showBottomBar ? "bottom-28 z-[110]" : "bottom-16 z-20"}`}>
           {infoToast}
         </div>
       )}
 
-      {/* خطأ صوت — رسالة صغيرة فوق الحبّة تختفي وحدها بعد ٤ ثوانٍ */}
+      {/* خطأ صوت — رسالة صغيرة فوق الحبّة تختفي وحدها بعد ٤ ثوانٍ
+          [1.0.85] نفس إصلاح التنبيه: فوق الشريط حين يكون مفتوحًا. */}
       {ayahError && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none">
+        <div className={`absolute left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md pointer-events-none ${showBottomBar ? "bottom-28 z-[110]" : "bottom-16 z-20"}`}>
           {ayahError}
         </div>
       )}
@@ -1063,7 +1120,7 @@ export default function ReadingMode({
               </button>
             </div>
             {tajweed && (
-              <div className="px-4 pb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              <div className="px-4 pt-2 pb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
                 <span className="text-xs text-muted-foreground">أحكام التجويد — اضغط أي حرف ملوّن لشرح حكمه:</span>
                 {TAJWEED_LEGEND.map((item) => (
                   <span key={item.label} className="flex items-center gap-1 text-xs">
@@ -1270,7 +1327,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.84
+              قالون عن نافع — الإصدار 1.0.85
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
