@@ -559,6 +559,26 @@ export default function ReadingMode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
+  // [1.0.92] الحشوة العلوية تُقاس من الشريط نفسه، لا رقم ثابت:
+  // 1.0.85 قدّر 129px فصارت 140px، و1.0.91 قاس 137px فصارت
+  // 150px، ومع ذلك عاد الطلب «نزّله قليلًا» — لأن ارتفاع الشريط
+  // يتغير مع الجهاز وحجم خط النظام والتفاف الدليل، فأي رقم ثابت
+  // سيخطئ على هاتف ما. ResizeObserver يقيس الشريط العلوي حيًا
+  // (+16px هامش) وتُعاد الملاءمة مع كل قياس جديد.
+  const toolsTopRef = useRef<HTMLDivElement | null>(null);
+  const [toolsTopH, setToolsTopH] = useState(0);
+  useEffect(() => {
+    if (!showTools) return;
+    const el = toolsTopRef.current;
+    if (!el) return;
+    const measure = () => setToolsTopH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showTools, tajweed]);
+  const toolsPadTopPx = showTools ? toolsTopH + 16 : 40;
+
   // [1.0.79] الصفحة كاملة: كيّف حجم الخط حتى تدخل الصفحة كلها في
   // الشاشة بلا تمرير عمودي. يبدأ من ٣٠ ويصغّر درجة درجة حتى يتسع
   // المحتوى (أرضية ١٥). يعاد القياس عند تغيير الصفحة أو التجويد
@@ -591,7 +611,7 @@ export default function ReadingMode({
   }, [manualFont]);
   useLayoutEffect(() => {
     fitPage();
-  }, [page, tajweed, manualFont, showBottomBar, showTools, fitPage]);
+  }, [page, tajweed, manualFont, showBottomBar, showTools, fitPage, toolsTopH]);
   // [1.0.84] أعد الملاءمة بعد تحميل خط Uthman Taha: القياس الأول
   // يجري بخط بديل أعرض فيُصغّر الخط أكثر من اللازم (19px بدل 21px
   // في ص69 — أثبته الفحص)، وإعادة القياس بعد تبديل الخط تصل للحد
@@ -908,13 +928,6 @@ export default function ReadingMode({
   const startSurah = range ? SURAHS[range.startSurah - 1] : null;
   const endSurah = range ? SURAHS[range.endSurah - 1] : null;
 
-  // [1.0.85] لوحة الأدوات عائمة فوق الصفحة (مقاسة: 137px مع دليل
-  // التجويد، 81px بدونه) وpt-10 (40px) لا يكفي — فيُخفى أعلى النص
-  // (81px) خلفها حين تكون مفتوحة. الحشوة العلوية تكبر معها.
-  // [1.0.91] القياس بالفحص (probe91): الشريط العلوي 137px مع
-  // الدليل، فالحشوة 140px تترك 3px فقط — رُفعت إلى 150px.
-  const toolsPadTop = showTools ? (tajweed ? "pt-[150px]" : "pt-24") : "pt-10";
-
   return (
     <div className="fixed inset-0 z-[100] bg-background flex flex-col" data-testid="reading-mode">
       {/* Hidden ayah-audio elements (same pattern as the player). */}
@@ -942,8 +955,8 @@ export default function ReadingMode({
           <div
             ref={previewNextRef}
             data-testid="reading-preview-next"
-            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc] ${toolsPadTop}`}
-            style={{ opacity: 0 }}
+            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]`}
+            style={{ opacity: 0, paddingTop: toolsPadTopPx }}
             aria-hidden
           >
             <PageContent
@@ -962,8 +975,8 @@ export default function ReadingMode({
           <div
             ref={previewPrevRef}
             data-testid="reading-preview-prev"
-            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc] ${toolsPadTop}`}
-            style={{ opacity: 0 }}
+            className={`absolute inset-0 px-5 pb-6 overflow-hidden pointer-events-none bg-[#f8f2dc]`}
+            style={{ opacity: 0, paddingTop: toolsPadTopPx }}
             aria-hidden
           >
             <PageContent
@@ -980,8 +993,8 @@ export default function ReadingMode({
         )}
         <div
           ref={flipRef}
-          className={`relative min-h-full px-5 pb-6 bg-[#f8f2dc] ${toolsPadTop}`}
-          style={{ willChange: "transform" }}
+          className={`relative min-h-full px-5 pb-6 bg-[#f8f2dc]`}
+          style={{ willChange: "transform", paddingTop: toolsPadTopPx }}
         >
           <PageContent
             page={page}
@@ -1020,9 +1033,14 @@ export default function ReadingMode({
         )}
       </div>
 
-      {/* [1.0.82] تنبيه ربع الحزب — حبّة داكنة أعلى الصفحة مثل الفيديو. */}
+      {/* [1.0.82] تنبيه ربع الحزب — حبّة داكنة مثل الفيديو.
+          [1.0.92] كانت أعلى الصفحة في المنتصف (top-3) فتغطي أول
+          سطر حين تكون الأدوات مغلقة، وتغطي الشريط العلوي حين
+          تكون مفتوحة — «غير واضحة فوق». بأمره: إلى اليمين أسفل
+          الشاشة (bottom-28 right-4): فوق الشريط السفلي بـ16px
+          وفوق آخر سطر بـ32px، ولا تغطي نصًا ولا زرًا أبدًا. */}
       {quarterToast && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-black/70 text-white px-3 py-1 rounded-full text-xs whitespace-nowrap pointer-events-none">
+        <div className="absolute bottom-28 right-4 z-20 bg-black/70 text-white px-3 py-1 rounded-full text-xs whitespace-nowrap pointer-events-none">
           {quarterToast}
         </div>
       )}
@@ -1098,7 +1116,7 @@ export default function ReadingMode({
       {/* Tools overlay */}
       {showTools && (
         <div data-testid="reading-tools">
-          <div className="absolute inset-x-0 top-0 bg-background/95 backdrop-blur border-b border-border">
+          <div ref={toolsTopRef} className="absolute inset-x-0 top-0 bg-background/95 backdrop-blur border-b border-border">
             <div className="px-4 py-3 flex items-center gap-2">
               <button
                 onClick={() => navigate(`/mushaf/${page}`)}
@@ -1348,7 +1366,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.91
+              قالون عن نافع — الإصدار 1.0.92
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
