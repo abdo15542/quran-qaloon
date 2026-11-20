@@ -454,16 +454,18 @@ function levenshtein(a: string, b: string): number {
 }
 
 /**
- * Fuzzy word match: tolerates up to 2 character edits per word,
- * scaled proportionally so short words are stricter.
+ * Fuzzy word match: tolerates at most ONE character edit per word.
+ * [1.0.96] كان الحد 2 للكلمات الطويلة، فقبل «العليم» بدل «الرحيم»
+ * و«الرحيم» بدل «الرحمن» (كلها على بعد حرفين) — فيُحسب الخطأ صوابًا
+ * ولا يتوقف التسميع. التشديد إلى حرف واحد يبقي التسامح المطلوب
+ * (مثل «الرحمن/الرحمان» = حرف واحد) ويمنع الخلط بين كلمات مختلفة.
  */
-function fuzzyWordMatch(a: string, b: string): boolean {
+export function fuzzyWordMatch(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
   const maxLen = Math.max(a.length, b.length);
   if (maxLen <= 3) return a === b;
-  const maxEdits = maxLen <= 5 ? 1 : maxLen <= 8 ? 2 : 3;
-  return levenshtein(a, b) <= maxEdits;
+  return levenshtein(a, b) <= 1;
 }
 
 /**
@@ -496,7 +498,12 @@ function alignWordSequences(
       const skipRef = dp[i - 1][j];
       const skipSpoken = dp[i][j - 1];
 
-      if (matched && matchScore >= skipRef && matchScore >= skipSpoken) {
+      // [1.0.96] ربط صارم (> لا >=): عند التعادل تكون الكلمة المنطوقة
+      // قد طابقت كلمة مرجعية سابقة (مثلاً «الله» تطابق «لله» أيضًا)،
+      // فيسرق التراجعُ العكسي من آخر المصفوفةِ الكلمةَ اللاحقةَ
+      // ويترك السابقة غير مطابقة — فيُقرأ «بسم الله» خطأً، وتُخفى
+      // آية منسية خلف كلمة خاطئة. الربط الصارم يجبر أقدم مطابقة.
+      if (matched && matchScore > skipRef && matchScore > skipSpoken) {
         dp[i][j] = matchScore;
         choice[i][j] = 2;
       } else if (skipRef >= skipSpoken) {
@@ -560,4 +567,210 @@ export function compareTexts(
       : 0;
 
   return { words, score };
+}
+
+// [1.0.96] التسميع المتواصل للسورة كاملة — محاذاة تدفق الكلام.
+// الفكرة: المسمَّع لا يقرأ آية واحدة ثم يتوقف، بل يقرأ السورة كاملة؛
+// فالمقارنة تجري على تدفق كلمات السورة كلها (نافذة من آيات كاملة)،
+// لا على آية واحدة بعد انتهائها. القاعدة الحاسمة: كلمات مرجعية غير
+// مطابقة يتبعها كلمات مطابقة = خطأ؛ أما غير المطابقة في آخر التدفق
+// فهي كلمات لم تُقَل بعد، لا خطأ.
+export interface StreamWord {
+  word: string;
+  ayah: number;
+}
+
+export interface StreamDiagnosis {
+  kind: "ok" | "wrong-word" | "skipped-ayah";
+  /** كلمات مرجعية سليمة من أول النافذة (يُتقدَّم بها موضع الاستماع). */
+  consumed: number;
+  errorAyah: number | null;
+  skippedAyahs: number[];
+  wrongSpoken: string | null;
+  /** عدد الكلمات المنطوقة التي طابقت شيئًا في النافذة (0 = قفز بعيدًا). */
+  matchedSpoken: number;
+}
+
+/**
+ * DP alignment returning BOTH masks (same DP as alignWordSequences).
+ * A spoken word is "matched" when the traceback pairs it with a ref word.
+ * spokenToRef[i] = ref index paired with spoken word i, or -1.
+ */
+function alignStreams(
+  refWords: string[],
+  spokenWords: string[]
+): { refMatched: boolean[]; spokenMatched: boolean[]; spokenToRef: number[] } {
+  const n = refWords.length;
+  const m = spokenWords.length;
+  const refMatched = new Array(n).fill(false);
+  const spokenMatched = new Array(m).fill(false);
+  const spokenToRef = new Array(m).fill(-1);
+  if (m === 0) return { refMatched, spokenMatched, spokenToRef };
+
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  const choice: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const matched = fuzzyWordMatch(refWords[i - 1], spokenWords[j - 1]);
+      const matchScore = dp[i - 1][j - 1] + (matched ? 1 : 0);
+      const skipRef = dp[i - 1][j];
+      const skipSpoken = dp[i][j - 1];
+      // [1.0.96] ربط صارم (> لا >=): عند التعادل تكون الكلمة المنطوقة
+      // قد طابقت كلمة مرجعية سابقة (مثلاً «الله» تطابق «لله» أيضًا)،
+      // فيسرق التراجعُ العكسي من آخر المصفوفةِ الكلمةَ اللاحقةَ
+      // ويترك السابقة غير مطابقة — فيُقرأ «بسم الله» خطأً، وتُخفى
+      // آية منسية خلف كلمة خاطئة. الربط الصارم يجبر أقدم مطابقة.
+      if (matched && matchScore > skipRef && matchScore > skipSpoken) {
+        dp[i][j] = matchScore;
+        choice[i][j] = 2;
+      } else if (skipRef >= skipSpoken) {
+        dp[i][j] = skipRef;
+        choice[i][j] = 0;
+      } else {
+        dp[i][j] = skipSpoken;
+        choice[i][j] = 1;
+      }
+    }
+  }
+
+  let i = n, j = m;
+  while (i > 0 && j > 0) {
+    if (choice[i][j] === 2) {
+      if (fuzzyWordMatch(refWords[i - 1], spokenWords[j - 1])) {
+        refMatched[i - 1] = true;
+        spokenMatched[j - 1] = true;
+        spokenToRef[j - 1] = i - 1;
+      }
+      i--; j--;
+    } else if (choice[i][j] === 0) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+  return { refMatched, spokenMatched, spokenToRef };
+}
+
+/**
+ * Diagnose one chunk of spoken words against a window of WHOLE ayahs.
+ * `ref` must contain complete ayahs only (no ayah cut by the window edge),
+ * otherwise a cut ayah cannot be told apart from a skipped one.
+ */
+export function diagnoseStream(
+  ref: StreamWord[],
+  spokenRaw: string[]
+): StreamDiagnosis {
+  const ok: StreamDiagnosis = { kind: "ok", consumed: 0, errorAyah: null, skippedAyahs: [], wrongSpoken: null, matchedSpoken: 0 };
+  if (ref.length === 0) return ok;
+  const spoken = spokenRaw.map((w) => stripTashkeel(w)).filter((w) => w.length > 1);
+  const spokenOriginal = spokenRaw.filter((w) => stripTashkeel(w).length > 1);
+  if (spoken.length === 0) return ok;
+
+  const refWords = ref.map((w) => stripTashkeel(w.word));
+  const { refMatched, spokenMatched, spokenToRef } = alignStreams(refWords, spoken);
+  const matchedSpoken = spokenMatched.filter(Boolean).length;
+  ok.matchedSpoken = matchedSpoken;
+
+  // [1.0.96] كلمة منطوقة لا تطابق شيئًا قبل آخر كلمة مطابقة = خطأ
+  // (إدراج أو كلمة خاطئة وسط الآية) — حتى لو بقيت كلمات مرجعية
+  // لم تُقَل بعد. دون هذا الفحص تُهمل الكلمة الزائدة في المقطع الجزئي.
+  const lastMatchedSpoken = spokenMatched.lastIndexOf(true);
+  const earlyExtraIdx = spokenMatched.findIndex((m, idx) => !m && idx < lastMatchedSpoken);
+  if (earlyExtraIdx !== -1) {
+    const firstBadTmp = refMatched.findIndex((m) => !m);
+    // آية الخطأ = آية الكلمة المنطوقة السابقة للزائدة، لا أول كلمة
+    // مرجعية غير مطابقة (قد تكون في الآية التالية).
+    const anchorRef = earlyExtraIdx > 0 ? spokenToRef[earlyExtraIdx - 1] : 0;
+    return {
+      kind: "wrong-word",
+      consumed: firstBadTmp === -1 ? ref.length : firstBadTmp,
+      errorAyah: ref[Math.max(0, anchorRef)].ayah,
+      skippedAyahs: [],
+      wrongSpoken: spokenOriginal[earlyExtraIdx] ?? spoken[earlyExtraIdx] ?? null,
+      matchedSpoken,
+    };
+  }
+
+  const firstBad = refMatched.findIndex((m) => !m);
+  if (firstBad === -1) {
+    // كل الكلمات المرجعية مطابقة — لكن كلمة منطوقة زائدة خطأ أيضًا.
+    const extraIdx = spokenMatched.findIndex((m) => !m);
+    if (extraIdx !== -1) {
+      const anchorRef = extraIdx > 0 ? spokenToRef[extraIdx - 1] : ref.length - 1;
+      return {
+        kind: "wrong-word",
+        consumed: ref.length,
+        errorAyah: ref[Math.max(0, anchorRef)].ayah,
+        skippedAyahs: [],
+        wrongSpoken: spokenOriginal[extraIdx] ?? spoken[extraIdx] ?? null,
+        matchedSpoken,
+      };
+    }
+    return { ...ok, consumed: ref.length };
+  }
+
+  // مدى الكلمات غير المطابقة بدءًا من أول خطأ.
+  let runEnd = firstBad;
+  while (runEnd < ref.length && !refMatched[runEnd]) runEnd++;
+
+  if (runEnd === ref.length) {
+    // غير مطابقة في آخر التدفق فقط: كلمات لم تُقَل بعد — لكن كلمة
+    // منطوقة زائدة بعد آخر كلمة مطابقة لا تطابق الكلمات القادمة
+    // (نظرة 3 كلمات) فهي خطأ أيضًا، لا «لم تُقَل بعد».
+    const after = spoken.slice(lastMatchedSpoken + 1);
+    if (after.length > 0) {
+      const upcoming = refWords.slice(firstBad, firstBad + 3);
+      const badIdx = after.findIndex((w) => !upcoming.some((u) => fuzzyWordMatch(u, w)));
+      if (badIdx !== -1) {
+        // آية الخطأ = آية آخر كلمة مرجعية سليمة، لا آية أول كلمة
+        // لم تُقَل بعد (هي في الآية التالية).
+        return {
+          kind: "wrong-word",
+          consumed: firstBad,
+          errorAyah: firstBad > 0 ? ref[firstBad - 1].ayah : ref[0].ayah,
+          skippedAyahs: [],
+          wrongSpoken: spokenOriginal[lastMatchedSpoken + 1 + badIdx] ?? after[badIdx] ?? null,
+          matchedSpoken,
+        };
+      }
+    }
+    return { ...ok, consumed: firstBad };
+  }
+
+  // خطأ داخلي: كلمات غير مطابقة يتبعها كلمات مطابقة.
+  const runAyahs = [...new Set(ref.slice(firstBad, runEnd).map((w) => w.ayah))];
+  const skippedAyahs = runAyahs.filter((a) => {
+    let anyInWindow = false;
+    let allUnmatched = true;
+    for (let k = 0; k < ref.length; k++) {
+      if (ref[k].ayah === a) {
+        anyInWindow = true;
+        if (refMatched[k]) {
+          allUnmatched = false;
+          break;
+        }
+      }
+    }
+    return anyInWindow && allUnmatched;
+  });
+  if (skippedAyahs.length > 0) {
+    return {
+      kind: "skipped-ayah",
+      consumed: firstBad,
+      errorAyah: skippedAyahs[0],
+      skippedAyahs,
+      wrongSpoken: null,
+      matchedSpoken,
+    };
+  }
+  const wrongIdx = spokenMatched.findIndex((m) => !m);
+  return {
+    kind: "wrong-word",
+    consumed: firstBad,
+    errorAyah: ref[firstBad].ayah,
+    skippedAyahs: [],
+    wrongSpoken: wrongIdx !== -1 ? (spokenOriginal[wrongIdx] ?? spoken[wrongIdx] ?? null) : null,
+    matchedSpoken,
+  };
 }

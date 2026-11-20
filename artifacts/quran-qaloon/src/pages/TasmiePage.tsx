@@ -1,16 +1,12 @@
-// [1.0.95] التسميع — سمّع القرآن على التطبيق دون إنترنت وبدون ذكاء اصطناعي.
-// الفكرة (أمر المستخدم 2026-11-20): أقرأ القرآن على التطبيق، فإن أخطأت في
-// كلمة أو آية نبّهني تلقائيًا بصوت عالٍ دون أن يسمّعني الآية، بل يقول لي
-// «عاود الآية التي قبلها»؛ وإن قلت «سمّعني الآية» قرأها لي وسجّلها عنده.
-// التنفيذ: نص الآية مخفي أثناء المحاولة (لا يُعرض ولا يُسمَّع)، والاستماع من
-// خدمة التعرف على الصوت في الهاتف نفسه (@capacitor-community/speech-recognition
-// — نفس محرك فاحص التجويد)، والمقارنة على الجهاز بمطابقة الكلمات
-// (compareTexts — مسافة ليفنشتاين + محاذاة DP، لا نموذج ذكاء اصطناعي ولا سحابة).
-// الخطأ في كلمة واحدة يكفي للتنبيه (ليس النسبة): أي كلمة غير صحيحة أو فائتة.
-// التنبيه: نغمة عالية (Web Audio — لا ملف) + اهتزاز + لافتة حمراء، ثم يرجع
-// الموضع آية واحدة إلى الوراء (الآية التي قبلها). «سمّعني الآية» تُسمِع الصوت
-// (offline-first من ayah-cache) وتكشف النص مؤقتًا، وتسجّل الآية في قائمة
-// «آيات طلبتُ تسميعها» المحفوظة محليًا.
+// [1.0.96] التسميع المتواصل للسورة كاملة — إصلاح دقة 1.0.95.
+// ما كان خاطئًا في 1.0.95: كان يفحص آية واحدة فقط بعد أن يضغط المستخدم
+// «إيقاف»، فلم يكن قادرًا أبدًا على اكتشاف آية نُسيت في منتصف السورة.
+// الجديد: يقرأ المستخدم السورة كاملة دون توقف، والتطبيق يستمع باستمرار
+// (يعيد تشغيل التعرف تلقائيًا عند كل صمت)، ويقارن تدفق الكلام لحظيًا
+// بنص السورة كاملاً (diagnoseStream): فإن أخطأ في كلمة أو نسي آية
+// أوقفه تلقائيًا بالتنبيه العالي في لحظتها — «خطأ في كلمة» أو
+// «توجد آية ناقصة» — دون أن يسمّعها له. «سمّعني الآية» تُسمِعها
+// وتسجّلها، كما في 1.0.95. دون إنترنت وبدون ذكاء اصطناعي.
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import {
@@ -27,17 +23,28 @@ import {
   BookOpen,
   Play,
   Square,
+  Pause,
 } from "lucide-react";
 import { SURAHS, RECITERS, buildAyahAudioUrl, getGlobalAyahNumber, getRecitersForQirah } from "@/data/surahs";
 import { getSurahAyahs, getAyah, displayAyahText } from "@/data/quran-text";
 import { getStoredQirahId, getStoredReciterId } from "@/pages/SurahPlayer";
 import { useOfflineStorage } from "@/hooks/useOfflineStorage";
-import { useSpeechRecognition, compareTexts, stripTashkeel } from "@/hooks/useSpeechRecognition";
+import {
+  useSpeechRecognition,
+  stripTashkeel,
+  diagnoseStream,
+  type StreamWord,
+  type StreamDiagnosis,
+} from "@/hooks/useSpeechRecognition";
 
 const LAST_KEY = "quran_tasmie_last";
 const HELPED_KEY = "quran_tasmie_helped";
-// أي كلمة غير مطابقة أو فائتة = خطأ يستحق التنبيه (أمر المستخدم: «كلمة أو آية»).
 const HELP_COMMANDS = ["سمعني", "سمي لي", "سمع لي"];
+// نافذة المقارنة: آيات كاملة حتى 80 كلمة تقريبًا (تكفي لالتقاط آية منسية).
+const WINDOW_WORDS = 80;
+const LIVE_CONFIRM_MS = 900;
+const RESTART_DELAY_MS = 300;
+const MAX_EMPTY_CHUNKS = 8;
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
@@ -75,14 +82,20 @@ function loadHelped(): HelpedAyah[] {
   return [];
 }
 
+interface SurahWord extends StreamWord {
+  isFirstOfAyah: boolean;
+}
+
 export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boolean; toggleDarkMode: () => void }) {
   const [surah, setSurah] = useState<number>(() => loadLast().s);
   const [startAyah, setStartAyah] = useState<number>(() => loadLast().a);
   const [started, setStarted] = useState(false);
-  const [ayah, setAyah] = useState<number>(() => loadLast().a);
+  const [words, setWords] = useState<SurahWord[]>([]);
+  const [pos, setPos] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [statusKind, setStatusKind] = useState<"ok" | "error" | "info">("info");
+  const [errorAyah, setErrorAyah] = useState<number | null>(null);
   const [lastHeard, setLastHeard] = useState("");
   const [wrongCount, setWrongCount] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
@@ -90,6 +103,8 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const [helped, setHelped] = useState<HelpedAyah[]>(() => loadHelped());
   const [playingHelp, setPlayingHelp] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [loopActive, setLoopActive] = useState(false);
+  const [completed, setCompleted] = useState(false);
 
   const { state, start, stop, reset } = useSpeechRecognition();
   const { getCachedAyahUrl, cacheAyahAudio } = useOfflineStorage();
@@ -97,24 +112,27 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const audioCtxRef = useRef<AudioContext | null>(null);
   const prevListening = useRef(false);
   const prevTranscript = useRef("");
-  const ayahRef = useRef(ayah);
+  const posRef = useRef(0);
+  const wordsRef = useRef<SurahWord[]>([]);
   const surahRef = useRef(surah);
-  const startedRef = useRef(started);
-  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loopActiveRef = useRef(false);
+  const pausedOnErrorRef = useRef(false);
+  const helpPlayingRef = useRef(false);
+  const chunkErrorFiredRef = useRef(false);
+  const emptyStreakRef = useRef(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingErrorRef = useRef<{ key: string; diagnosis: StreamDiagnosis } | null>(null);
+  const interimRef = useRef("");
 
-  useEffect(() => {
-    ayahRef.current = ayah;
-  }, [ayah]);
   useEffect(() => {
     surahRef.current = surah;
   }, [surah]);
-  useEffect(() => {
-    startedRef.current = started;
-  }, [started]);
 
   useEffect(() => {
     return () => {
-      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
       if (audioRef.current) audioRef.current.pause();
       if (audioCtxRef.current) void audioCtxRef.current.close().catch(() => undefined);
     };
@@ -128,8 +146,35 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     }
   }, []);
 
-  // النغمة العالية: تُنشأ من أول ضغطة ميكروفون (إيماءة المستخدم) حتى لا
-  // يبدأ AudioContext موقوفًا في WebView عند التنبيه اللاحق.
+  const currentAyah = pos < words.length ? words[pos].ayah : words.length > 0 ? words[words.length - 1].ayah : startAyah;
+  const totalAyahs = SURAHS.find((s) => s.number === surah)?.numberOfAyahs ?? 0;
+
+  const ayahStartPos = useCallback((ayahNum: number): number => {
+    const idx = wordsRef.current.findIndex((w) => w.ayah === ayahNum);
+    return idx === -1 ? wordsRef.current.length : idx;
+  }, []);
+
+  const ayahEndPos = useCallback((ayahNum: number): number => {
+    let end = wordsRef.current.length;
+    for (let i = wordsRef.current.length - 1; i >= 0; i--) {
+      if (wordsRef.current[i].ayah === ayahNum) {
+        end = i + 1;
+        break;
+      }
+    }
+    return end;
+  }, []);
+
+  const setPosition = useCallback(
+    (p: number) => {
+      posRef.current = p;
+      setPos(p);
+      const a = p < wordsRef.current.length ? wordsRef.current[p].ayah : totalAyahs;
+      saveLast(surahRef.current, Math.max(1, a));
+    },
+    [saveLast, totalAyahs]
+  );
+
   const ensureAudioCtx = useCallback(() => {
     try {
       if (!audioCtxRef.current) {
@@ -160,12 +205,12 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
             o.frequency.value = f;
             o.connect(g);
             g.connect(ctx.destination);
-            const start = now + t + i * 0.17;
-            g.gain.setValueAtTime(0.0001, start);
-            g.gain.exponentialRampToValueAtTime(0.5, start + 0.02);
-            g.gain.exponentialRampToValueAtTime(0.0001, start + 0.15);
-            o.start(start);
-            o.stop(start + 0.16);
+            const startAt = now + t + i * 0.17;
+            g.gain.setValueAtTime(0.0001, startAt);
+            g.gain.exponentialRampToValueAtTime(0.5, startAt + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.15);
+            o.start(startAt);
+            o.stop(startAt + 0.16);
           });
         });
       } catch {
@@ -186,46 +231,266 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     return reciters.find((r) => r.id === reciterId) ?? reciters[0] ?? RECITERS[0];
   }, []);
 
-  const moveTo = useCallback(
-    (s: number, a: number) => {
-      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
-      const total = getSurahAyahs(s).length;
-      const next = Math.min(Math.max(a, 1), total);
-      setAyah(next);
-      setRevealed(false);
-      setStatus(null);
-      setLastHeard("");
-      setAudioError(null);
-      saveLast(s, next);
+  // نافذة مقارنة من الموضع الحالي: آيات كاملة حتى حد الكلمات.
+  const buildWindow = useCallback(
+    (fromPos: number, minWords = WINDOW_WORDS): { words: SurahWord[]; endPos: number } => {
+      const list = wordsRef.current;
+      if (fromPos >= list.length) return { words: [], endPos: list.length };
+      const out: SurahWord[] = [];
+      let i = fromPos;
+      // الآية الحالية من موضعها (قد تكون منتصف آية)، ثم آيات كاملة بعدها.
+      while (i < list.length && out.length < minWords) {
+        out.push({ ...list[i], isFirstOfAyah: false });
+        i++;
+      }
+      // أكمل آخر آية حتى نهايتها: النافذة تنتهي دائمًا عند حد آية،
+      // فلا تُقطع آية في آخر النافذة وتُقرأ خطأً على أنها منسية.
+      while (i < list.length && out.length > 0 && list[i].ayah === out[out.length - 1].ayah) {
+        out.push({ ...list[i], isFirstOfAyah: false });
+        i++;
+      }
+      // علامة أول كلمة في الآية: صحيحة فقط إن كانت فعلاً أول كلمة
+      // في الآية داخل النافذة (أي أن النافذة بدأت عند أول الآية).
+      const fixed = out.map((w, idx) => {
+        if (idx === 0) return { ...w, isFirstOfAyah: fromPos === ayahStartPos(w.ayah) };
+        const prev = out[idx - 1];
+        return { ...w, isFirstOfAyah: prev.ayah !== w.ayah };
+      });
+      return { words: fixed, endPos: i };
     },
-    [saveLast]
+    [ayahStartPos]
   );
 
-  const advance = useCallback(() => {
-    const s = surahRef.current;
-    const a = ayahRef.current;
-    const total = getSurahAyahs(s).length;
-    if (a < total) {
-      moveTo(s, a + 1);
-    } else if (s < 114) {
-      setSurah(s + 1);
-      moveTo(s + 1, 1);
-    } else {
-      setStatus("أتممتَ تسميع المصحف كاملاً — تبارك الله!");
-      setStatusKind("ok");
+  // تشخيص مقطع منطوق من الموضع الحالي، مع بحث أبعد إن قفز بعيدًا.
+  const diagnoseChunk = useCallback(
+    (spokenText: string): StreamDiagnosis & { jumpSkipped?: number[] } => {
+      let spokenWords = spokenText.split(/\s+/).filter(Boolean);
+      const ok: StreamDiagnosis & { jumpSkipped?: number[] } = {
+        kind: "ok",
+        consumed: 0,
+        errorAyah: null,
+        skippedAyahs: [],
+        wrongSpoken: null,
+        matchedSpoken: 0,
+      };
+      if (spokenWords.length === 0 || posRef.current >= wordsRef.current.length) return ok;
+      // سورة التوبة (9) لا بسملة في نصها؛ فإن بدأ بها عند أول السورة
+      // فهي ليست خطأً بل عادة القراءة — تُحذف من المقارنة.
+      if (surahRef.current === 9 && posRef.current === 0) {
+        const basmala = ["بسم", "الله", "الرحمن", "الرحيم"];
+        let cut = 0;
+        for (let i = 0; i < basmala.length && i < spokenWords.length; i++) {
+          if (stripTashkeel(spokenWords[i]) === stripTashkeel(basmala[i])) cut = i + 1;
+          else break;
+        }
+        if (cut > 0) spokenWords = spokenWords.slice(cut);
+        if (spokenWords.length === 0) return ok;
+      }
+      const win = buildWindow(posRef.current);
+      const d = diagnoseStream(win.words, spokenWords);
+      // قفز بعيدًا: بادئة مطابقة قصيرة (أقل من 3 كلمات) ومعظم الكلمات
+      // المنطوقة لم تطابق شيئًا هنا — كلمة شائعة واحدة مثل «الله» قد
+      // تطابق صدفة في النافذة، فلا تكفي وحدها لنفي القفز.
+      if (d.consumed < 3 && d.matchedSpoken < spokenWords.length / 2) {
+        // لا شيء يطابق هنا إطلاقًا — ربما قفز آيات كثيرة إلى الأمام.
+        const win2 = buildWindow(win.endPos, 200);
+        if (win2.words.length > 0) {
+          const d2 = diagnoseStream(win2.words, spokenWords);
+          if (d2.matchedSpoken > 0) {
+            const firstAyah = wordsRef.current[posRef.current].ayah;
+            const jumpTo = win2.words[0].ayah;
+            const skipped: number[] = [];
+            for (let a = firstAyah; a < jumpTo; a++) skipped.push(a);
+            return {
+              kind: "skipped-ayah",
+              consumed: 0,
+              errorAyah: skipped[0] ?? firstAyah,
+              skippedAyahs: [...skipped, ...d2.skippedAyahs],
+              wrongSpoken: null,
+              matchedSpoken: 0,
+              jumpSkipped: skipped,
+            };
+          }
+        }
+        // لا يطابق شيئًا في أي مكان قريب: كلمة خاطئة عند الآية الحالية.
+        return {
+          kind: "wrong-word",
+          consumed: 0,
+          errorAyah: wordsRef.current[posRef.current].ayah,
+          skippedAyahs: [],
+          wrongSpoken: spokenWords[0] ?? null,
+          matchedSpoken: 0,
+        };
+      }
+      return d;
+    },
+    [buildWindow]
+  );
+
+  const clearLiveTimer = useCallback(() => {
+    if (liveTimerRef.current) {
+      clearTimeout(liveTimerRef.current);
+      liveTimerRef.current = null;
     }
-  }, [moveTo]);
+    pendingErrorRef.current = null;
+  }, []);
+
+  const fireError = useCallback(
+    (d: StreamDiagnosis) => {
+      if (pausedOnErrorRef.current) return;
+      pausedOnErrorRef.current = true;
+      chunkErrorFiredRef.current = true;
+      clearLiveTimer();
+      setWrongCount((c) => c + 1);
+      playAlertSound();
+      const a = d.errorAyah ?? currentAyah;
+      setErrorAyah(a);
+      if (d.kind === "skipped-ayah") {
+        const list = d.skippedAyahs.length > 1
+          ? `الآيات ${toArabicNum(d.skippedAyahs[0])}–${toArabicNum(d.skippedAyahs[d.skippedAyahs.length - 1])}`
+          : `الآية ${toArabicNum(a)}`;
+        setStatus(`توجد آية ناقصة — نسيت ${list} — عاود الآية ${toArabicNum(a)}`);
+      } else {
+        setStatus(`خطأ في كلمة — عاود الآية ${toArabicNum(a)}`);
+      }
+      setStatusKind("error");
+      setLoopActive(false);
+      loopActiveRef.current = false;
+      void stop();
+    },
+    [clearLiveTimer, playAlertSound, currentAyah, stop]
+  );
+
+  const scheduleRestart = useCallback(() => {
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      if (!loopActiveRef.current || pausedOnErrorRef.current || helpPlayingRef.current) return;
+      reset();
+      setTimeout(() => {
+        if (loopActiveRef.current && !pausedOnErrorRef.current && !helpPlayingRef.current) start();
+      }, 100);
+    }, RESTART_DELAY_MS);
+  }, [reset, start]);
+
+  const resumeLoop = useCallback(() => {
+    chunkErrorFiredRef.current = false;
+    pausedOnErrorRef.current = false;
+    clearLiveTimer();
+    setStatus(null);
+    setErrorAyah(null);
+    setRevealed(false);
+    setLoopActive(true);
+    loopActiveRef.current = true;
+    ensureAudioCtx();
+    scheduleRestart();
+  }, [clearLiveTimer, ensureAudioCtx, scheduleRestart]);
+
+  // تقييم المقطع عند توقف جلسة الاستماع (صمت) — الفحص الحاسم.
+  useEffect(() => {
+    const justStopped = prevListening.current && !state.isListening;
+    const hasTranscript = state.transcript.trim().length > 0;
+    const transcriptChanged = state.transcript !== prevTranscript.current;
+    if (
+      justStopped &&
+      loopActiveRef.current &&
+      !pausedOnErrorRef.current &&
+      !helpPlayingRef.current
+    ) {
+      if (chunkErrorFiredRef.current) {
+        // التنبيه الحي أطلق already — لا إعادة تقييم.
+        chunkErrorFiredRef.current = false;
+      } else if (hasTranscript && transcriptChanged) {
+        const chunk = state.transcript.trim();
+        setLastHeard(chunk);
+        const norm = stripTashkeel(chunk);
+        if (HELP_COMMANDS.some((c) => norm.startsWith(stripTashkeel(c)))) {
+          // أمر صوتي «سمّعني الآية» — لا يُحسب محاولة.
+          prevListening.current = state.isListening;
+          prevTranscript.current = state.transcript;
+          return;
+        }
+        const d = diagnoseChunk(chunk);
+        if (d.kind === "ok") {
+          emptyStreakRef.current = 0;
+          setCorrectCount((c) => c + 1);
+          const nextPos = posRef.current + d.consumed;
+          if (nextPos >= wordsRef.current.length) {
+            setPosition(wordsRef.current.length);
+            setCompleted(true);
+            setLoopActive(false);
+            loopActiveRef.current = false;
+            setStatus("أتممتَ تسميع السورة كاملة — تبارك الله!");
+            setStatusKind("ok");
+          } else {
+            setPosition(nextPos);
+            setStatus(null);
+            scheduleRestart();
+          }
+        } else {
+          fireError(d);
+        }
+      } else {
+        // صمت بلا كلام — أعد الاستماع (حتى حد، ثم توقف).
+        emptyStreakRef.current += 1;
+        if (emptyStreakRef.current >= MAX_EMPTY_CHUNKS) {
+          setLoopActive(false);
+          loopActiveRef.current = false;
+          setStatus("توقف الاستماع لطول الصمت — اضغط للمتابعة");
+          setStatusKind("info");
+        } else {
+          scheduleRestart();
+        }
+      }
+    }
+    prevListening.current = state.isListening;
+    prevTranscript.current = state.transcript;
+  }, [state.isListening, state.transcript, diagnoseChunk, fireError, scheduleRestart, setPosition]);
+
+  // الفحص الحي أثناء الكلام: خطأ ثابت ~ثانية يُطلق التنبيه فورًا.
+  useEffect(() => {
+    if (!loopActiveRef.current || pausedOnErrorRef.current || helpPlayingRef.current || !state.isListening) {
+      return;
+    }
+    const combined = `${state.transcript} ${state.interimTranscript}`.trim();
+    interimRef.current = combined;
+    if (!combined) return;
+    const d = diagnoseChunk(combined);
+    if (d.kind === "ok") {
+      clearLiveTimer();
+      return;
+    }
+    const key = `${d.kind}:${d.errorAyah}:${d.skippedAyahs.join(",")}`;
+    const pending = pendingErrorRef.current;
+    if (pending && pending.key === key) {
+      return; // المؤقت يعمل already لهذا الخطأ نفسه.
+    }
+    pendingErrorRef.current = { key, diagnosis: d };
+    if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    liveTimerRef.current = setTimeout(() => {
+      const still = diagnoseChunk(interimRef.current);
+      const stillKey = `${still.kind}:${still.errorAyah}:${still.skippedAyahs.join(",")}`;
+      if (still.kind !== "ok" && stillKey === pendingErrorRef.current?.key) {
+        fireError(still);
+      } else {
+        pendingErrorRef.current = null;
+      }
+    }, LIVE_CONFIRM_MS);
+  }, [state.interimTranscript, state.transcript, diagnoseChunk, fireError, clearLiveTimer]);
 
   // «سمّعني الآية»: يُسمِع الصوت (offline أولاً) ويكشف النص مؤقتًا،
-  // ويسجّل الآية في قائمة «آيات طلبتُ تسميعها».
+  // ويسجّل الآية في قائمة «آيات طلبتُ تسميعها»، ثم يستأنف من أول الآية.
   const playHelpAyah = useCallback(async () => {
     const s = surahRef.current;
-    const a = ayahRef.current;
+    const a = currentAyah;
     if (state.isListening) stop();
-    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    clearLiveTimer();
     setAudioError(null);
     setRevealed(true);
     setPlayingHelp(true);
+    helpPlayingRef.current = true;
+    setLoopActive(false);
+    loopActiveRef.current = false;
     setStatus("أستمع إلى الآية — ثم أعدها من حفظك");
     setStatusKind("info");
     setHelped((prev) => {
@@ -242,6 +507,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     const audio = audioRef.current;
     if (!audio) {
       setPlayingHelp(false);
+      helpPlayingRef.current = false;
       return;
     }
     const reciter = getCurrentReciter();
@@ -249,6 +515,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     if (!perAyahUrl) {
       setAudioError("لا يوجد صوت متاح لهذه الآية");
       setPlayingHelp(false);
+      helpPlayingRef.current = false;
       return;
     }
     const globalAyah = getGlobalAyahNumber(s, a);
@@ -263,110 +530,104 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           : "تعذّر تشغيل صوت الآية"
       );
       setPlayingHelp(false);
+      helpPlayingRef.current = false;
       return;
     }
     if (!cachedUrl) void cacheAyahAudio(reciter.id, globalAyah, perAyahUrl);
-  }, [state.isListening, stop, getCurrentReciter, getCachedAyahUrl, cacheAyahAudio]);
+  }, [currentAyah, state.isListening, stop, clearLiveTimer, getCurrentReciter, getCachedAyahUrl, cacheAyahAudio]);
 
-  // عند انتهاء صوت المساعدة: أخفِ النص مجددًا واطلب إعادتها من الحفظ.
+  // عند انتهاء صوت المساعدة: أخفِ النص، وارجع إلى أول الآية، واستأنف.
   const onHelpAudioEnded = useCallback(() => {
     setPlayingHelp(false);
+    helpPlayingRef.current = false;
     setRevealed(false);
-    setStatus("الآن أعدها من حفظك — اضغط الميكروفون");
+    setStatus("الآن أعدها من حفظك");
     setStatusKind("info");
-  }, []);
-
-  const handleMic = useCallback(() => {
-    if (!startedRef.current) return;
-    ensureAudioCtx();
-    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
-    if (state.isListening) {
-      stop();
-    } else {
-      setStatus(null);
-      setLastHeard("");
-      reset();
-      setTimeout(() => start(), 250);
-    }
-  }, [state.isListening, stop, reset, start, ensureAudioCtx]);
-
-  // تقييم المحاولة عند توقف الاستماع: أي كلمة خاطئة أو فائتة = تنبيه.
-  useEffect(() => {
-    const justStopped = prevListening.current && !state.isListening;
-    const hasTranscript = state.transcript.trim().length > 0;
-    const transcriptChanged = state.transcript !== prevTranscript.current;
-    if (!justStopped || !hasTranscript || !transcriptChanged || !startedRef.current) {
-      prevListening.current = state.isListening;
-      prevTranscript.current = state.transcript;
-      return;
-    }
-    const heard = state.transcript.trim();
-    setLastHeard(heard);
-    const norm = stripTashkeel(heard);
-    // أمر صوتي: «سمّعني الآية» — يُسمِعها ويسجّلها، ولا تُحسب محاولة.
-    if (HELP_COMMANDS.some((c) => norm.startsWith(stripTashkeel(c)))) {
-      prevListening.current = state.isListening;
-      prevTranscript.current = state.transcript;
-      void playHelpAyah();
-      return;
-    }
-    const current = getAyah(surahRef.current, ayahRef.current);
-    if (!current) {
-      prevListening.current = state.isListening;
-      prevTranscript.current = state.transcript;
-      return;
-    }
-    const compared = compareTexts(current.text, heard);
-    const wrong = compared.words.filter((w) => !w.correct);
-    if (wrong.length === 0) {
-      setCorrectCount((c) => c + 1);
-      setStatus("أحسنت — الآية صحيحة");
-      setStatusKind("ok");
-      advanceTimerRef.current = setTimeout(() => advance(), 1600);
-    } else {
-      // خطأ: تنبيه عالٍ دون تسميع الآية، ثم الرجوع آية واحدة إلى الوراء.
-      setWrongCount((c) => c + 1);
-      playAlertSound();
-      setStatus("عاود الآية التي قبلها");
-      setStatusKind("error");
-      const back = Math.max(1, ayahRef.current - 1);
-      advanceTimerRef.current = setTimeout(() => moveTo(surahRef.current, back), 2600);
-    }
-    prevListening.current = state.isListening;
-    prevTranscript.current = state.transcript;
-  }, [state.isListening, state.transcript, playAlertSound, playHelpAyah, advance, moveTo]);
-
-  useEffect(() => {
-    prevListening.current = state.isListening;
-  }, [state.isListening]);
+    setPosition(ayahStartPos(currentAyah));
+    resumeLoop();
+  }, [currentAyah, ayahStartPos, resumeLoop, setPosition]);
 
   const startSession = useCallback(() => {
-    const total = getSurahAyahs(surah).length;
+    const ayahs = getSurahAyahs(surah);
+    const list: SurahWord[] = [];
+    ayahs.forEach((ay) => {
+      ay.text
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((w, i) => list.push({ word: w, ayah: ay.numberInSurah, isFirstOfAyah: i === 0 }));
+    });
+    wordsRef.current = list;
+    setWords(list);
+    const total = ayahs.length;
     const a = Math.min(Math.max(startAyah, 1), total);
-    setAyah(a);
+    const startPos = list.findIndex((w) => w.ayah === a);
+    posRef.current = startPos === -1 ? 0 : startPos;
+    setPos(posRef.current);
     setRevealed(false);
     setStatus(null);
+    setErrorAyah(null);
     setLastHeard("");
     setWrongCount(0);
     setCorrectCount(0);
     setHelpedCount(0);
     setAudioError(null);
+    setCompleted(false);
+    emptyStreakRef.current = 0;
+    chunkErrorFiredRef.current = false;
+    pausedOnErrorRef.current = false;
     saveLast(surah, a);
     setStarted(true);
-  }, [surah, startAyah, saveLast]);
+    setLoopActive(true);
+    loopActiveRef.current = true;
+    ensureAudioCtx();
+    scheduleRestart();
+  }, [surah, startAyah, saveLast, ensureAudioCtx, scheduleRestart]);
 
   const resetSession = useCallback(() => {
-    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    clearLiveTimer();
+    setLoopActive(false);
+    loopActiveRef.current = false;
+    pausedOnErrorRef.current = false;
+    helpPlayingRef.current = false;
     if (state.isListening) stop();
     reset();
     setStarted(false);
     setRevealed(false);
     setStatus(null);
+    setErrorAyah(null);
     setLastHeard("");
     setPlayingHelp(false);
+    setCompleted(false);
     setAudioError(null);
     if (audioRef.current) audioRef.current.pause();
-  }, [state.isListening, stop, reset]);
+  }, [state.isListening, stop, reset, clearLiveTimer]);
+
+  const toggleLoop = useCallback(() => {
+    if (loopActiveRef.current) {
+      setLoopActive(false);
+      loopActiveRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (state.isListening) stop();
+      setStatus("متوقف مؤقتًا — اضغط للمتابعة");
+      setStatusKind("info");
+    } else {
+      resumeLoop();
+    }
+  }, [state.isListening, stop, resumeLoop]);
+
+  const retryErrorAyah = useCallback(() => {
+    if (errorAyah === null) return;
+    setPosition(ayahStartPos(errorAyah));
+    resumeLoop();
+  }, [errorAyah, ayahStartPos, resumeLoop, setPosition]);
+
+  const dismissError = useCallback(() => {
+    if (errorAyah === null) return;
+    // التعرف أخطأ في السمع لا أنت في القراءة: تجاوز الآية وتابع.
+    setPosition(ayahEndPos(errorAyah));
+    resumeLoop();
+  }, [errorAyah, ayahEndPos, resumeLoop, setPosition]);
 
   const clearHelped = useCallback(() => {
     setHelped([]);
@@ -378,8 +639,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   }, []);
 
   const surahInfo = SURAHS.find((s) => s.number === surah);
-  const totalAyahs = surahInfo ? surahInfo.numberOfAyahs : 0;
-  const currentAyah = started ? getAyah(surah, ayah) : null;
+  const currentAyahText = started ? getAyah(surah, currentAyah)?.text ?? null : null;
 
   if (!state.isSupported) {
     return (
@@ -413,7 +673,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           </Link>
           <div>
             <div className="font-bold text-lg text-foreground leading-tight">التسميع</div>
-            <div className="text-[11px] text-muted-foreground leading-tight">سمّع القرآن — ينبّهك عند الخطأ دون أن يسمّعك الآية</div>
+            <div className="text-[11px] text-muted-foreground leading-tight">سمّع السورة كاملة — يوقفك تلقائيًا عند أي خطأ</div>
           </div>
         </div>
         {started && (
@@ -471,9 +731,10 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
 
           <div className="card-modern p-5 text-sm text-muted-foreground leading-relaxed space-y-1.5">
             <div className="font-bold text-foreground">كيف يعمل؟</div>
-            <div>• اقرأ الآية من حفظك — نصها مخفي أثناء المحاولة.</div>
-            <div>• إن أخطأت في كلمة أو آية، ينبّهك بصوت عالٍ واهتزاز دون أن يسمّعك الآية، ويقول لك: «عاود الآية التي قبلها».</div>
-            <div>• إن أردت سماع الآية، قل «سمّعني الآية» أو اضغط زرها — تُسمَع لك وتُسجَّل في قائمتك.</div>
+            <div>• اقرأ السورة كاملة من حفظك دون توقف — نص الآيات مخفي أثناء القراءة.</div>
+            <div>• إن أخطأت في كلمة يوقفك تلقائيًا بصوت عالٍ واهتزاز، ويقول لك: «عاود الآية».</div>
+            <div>• إن نسيت آية كاملة ينبّهك: «توجد آية ناقصة» ويعيدك إليها.</div>
+            <div>• إن أردت سماع آية، قل «سمّعني الآية» أو اضغط زرها — تُسمَع لك وتُسجَّل في قائمتك.</div>
             <div>• يعمل دون إنترنت وبدون ذكاء اصطناعي: النص محفوظ في التطبيق، والاستماع من خدمة التعرف على الصوت في هاتفك، والمقارنة تتم على الجهاز. إن لم يعمل الاستماع دون إنترنت، ثبّت حزمة اللغة العربية للتعرف على الصوت دون اتصال في إعدادات الهاتف.</div>
           </div>
 
@@ -506,19 +767,19 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           {/* Progress */}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>
-              سورة {surahInfo?.name} — الآية {toArabicNum(ayah)} من {toArabicNum(totalAyahs)}
+              سورة {surahInfo?.name} — الآية {toArabicNum(currentAyah)} من {toArabicNum(totalAyahs)}
             </span>
             <span>
               ✓ {toArabicNum(correctCount)} • ✗ {toArabicNum(wrongCount)} • سُمّعت {toArabicNum(helpedCount)}
             </span>
           </div>
 
-          {/* Current ayah — hidden while attempting */}
+          {/* Current ayah — hidden while reciting */}
           <div className="card-modern p-6 text-center">
-            {revealed && currentAyah ? (
+            {revealed && currentAyahText ? (
               <div className="space-y-2">
                 <div className="quran-text text-foreground" dir="rtl" style={{ fontSize: "1.7rem", lineHeight: 2 }}>
-                  {displayAyahText(surah, ayah, currentAyah.text)} ﴿{toArabicNum(ayah)}﴾
+                  {displayAyahText(surah, currentAyah, currentAyahText)} ﴿{toArabicNum(currentAyah)}﴾
                 </div>
                 <button
                   onClick={() => setRevealed(false)}
@@ -531,7 +792,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
             ) : (
               <div className="py-6 space-y-2">
                 <EyeOff className="w-8 h-8 mx-auto text-muted-foreground/40" />
-                <div className="font-arabic text-foreground">الآية {toArabicNum(ayah)} مخفية — اقرأها من حفظك</div>
+                <div className="font-arabic text-foreground">الآية {toArabicNum(currentAyah)} مخفية — اقرأها من حفظك</div>
                 <div className="text-xs text-muted-foreground">لن تُعرض ولن تُسمَّع إلا إن طلبتَ ذلك</div>
               </div>
             )}
@@ -554,29 +815,40 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
               {status}
             </div>
           )}
-          {statusKind === "error" && (
-            <button
-              data-testid="tasmie-dismiss-error"
-              onClick={() => {
-                if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
-                setStatus(null);
-                advance();
-              }}
-              className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              الآية كانت صحيحة — تجاهل التنبيه وتابع
-            </button>
+          {statusKind === "error" && errorAyah !== null && (
+            <div className="flex flex-col gap-2">
+              <button
+                data-testid="tasmie-retry"
+                onClick={retryErrorAyah}
+                className="w-full bg-primary text-primary-foreground rounded-2xl py-3 font-bold active:scale-[0.99] transition-all"
+              >
+                أعد من الآية {toArabicNum(errorAyah)}
+              </button>
+              <button
+                data-testid="tasmie-dismiss-error"
+                onClick={dismissError}
+                className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                الآية كانت صحيحة — تجاهل التنبيه وتابع
+              </button>
+            </div>
           )}
 
           {/* Live transcript */}
           {(state.isListening || lastHeard) && (
             <div className="card-modern p-4">
               <div className="text-xs text-muted-foreground mb-1">
-                {state.isListening ? "جارٍ الاستماع... ما يُسمع الآن:" : "ما نُطق:"}
+                {state.isListening ? "جارٍ الاستماع... ما يُسمع الآن:" : "آخر ما نُطق:"}
               </div>
               <div className="text-right leading-relaxed" dir="rtl">
                 {state.isListening ? state.interimTranscript || state.transcript || "…" : lastHeard}
               </div>
+              {state.isListening && (
+                <div className="flex items-center gap-1.5 mt-2 text-xs text-red-500 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                  يستمع إليك الآن
+                </div>
+              )}
             </div>
           )}
 
@@ -590,23 +862,23 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           {/* Controls */}
           <div className="flex flex-col gap-3">
             <button
-              onClick={handleMic}
+              onClick={toggleLoop}
               data-testid="tasmie-mic"
               className={`w-full flex items-center justify-center gap-2 rounded-2xl py-4 font-bold text-lg active:scale-[0.99] transition-all ${
-                state.isListening
-                  ? "bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse"
+                loopActive
+                  ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
                   : "bg-primary text-primary-foreground"
               }`}
             >
-              {state.isListening ? (
+              {loopActive ? (
                 <>
-                  <Square className="w-5 h-5" />
-                  إيقاف — انتهيت من الآية
+                  <Pause className="w-5 h-5" />
+                  إيقاف مؤقت
                 </>
               ) : (
                 <>
                   <Mic className="w-5 h-5" />
-                  اضغط واقرأ الآية {toArabicNum(ayah)}
+                  {completed ? "إعادة التسميع" : "متابعة الاستماع"}
                 </>
               )}
             </button>

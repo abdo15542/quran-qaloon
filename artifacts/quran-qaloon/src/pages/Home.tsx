@@ -268,7 +268,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               <span className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full">دون إنترنت</span>
             </div>
             <div className="text-xs text-muted-foreground">
-              اقرأ على التطبيق — ينبّهك عند الخطأ دون أن يسمّعك الآية
+              اقرأ السورة كاملة — يوقفك تلقائيًا عند أي خطأ أو آية ناقصة
             </div>
           </div>
         </Link>
