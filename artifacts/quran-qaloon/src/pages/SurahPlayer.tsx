@@ -1504,7 +1504,7 @@ export default function SurahPlayer({
                               stopAyah();
                               setSelectedAyah(null);
                             }}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-background border border-border text-muted-foreground hover:text-foreground transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
                           >
                             <Square className="w-3 h-3" />
                             إيقاف
