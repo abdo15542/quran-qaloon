@@ -908,10 +908,12 @@ export default function ReadingMode({
   const startSurah = range ? SURAHS[range.startSurah - 1] : null;
   const endSurah = range ? SURAHS[range.endSurah - 1] : null;
 
-  // [1.0.85] لوحة الأدوات عائمة فوق الصفحة (مقاسة: 129px مع دليل
+  // [1.0.85] لوحة الأدوات عائمة فوق الصفحة (مقاسة: 137px مع دليل
   // التجويد، 81px بدونه) وpt-10 (40px) لا يكفي — فيُخفى أعلى النص
   // (81px) خلفها حين تكون مفتوحة. الحشوة العلوية تكبر معها.
-  const toolsPadTop = showTools ? (tajweed ? "pt-[140px]" : "pt-24") : "pt-10";
+  // [1.0.91] القياس بالفحص (probe91): الشريط العلوي 137px مع
+  // الدليل، فالحشوة 140px تترك 3px فقط — رُفعت إلى 150px.
+  const toolsPadTop = showTools ? (tajweed ? "pt-[150px]" : "pt-24") : "pt-10";
 
   return (
     <div className="fixed inset-0 z-[100] bg-background flex flex-col" data-testid="reading-mode">
@@ -997,8 +999,15 @@ export default function ReadingMode({
           {/* Clearance for the floating page pill / tools button, so the
               last line of the page is never hidden behind them.
               [1.0.83] والشريط السفلي حين يظهر (96px): مساحة أكبر
-              تحته، ويُعاد قياس الملاءمة عند ظهوره/اختفائه. */}
-          <div className={showBottomBar ? "h-28" : "h-6"} aria-hidden />
+              تحته، ويُعاد قياس الملاءمة عند ظهوره/اختفائه.
+              [1.0.91] لوحة الأدوات السفلية (متواصل + حجم الخط +
+              الانتقال للصفحة) عائمة أيضًا: مقاسة 187px، والحشوة
+              h-6 كانت تُخفي آخر 128px من الصفحة خلفها نهائيًا
+              (probe91: آخر آية تنتهي 128px تحت حافتها حتى مع
+              التمرير للنهاية). h-52 (208px) يفسح لها مع هامش.
+              وبدون أدوات: h-6 (24px) لا تكفي للأزرار العائمة
+              (44px، تصل إلى 60px من الأسفل) — h-20 (80px). */}
+          <div className={showTools ? "h-52" : showBottomBar ? "h-28" : "h-20"} aria-hidden />
         </div>
         {/* [1.0.82] تعتيم السطوع فوق الصفحة فقط (بلا تأثير على
             الأشرطة والأزرار). */}
@@ -1339,7 +1348,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.90
+              قالون عن نافع — الإصدار 1.0.91
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
