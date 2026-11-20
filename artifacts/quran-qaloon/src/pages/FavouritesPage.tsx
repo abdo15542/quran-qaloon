@@ -85,7 +85,7 @@ export default function FavouritesPage({ darkMode, toggleDarkMode }: FavouritesP
                       </div>
                       <div
                         className="text-lg leading-loose text-foreground"
-                        style={{ fontFamily: "'Amiri Quran', serif" }}
+                        style={{ fontFamily: "'Uthman Taha', 'Amiri Quran', serif" }}
                         dir="rtl"
                       >
                         {displayAyahText(fav.surah, fav.ayah, ayah.text)}{" "}

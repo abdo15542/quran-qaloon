@@ -107,7 +107,7 @@ export default function HizbPage({ darkMode, toggleDarkMode }: HizbPageProps) {
                 </div>
                 <div
                   className="text-sm text-muted-foreground mt-2 leading-relaxed"
-                  style={{ fontFamily: "'Amiri Quran', serif" }}
+                  style={{ fontFamily: "'Uthman Taha', 'Amiri Quran', serif" }}
                   dir="rtl"
                 >
                   {previewText(startAyah.text)}

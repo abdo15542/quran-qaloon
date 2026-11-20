@@ -31,7 +31,7 @@
 }
 
 /* التصميم الجديد (1.0.69): عاجي دافئ + زمردي عميق + ذهبي.
-   الخطوط (1.0.89): Cairo للواجهة كلها، وAmiri Quran لنص القرآن. */
+   الخطوط (1.0.90): IBM Plex Sans Arabic للواجهة كلها، وUthman Taha لنص القرآن. */
 :root {
   --background: 40 40% 96%;
   --foreground: 160 30% 12%;
@@ -50,8 +50,8 @@
   --accent-foreground: 40 40% 97%;
   --destructive: 0 70% 50%;
   --destructive-foreground: 40 40% 97%;
-  --app-font-sans: 'Cairo', system-ui, sans-serif;
-  --app-font-arabic: 'Cairo', system-ui, sans-serif;
+  --app-font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --app-font-arabic: 'IBM Plex Sans Arabic', system-ui, sans-serif;
   --radius: 1rem;
 }
 
@@ -81,29 +81,29 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Cairo', system-ui, sans-serif;
+    font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif;
     direction: rtl;
   }
 }
 
 .font-arabic {
-  font-family: 'Cairo', system-ui, sans-serif;
+  font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif;
 }
 
 .quran-text {
-  font-family: 'Amiri Quran', serif;
+  font-family: 'Uthman Taha', 'Amiri Quran', serif;
   font-size: var(--quran-font-size, 24px);
   line-height: 2.6;
   letter-spacing: 0.01em;
 }
 
 .bismillah-text {
-  font-family: 'Amiri Quran', serif;
+  font-family: 'Uthman Taha', 'Amiri Quran', serif;
 }
 
 /* اسم السورة في بطاقات الرئيسية: خط قرآني بحجم عنوان. */
 .surah-name {
-  font-family: 'Amiri Quran', serif;
+  font-family: 'Uthman Taha', 'Amiri Quran', serif;
   font-size: 1.5rem;
   line-height: 1.7;
 }

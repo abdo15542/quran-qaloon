@@ -1,5 +1,5 @@
 // Renders an ayah as a shareable PNG image.
-// Fully offline: the ayah text, the translation and the Amiri Quran font
+// Fully offline: the ayah text, the translation and the Uthman Taha font
 // are all bundled in the app — no internet is needed to draw the image.
 // Save: on the real app the image is written straight to the phone's photo
 // gallery with the Media plugin (no share sheet, no internet); in a browser
@@ -49,19 +49,19 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
 async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement> {
   const W = 1080;
   const PAD = 90;
-  const ARABIC_FONT = '64px "Amiri Quran", serif';
+  const ARABIC_FONT = '64px "Uthman Taha", "Amiri Quran", serif';
   const ARABIC_LINE = 122;
   const TRANS_FONT = '30px system-ui, sans-serif';
   const TRANS_LINE = 48;
 
-  // Load the bundled Amiri Quran font for the canvas (falls back to serif).
+  // Load the bundled Uthman Taha font for the canvas (falls back to serif).
   // Never wait forever: if the font is not ready in 1.5s, draw with the
   // serif fallback — the image must render even when offline.
   try {
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
     if (fonts) {
       await Promise.race([
-        fonts.load('64px "Amiri Quran"'),
+        fonts.load('64px "Uthman Taha", "Amiri Quran"'),
         new Promise((resolve) => setTimeout(resolve, 1500)),
       ]);
     }
@@ -126,7 +126,7 @@ async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement
   }
   // Ayah number marker in gold, on its own line.
   ctx.fillStyle = "#D4AF37";
-  ctx.font = '56px "Amiri Quran", serif';
+  ctx.font = '56px "Uthman Taha", "Amiri Quran", serif';
   ctx.fillText(`﴿${toArabicNum(opts.ayahNumber)}﴾`, W / 2, y + 10);
   y += 96;
 
