@@ -97,6 +97,19 @@ export function useSpeechRecognition() {
   const lastMatchesRef = useRef<string>("");
   const finalizedRef = useRef(false);
   const stopSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // [1.0.99] هل جلسة أصلية تعمل فعلًا؟ يُضبط عند حدث 'started' ويُمسح
+  // عند إنهاء الجلسة. بدونه كان reset() يستدعي stop() على معرّف
+  // متوقف أصلًا فيترك المعرّف الأندرويدي في حالة خطأ، فتفشل
+  // start() التالية بصمت (فيديو 1.0.98: بعد «متابعة الاستماع»
+  // بقيت الواجهة «تستمع» 13 ثانية من التلاوة بلا أي نتيجة).
+  const sessionActiveRef = useRef(false);
+  // [1.0.99] مراقب الجلسة: مؤقت واحد يُعاد تسليحه — عند البدء ينتظر
+  // حدث 'started' (4 ثوانٍ)، وبعد البدء ينتظر أي نتيجة جزئية
+  // (6 ثوانٍ). المعرّف الأندرويدي قد يموت بصمت (انتهاء مهلة الكلام
+  // بلا حدث 'stopped') فتبقى الواجهة «تستمع» إلى الأبد؛ المراقب
+  // ينهي الجلسة الميتة فتعيد الصفحة تشغيلها تلقائيًا. الصمت الطويل
+  // وحده لا يضر: إعادة التشغيل لا تفقد شيئًا.
+  const sessionWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [state, setState] = useState<SpeechRecognitionState>({
     isListening: false,
@@ -133,10 +146,19 @@ export function useSpeechRecognition() {
     }
   }, []);
 
+  const clearSessionWatchdog = useCallback(() => {
+    if (sessionWatchdogRef.current) {
+      clearTimeout(sessionWatchdogRef.current);
+      sessionWatchdogRef.current = null;
+    }
+  }, []);
+
   const finalizeNativeSession = useCallback(() => {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
+    sessionActiveRef.current = false;
     clearStopSafetyTimer();
+    clearSessionWatchdog();
     const finalText = lastMatchesRef.current.trim();
     finalTranscriptRef.current = finalText;
     setState((s) => ({
@@ -153,8 +175,29 @@ export function useSpeechRecognition() {
 
   const cleanupNativeListeners = useCallback(() => {
     clearStopSafetyTimer();
+    clearSessionWatchdog();
     void SpeechRecognition.removeAllListeners().catch(() => undefined);
-  }, [clearStopSafetyTimer]);
+  }, [clearStopSafetyTimer, clearSessionWatchdog]);
+
+  // [1.0.99] مراقبا الجلسة الميتة (انظر التعليق عند sessionWatchdogRef).
+  const armStartWatchdog = useCallback(() => {
+    clearSessionWatchdog();
+    if (sessionActiveRef.current) return; // بدأت فعلًا قبل حلّ الوعد.
+    sessionWatchdogRef.current = setTimeout(() => {
+      if (!sessionActiveRef.current && !finalizedRef.current) {
+        finalizeNativeSession();
+      }
+    }, 4000);
+  }, [clearSessionWatchdog, finalizeNativeSession]);
+
+  const armActivityWatchdog = useCallback(() => {
+    clearSessionWatchdog();
+    sessionWatchdogRef.current = setTimeout(() => {
+      if (sessionActiveRef.current && !finalizedRef.current) {
+        finalizeNativeSession();
+      }
+    }, 6000);
+  }, [clearSessionWatchdog, finalizeNativeSession]);
 
   const startNative = useCallback(async () => {
     // End any previous session cleanly before starting a new one.
@@ -200,6 +243,7 @@ export function useSpeechRecognition() {
       const text = data.matches?.[0] ?? "";
       if (!text) return;
       lastMatchesRef.current = text;
+      armActivityWatchdog();
       setState((s) => ({ ...s, interimTranscript: text }));
     });
 
@@ -207,6 +251,8 @@ export function useSpeechRecognition() {
       "listeningState",
       (data: { status: "started" | "stopped" }) => {
         if (data.status === "started") {
+          sessionActiveRef.current = true;
+          armActivityWatchdog();
           setState((s) => ({ ...s, isListening: true }));
         } else {
           finalizeNativeSession();
@@ -223,7 +269,9 @@ export function useSpeechRecognition() {
         partialResults: true,
         popup: false,
       });
+      armStartWatchdog();
     } catch (err) {
+      clearSessionWatchdog();
       const msg = err instanceof Error ? err.message : "";
       if (!finalizedRef.current) {
         setState((s) => ({
@@ -233,27 +281,37 @@ export function useSpeechRecognition() {
         }));
       }
     }
-  }, [cleanupNativeListeners, finalizeNativeSession]);
+  }, [cleanupNativeListeners, finalizeNativeSession, armStartWatchdog, armActivityWatchdog, clearSessionWatchdog]);
 
   const stopNative = useCallback(() => {
     // Ask the recognizer to stop; its onResults + listeningState('stopped')
     // callbacks deliver the final text. The safety timer guarantees the UI
     // never stays stuck listening if a native callback is lost (e.g. the
     // no-match error path, which fires no 'stopped' event).
+    sessionActiveRef.current = false;
+    clearSessionWatchdog();
     void SpeechRecognition.stop().catch(() => undefined);
     clearStopSafetyTimer();
     stopSafetyTimerRef.current = setTimeout(() => {
       finalizeNativeSession();
     }, 1500);
-  }, [clearStopSafetyTimer, finalizeNativeSession]);
+  }, [clearStopSafetyTimer, clearSessionWatchdog, finalizeNativeSession]);
 
   const resetNative = useCallback(() => {
     clearStopSafetyTimer();
+    clearSessionWatchdog();
     finalizedRef.current = false;
     lastMatchesRef.current = "";
     finalTranscriptRef.current = "";
     cleanupNativeListeners();
-    void SpeechRecognition.stop().catch(() => undefined);
+    // [1.0.99] أوقف المعرّف فقط إن كانت جلسة تعمل فعلًا. استدعاء
+    // stop() على معرّف متوقف أصلًا (كما كان يحدث في كل إعادة تشغيل
+    // بعد خطأ: fireError أوقفته، ثم reset() أوقفته مجددًا) يترك
+    // المعرّف الأندرويدي في حالة خطأ فتفشل start() التالية بصمت.
+    if (sessionActiveRef.current) {
+      sessionActiveRef.current = false;
+      void SpeechRecognition.stop().catch(() => undefined);
+    }
     setState((s) => ({
       ...s,
       isListening: false,
@@ -261,13 +319,15 @@ export function useSpeechRecognition() {
       interimTranscript: "",
       error: null,
     }));
-  }, [cleanupNativeListeners, clearStopSafetyTimer]);
+  }, [cleanupNativeListeners, clearStopSafetyTimer, clearSessionWatchdog]);
 
   // Native listeners must not leak across sessions or unmounts.
   useEffect(() => {
     return () => {
       if (Capacitor.isNativePlatform()) {
         if (stopSafetyTimerRef.current) clearTimeout(stopSafetyTimerRef.current);
+        if (sessionWatchdogRef.current) clearTimeout(sessionWatchdogRef.current);
+        sessionActiveRef.current = false;
         void SpeechRecognition.removeAllListeners().catch(() => undefined);
         void SpeechRecognition.stop().catch(() => undefined);
       }
