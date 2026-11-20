@@ -25,6 +25,7 @@ import AsmaAlHusnaPage from "@/pages/AsmaAlHusnaPage";
 import HifzPage from "@/pages/HifzPage";
 import ReadingsPage from "@/pages/ReadingsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
+import TasmiePage from "@/pages/TasmiePage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 import { refreshLocationIfStale } from "@/data/prayer-times";
@@ -157,6 +158,7 @@ function AppRoutes() {
             }}
           </Route>
           <Route path="/analytics" component={() => <AnalyticsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/tasmie" component={() => <TasmiePage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>

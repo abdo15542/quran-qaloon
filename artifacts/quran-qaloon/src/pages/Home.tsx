@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine, Mic } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -253,6 +253,22 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               {lastMushafPage > 1
                 ? `متابعة القراءة — صفحة ${lastMushafPage}`
                 : "وضع القراءة بملء الشاشة — اسحب للتنقل بين الصفحات"}
+            </div>
+          </div>
+        </Link>
+
+        {/* [1.0.95] التسميع — سمّع القرآن على التطبيق: ينبّهك عند الخطأ بصوت عالٍ
+            دون أن يسمّعك الآية، ويقول لك «عاود الآية التي قبلها». دون إنترنت
+            وبدون ذكاء اصطناعي. */}
+        <Link href="/tasmie">
+          <div className="bg-gradient-to-l from-rose-500/15 to-rose-500/5 border border-rose-500/30 rounded-3xl p-4 mb-6 hover:border-rose-500/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "110ms" }}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-10 h-10 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0"><Mic className="w-5 h-5" /></span>
+              <span className="font-arabic text-base text-foreground">التسميع</span>
+              <span className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full">دون إنترنت</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              اقرأ على التطبيق — ينبّهك عند الخطأ دون أن يسمّعك الآية
             </div>
           </div>
         </Link>
