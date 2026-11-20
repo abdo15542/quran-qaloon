@@ -1,12 +1,20 @@
-// [1.0.96] التسميع المتواصل للسورة كاملة — إصلاح دقة 1.0.95.
-// ما كان خاطئًا في 1.0.95: كان يفحص آية واحدة فقط بعد أن يضغط المستخدم
-// «إيقاف»، فلم يكن قادرًا أبدًا على اكتشاف آية نُسيت في منتصف السورة.
-// الجديد: يقرأ المستخدم السورة كاملة دون توقف، والتطبيق يستمع باستمرار
-// (يعيد تشغيل التعرف تلقائيًا عند كل صمت)، ويقارن تدفق الكلام لحظيًا
-// بنص السورة كاملاً (diagnoseStream): فإن أخطأ في كلمة أو نسي آية
-// أوقفه تلقائيًا بالتنبيه العالي في لحظتها — «خطأ في كلمة» أو
-// «توجد آية ناقصة» — دون أن يسمّعها له. «سمّعني الآية» تُسمِعها
-// وتسجّلها، كما في 1.0.95. دون إنترنت وبدون ذكاء اصطناعي.
+// [1.0.98] دقة التسميع وسماع الصوت الضعيف، والقراءة برواية قالون.
+// ما كان خاطئًا في 1.0.97 (ثبّته فيديو اختبار المستخدم): تنبيهات
+// «خطأ في كلمة» على تلاوة صحيحة لآية النصر 3 — سببها علامات وقف
+// شبحية (ۚ ۖ …) في النص المرجعي تُقرأ كلمة لا تطابق شيئًا أبدًا،
+// والفحص الحي كان يحكم على فرضيات جزئية غير مستقرة. والصوت الضعيف
+// كان يوقف الاستماع ويطلب ضغطة للمتابعة.
+// الجديد: تُسقط علامات الوقف من المقارنة؛ الفحص الحي يُطلق التنبيه
+// فورًا على الآية المنسية فقط، وخطأ الكلمة يُحكم عليه عند نهاية
+// المقطع؛ الاستماع لا يتوقف أبدًا للصمت — يستأنف تلقائيًا؛ وفحص
+// على مستوى الحرف: حرف واحد منسي أو خاطئ (و/ا/ل) يوقف التسميع،
+// مع إغفار تشويش التعرف المعروف فقط (حروف مدّ، تنوين ه/ا، ألف
+// خنجرية في مواضعها المعروفة، و«الرحمن» بلا ألف).
+// [1.0.98 قالون] المقارنة الآن بنص قالون عن نافع (الافتراضي، من
+// quran-text-qaloon.ts — نفس ترقيم الآيات 6236)، مع اختيار حفص
+// من الإعداد. «ملك» في 1:4 صحيحة في قالون، و«مالك» تُوقف. صوت
+// «سمّعني الآية» يبقى حفصًا (القراء السبعة) — لا صوت قالون
+// للآية الواحدة بعد. دون إنترنت وبدون ذكاء اصطناعي.
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import {
@@ -32,6 +40,7 @@ import { useOfflineStorage } from "@/hooks/useOfflineStorage";
 import {
   useSpeechRecognition,
   stripTashkeel,
+  splitComparisonWords,
   diagnoseStream,
   type StreamWord,
   type StreamDiagnosis,
@@ -39,12 +48,32 @@ import {
 
 const LAST_KEY = "quran_tasmie_last";
 const HELPED_KEY = "quran_tasmie_helped";
+const QIRAH_KEY = "quran_tasmie_qirah";
+// [1.0.98 قالون] رواية المقارنة في التسميع: «قالون» افتراضيًا
+// (أمر المستخدم: القراءة برواية قالون)، و«حفص» اختيارًا.
+const TASMIE_QIRAHS = [
+  { id: "qaloon", name: "قالون عن نافع" },
+  { id: "hafs", name: "حفص عن عاصم" },
+] as const;
+
+function loadTasmieQirah(): string {
+  try {
+    const stored = localStorage.getItem(QIRAH_KEY);
+    if (stored === "hafs" || stored === "qaloon") return stored;
+  } catch {
+    // ignore
+  }
+  return "qaloon";
+}
 const HELP_COMMANDS = ["سمعني", "سمي لي", "سمع لي"];
 // نافذة المقارنة: آيات كاملة حتى 80 كلمة تقريبًا (تكفي لالتقاط آية منسية).
 const WINDOW_WORDS = 80;
-const LIVE_CONFIRM_MS = 900;
+const LIVE_CONFIRM_MS = 1200;
 const RESTART_DELAY_MS = 300;
-const MAX_EMPTY_CHUNKS = 8;
+// [1.0.98] 40 مقطعًا صامتًا قبل استراحة 5 ثوانٍ ثم استئناف تلقائي —
+// الاستماع لا يتوقف أبدًا للصمت ولا يطلب ضغطة للمتابعة.
+const MAX_EMPTY_CHUNKS = 40;
+const SILENCE_RESUME_MS = 5000;
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
@@ -89,6 +118,7 @@ interface SurahWord extends StreamWord {
 export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boolean; toggleDarkMode: () => void }) {
   const [surah, setSurah] = useState<number>(() => loadLast().s);
   const [startAyah, setStartAyah] = useState<number>(() => loadLast().a);
+  const [tasmieQirah, setTasmieQirah] = useState<string>(() => loadTasmieQirah());
   const [started, setStarted] = useState(false);
   const [words, setWords] = useState<SurahWord[]>([]);
   const [pos, setPos] = useState(0);
@@ -122,6 +152,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const emptyStreakRef = useRef(0);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingErrorRef = useRef<{ key: string; diagnosis: StreamDiagnosis } | null>(null);
   const interimRef = useRef("");
 
@@ -133,6 +164,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (audioRef.current) audioRef.current.pause();
       if (audioCtxRef.current) void audioCtxRef.current.close().catch(() => undefined);
     };
@@ -430,13 +462,20 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           fireError(d);
         }
       } else {
-        // صمت بلا كلام — أعد الاستماع (حتى حد، ثم توقف).
+        // صمت بلا كلام — أعد الاستماع. [1.0.98] لا توقف أبدًا ولا طلب
+        // ضغطة للمتابعة: بعد 40 مقطعًا صامتًا استراحة 5 ثوانٍ ثم
+        // استئناف تلقائي، فيلتقط الصوت الضعيف متى عاد.
         emptyStreakRef.current += 1;
         if (emptyStreakRef.current >= MAX_EMPTY_CHUNKS) {
-          setLoopActive(false);
-          loopActiveRef.current = false;
-          setStatus("توقف الاستماع لطول الصمت — اضغط للمتابعة");
+          emptyStreakRef.current = 0;
+          setStatus("صامت — بانتظار صوتك… سأستأنف الاستماع تلقائيًا");
           setStatusKind("info");
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (loopActiveRef.current && !pausedOnErrorRef.current && !helpPlayingRef.current) {
+              scheduleRestart();
+            }
+          }, SILENCE_RESUME_MS);
         } else {
           scheduleRestart();
         }
@@ -446,7 +485,9 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     prevTranscript.current = state.transcript;
   }, [state.isListening, state.transcript, diagnoseChunk, fireError, scheduleRestart, setPosition]);
 
-  // الفحص الحي أثناء الكلام: خطأ ثابت ~ثانية يُطلق التنبيه فورًا.
+  // الفحص الحي أثناء الكلام: [1.0.98] آية منسية ثابتة ~ثانية تُطلق
+  // التنبيه فورًا؛ أما خطأ الكلمة فلا يُحكم عليه من فرضية جزئية غير
+  // مستقرة — يُحكم عليه عند نهاية المقطع (الفحص النهائي أدناه).
   useEffect(() => {
     if (!loopActiveRef.current || pausedOnErrorRef.current || helpPlayingRef.current || !state.isListening) {
       return;
@@ -455,7 +496,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     interimRef.current = combined;
     if (!combined) return;
     const d = diagnoseChunk(combined);
-    if (d.kind === "ok") {
+    if (d.kind === "ok" || d.kind === "wrong-word") {
       clearLiveTimer();
       return;
     }
@@ -548,12 +589,13 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   }, [currentAyah, ayahStartPos, resumeLoop, setPosition]);
 
   const startSession = useCallback(() => {
-    const ayahs = getSurahAyahs(surah);
+    // [1.0.98 قالون] قائمة الكلمات من نص الرواية المختارة — قالون
+    // افتراضيًا. نفس ترقيم الآيات في الروايتين (6236 آية).
+    const ayahs = getSurahAyahs(surah, tasmieQirah);
     const list: SurahWord[] = [];
     ayahs.forEach((ay) => {
-      ay.text
-        .split(/\s+/)
-        .filter(Boolean)
+      // [1.0.98] تُسقط علامات الوقف الشبحية من قائمة الكلمات.
+      splitComparisonWords(ay.text)
         .forEach((w, i) => list.push({ word: w, ayah: ay.numberInSurah, isFirstOfAyah: i === 0 }));
     });
     wordsRef.current = list;
@@ -581,10 +623,11 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     loopActiveRef.current = true;
     ensureAudioCtx();
     scheduleRestart();
-  }, [surah, startAyah, saveLast, ensureAudioCtx, scheduleRestart]);
+  }, [surah, startAyah, tasmieQirah, saveLast, ensureAudioCtx, scheduleRestart]);
 
   const resetSession = useCallback(() => {
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     clearLiveTimer();
     setLoopActive(false);
     loopActiveRef.current = false;
@@ -608,6 +651,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
       setLoopActive(false);
       loopActiveRef.current = false;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (state.isListening) stop();
       setStatus("متوقف مؤقتًا — اضغط للمتابعة");
       setStatusKind("info");
@@ -639,7 +683,8 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   }, []);
 
   const surahInfo = SURAHS.find((s) => s.number === surah);
-  const currentAyahText = started ? getAyah(surah, currentAyah)?.text ?? null : null;
+  // [1.0.98 قالون] نص الآية الظاهر عند طلب التسميع — من الرواية المختارة.
+  const currentAyahText = started ? getAyah(surah, currentAyah, tasmieQirah)?.text ?? null : null;
 
   if (!state.isSupported) {
     return (
@@ -691,6 +736,29 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
         <div className="space-y-4">
           <div className="card-modern p-5 space-y-4">
             <div>
+              <label className="text-sm text-muted-foreground block mb-1.5">الرواية</label>
+              <select
+                value={tasmieQirah}
+                onChange={(e) => {
+                  const q = e.target.value;
+                  setTasmieQirah(q);
+                  try {
+                    localStorage.setItem(QIRAH_KEY, q);
+                  } catch {
+                    // ignore
+                  }
+                }}
+                data-testid="tasmie-qirah"
+                className="w-full bg-card border border-border rounded-xl px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {TASMIE_QIRAHS.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="text-sm text-muted-foreground block mb-1.5">السورة</label>
               <select
                 value={surah}
@@ -699,6 +767,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
                   setSurah(n);
                   setStartAyah(1);
                 }}
+                data-testid="tasmie-surah"
                 className="w-full bg-card border border-border rounded-xl px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 {SURAHS.map((s) => (
@@ -732,6 +801,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           <div className="card-modern p-5 text-sm text-muted-foreground leading-relaxed space-y-1.5">
             <div className="font-bold text-foreground">كيف يعمل؟</div>
             <div>• اقرأ السورة كاملة من حفظك دون توقف — نص الآيات مخفي أثناء القراءة.</div>
+            <div>• المقارنة برواية قالون عن نافع — بدّل الرواية من الأعلى إن قرأت بحفص.</div>
             <div>• إن أخطأت في كلمة يوقفك تلقائيًا بصوت عالٍ واهتزاز، ويقول لك: «عاود الآية».</div>
             <div>• إن نسيت آية كاملة ينبّهك: «توجد آية ناقصة» ويعيدك إليها.</div>
             <div>• إن أردت سماع آية، قل «سمّعني الآية» أو اضغط زرها — تُسمَع لك وتُسجَّل في قائمتك.</div>

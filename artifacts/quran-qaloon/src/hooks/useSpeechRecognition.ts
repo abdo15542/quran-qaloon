@@ -1,6 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
+// [1.0.98 قالون] جدول الإملاء الحديث للألف الخنجرية (مولّد من النص
+// نفسه بمصدر التفسير): يميّز الألف الخنجرية الحقيقية (مالك، العالمين،
+// السماوات — تُوقف إن نُسيت) عن الزائدة في الإملاء الحديث (ذلك، هذا،
+// الرحمن، موسى، إسرائيل — يكتبها التعرف بلا ألف حتى عند التلاوة الصحيحة).
+import { DAGGER_ALIF_FIXES } from "@/data/dagger-alif-fixes";
 
 export interface SpeechRecognitionState {
   isListening: boolean;
@@ -13,7 +18,6 @@ export interface SpeechRecognitionState {
 const LANG = "ar-SA";
 const MIC_PERMISSION_ERROR =
   "لم يُمنح إذن الميكروفون. يرجى السماح بالوصول إلى الميكروفون.";
-const NO_SPEECH_ERROR = "لم يُكتشف صوت. يرجى التحدث بوضوح.";
 const UNAVAILABLE_ERROR = "التعرف على الصوت غير متوفر على هذا الجهاز.";
 
 interface ISpeechRecognitionResult {
@@ -140,7 +144,10 @@ export function useSpeechRecognition() {
       isListening: false,
       interimTranscript: "",
       transcript: finalText,
-      error: finalText ? null : NO_SPEECH_ERROR,
+      // [1.0.98] جلسة بلا كلام ليست خطأً: الصفحة تعيد الاستماع
+      // تلقائيًا بعد صمت وبلا طلب ضغطة من المستخدم. الخطأ يظهر
+      // فقط لمشاكل حقيقية (إذن الميكروفون، الشبكة).
+      error: null,
     }));
   }, [clearStopSafetyTimer]);
 
@@ -335,9 +342,13 @@ export function useSpeechRecognition() {
     };
 
     recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
+      if (event.error === "no-speech") {
+        // [1.0.98] صمت — ليس خطأً: تُعيد الصفحة الاستماع تلقائيًا.
+        setState((s) => ({ ...s, isListening: false, error: null }));
+        return;
+      }
       const messages: Record<string, string> = {
         "not-allowed": MIC_PERMISSION_ERROR,
-        "no-speech": NO_SPEECH_ERROR,
         "network": "خطأ في الشبكة.",
         "audio-capture": "لا يوجد ميكروفون. يرجى التحقق من الجهاز.",
         "aborted": "",
@@ -414,14 +425,100 @@ export function useSpeechRecognition() {
   return { state, start, stop, reset };
 }
 
-export function stripTashkeel(text: string): string {
+// [1.0.98 قالون] الواو والياء الصغيرتان (ۥ U+06E5، ۦ U+06E6):
+// حرفان (→و/ي) إلا بعد هاء الضمير (-هُۥ/-هِۦ: حوله، به) حيث هما
+// حركة المدّ فتُحذفان. (دَاوُۥدُ = داود، يَسْتَحْىِۦٓ = يستحيي،
+// ٱلنَّبِيِّۦنَ = النبيين؛ أما بِهِۦ وحَوْلَهُۥ فالعلامة حركة لا
+// حرف.) حذفهما مطلقًا في 1.0.98 كان يجعل التلاوة الصحيحة لهذه
+// الكلمات تُقرأ خطأً. تُطبَّق قبل إزالة التشكيل.
+function normalizeSmallWawYeh(text: string): string {
   return text
-    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7\u06E8\u06EA-\u06ED]/g, "")
+    .replace(/ه([\u064B-\u065F]*)\u06E6/g, "ه$1")
+    .replace(/ه([\u064B-\u065F]*)\u06E5/g, "ه$1")
+    .replace(/\u06E6/g, "ي")
+    .replace(/\u06E5/g, "و");
+}
+
+export function stripTashkeel(text: string): string {
+  return normalizeSmallWawYeh(text)
+    // [1.0.98 قالون] علامات رسم قالون: التنوين الخاص (ࣰࣱࣲ
+    // U+08F0–U+08F2 بدل ًٌٍ)، وعلامتا ۞ (U+06DE) و۩ (U+06E9) —
+    // رمزان لا يُنطقان كانا يبقيان «كلمة» شبحية في المقارنة (۞
+    // وحدها 199 موضعًا في حفص)، وعلامة اتجاه الكتابة U+200F.
+    // و«ے» (U+06D2) تُكتب في قالون حيث تُكتب «ي» (فِے = في).
+    // [1.0.98 قالون] توحيد الهمزة: الرسم العثماني يكتب الهمزة
+    // منفصلة أو على مقعد مختلف عن الإملاء الحديث (قالون «يُؤْمِنُونَ»
+    // = يؤمنون، و«ءَامَنُوا» = آمنوا، و«ٱقْرَأْ» = اقرأ) — فتُوحَّد
+    // المقاعد (ؤ→و، ئ→ي، و«ءا»→«ا»، والهمزة المفردة→ا إلا بعد
+    // مدّ: ساء، جاء، شيء تبقى بهمزتها) قبل المقارنة.
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DE\u06DF-\u06E8\u06E9\u06EA-\u06ED\u08F0-\u08F2\u200F]/g, "")
     .replace(/[أإآٱ]/g, "ا")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/ء(?=ا)/g, "")
+    .replace(/ء/g, (_m: string, off: number, str: string) =>
+      /[اوي]/.test(str[off - 1] ?? "") ? "ء" : "ا"
+    )
     .replace(/ة/g, "ه")
-    .replace(/ى/g, "ي")
+    .replace(/[ىے]/g, "ي")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * stripTashkeel مع حفظ الألف الخنجرية (U+0670) حرف «ا» بدل حذفها —
+ * للمقارنة على مستوى الحرف: «مَٰلِكِ» تُقارَن «مالك» لا «ملك».
+ */
+export function stripTashkeelKeepDagger(text: string): string {
+  return normalizeSmallWawYeh(text)
+    // [1.0.98] «وٰة» (الصلوة، الزكوة، الحيوة…) تُنطق ألفًا واحدة:
+    // الواو صامتة والألف الخنجرية هي الألف المنطوقة. تُطوى إلى «ا»
+    // قبل تحويل الألفات الخنجرية الباقية — وإلا اختلفت الكلمة
+    // المرجعية عن المنطوقة بحرفين (و+ا) مع أنها صحيحة. لا يُطوى
+    // «وٰ» قبل تاء (صلواتك: الواو منطوقة).
+    // [1.0.98 قالون] نفس علامات رسم قالون كما في stripTashkeel
+    // (تنوين ࣰࣱࣲ، ۞/۩، RLM، ے→ي) — وإلا بقيت في الكلمة المرجعية
+    // فحُسبت حرفًا زائدًا أو ناقصًا في فحص الحرف.
+    // ونفس توحيد الهمزة: الألف الخنجرية تُحوَّل إلى «ا» قبل قواعد
+    // الهمزة (إسرائيل: الألف الخنجرية بعدها همزة تُبقيها همزةً لا ألفًا).
+    .replace(/و\u0670(?=ة)/g, "ا")
+    .replace(/[\u064B-\u065F\u06D6-\u06DC\u06DE\u06DF-\u06E8\u06E9\u06EA-\u06ED\u08F0-\u08F2\u200F]/g, "")
+    .replace(/\u0670/g, "ا")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/ء(?=ا)/g, "")
+    .replace(/ء/g, (_m: string, off: number, str: string) =>
+      /[اوي]/.test(str[off - 1] ?? "") ? "ء" : "ا"
+    )
+    .replace(/ة/g, "ه")
+    .replace(/[ىے]/g, "ي")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * كلمات نصٍّ للمقارنة: تُسقَط علامات الوقف المنفصلة (ۚ ۖ ۗ ۘ ۙ ۛ ۜ)
+ * فهي رموز لا تُنطق — بقاؤها «كلمة» فارغة لا تطابق شيئًا أبدًا كان
+ * يجعل كل تلاوة صحيحة لآية فيها علامة وقف تُقرأ خطأً. [1.0.98]
+ * وُجدت 4364 علامة كهذه في النص المضمّن (ۚ 1972، ۖ 1682، ۗ 603…).
+ */
+export function splitComparisonWords(text: string): string[] {
+  const out: string[] = [];
+  for (const w of text.split(/\s+/)) {
+    if (stripTashkeel(w).length === 0) continue;
+    // [1.0.98 قالون] النداء «يا» ملصق بالمنادى في الرسم العثماني
+    // (يَٰبَنِىٓ، يَٰٓأَيُّهَا) بينما يكتبه التعرف كلمتين (يا بني،
+    // يا أيها) — يُفصل ليتطابقا. كل الكلمات المطابقة للنمط في
+    // النصين (61 كلمة، 349 موضعًا في حفص) نداءات، فالفصل آمن دائمًا.
+    const m = w.match(/^ي[\u064B-\u065F]*\u0670(.+)$/);
+    if (m && /[\u0621-\u064A]/.test(m[1])) {
+      out.push(w.slice(0, w.length - m[1].length), m[1]);
+    } else {
+      out.push(w);
+    }
+  }
+  return out;
 }
 
 export interface WordResult {
@@ -465,7 +562,17 @@ export function fuzzyWordMatch(a: string, b: string): boolean {
   if (a === b) return true;
   const maxLen = Math.max(a.length, b.length);
   if (maxLen <= 3) return a === b;
-  return levenshtein(a, b) <= 1;
+  if (levenshtein(a, b) <= 1) return true;
+  // [1.0.98] لهجة/لكنة: الكلمة نفسها تُسمع بحروف مدّ مختلفة
+  // (مثل «ملكي» بدل «مالك»: الكسرة تُسمع ياءً) — نفس الطول ونفس
+  // الهيكل الساكن (بعد حذف ا/و/ي) = الكلمة نفسها، لا خطأ.
+  if (a.length === b.length && skeletonOf(a) === skeletonOf(b)) return true;
+  return false;
+}
+
+const VOWEL_LETTERS = new Set(["ا", "و", "ي"]);
+function skeletonOf(w: string): string {
+  return [...w].filter((c) => !VOWEL_LETTERS.has(c)).join("");
 }
 
 /**
@@ -539,8 +646,12 @@ export function compareTexts(
   reference: string,
   spoken: string
 ): { words: WordResult[]; score: number } {
-  const refOriginalWords = reference.replace(/\s+/g, " ").trim().split(/\s+/).filter(Boolean);
-  const refWords = refOriginalWords.map((w) => stripTashkeel(w));
+  // [1.0.98] علامات الوقف الشبحية تُسقط هنا أيضًا (كانت تُحسب كلمات
+  // ناقصة في فحص التجويد).
+  const refOriginalWords = splitComparisonWords(reference);
+  // [1.0.98 قالون] بالألف الخنجرية محفوظة — كلمة بألفي خنجر
+  // (الصَّٰلِحَٰتِ) لا تتطابق إن حُذفت ألفاها من المرجع.
+  const refWords = refOriginalWords.map((w) => stripTashkeelKeepDagger(w));
 
   const rawSpoken = stripTashkeel(spoken).split(/\s+/).filter((w) => w.length > 1);
 
@@ -662,15 +773,70 @@ export function diagnoseStream(
   spokenRaw: string[]
 ): StreamDiagnosis {
   const ok: StreamDiagnosis = { kind: "ok", consumed: 0, errorAyah: null, skippedAyahs: [], wrongSpoken: null, matchedSpoken: 0 };
-  if (ref.length === 0) return ok;
+  // [1.0.98] أسقط علامات الوقف الشبحية (ۚ ۖ …) من المرجع دفاعيًا أيضًا
+  // هنا (المصدر الرئيسي للإسقاط هو splitComparisonWords عند بناء القائمة):
+  // رمز لا يُنطق يتحول إلى كلمة فارغة لا تطابق شيئًا أبدًا.
+  const refClean = ref.filter((w) => stripTashkeel(w.word).length > 0);
+  if (refClean.length === 0) return ok;
   const spoken = spokenRaw.map((w) => stripTashkeel(w)).filter((w) => w.length > 1);
   const spokenOriginal = spokenRaw.filter((w) => stripTashkeel(w).length > 1);
   if (spoken.length === 0) return ok;
 
-  const refWords = ref.map((w) => stripTashkeel(w.word));
+  // [1.0.98 قالون] المقارنة بالألف الخنجرية محفوظة (لا محذوفة):
+  // كلمة بألفي خنجر (الصَّٰلِحَٰتِ) تُحذف ألفاها معًا بالتجريد
+  // فيختلف المنطوق «الصالحات» عنها بحرفين فلا تتطابق أبدًا — بينما
+  // التعرف يكتب الإملاء الحديث دائمًا. حرفٌ واحد منسي يُكشف بعدها
+  // في فحص الحرف، لا هنا.
+  const refWords = refClean.map((w) => stripTashkeelKeepDagger(w.word));
   const { refMatched, spokenMatched, spokenToRef } = alignStreams(refWords, spoken);
+
+  // [1.0.98] «يا» ندائية زائدة (يسمعها التعرف قبل «ربك» ونحوه):
+  // «يا» غير مطابقة يجاورها كلام مطابق تُتجاهل — ليست خطأ حفظ.
+  for (let i = 0; i < spoken.length; i++) {
+    if (!spokenMatched[i] && spoken[i] === "يا") {
+      const nextOk = i + 1 < spoken.length && spokenMatched[i + 1];
+      const prevOk = i > 0 && spokenMatched[i - 1];
+      if (nextOk || prevOk) spokenMatched[i] = true;
+    }
+  }
+
+  // [1.0.98] بداية منتصف آية: كلمات مرجعية غير مطابقة في أول النافذة
+  // لا تغطي آية كاملة تعني أن القارئ بدأ من هنا (بسملة قيلت في مقطع
+  // سابق، أو جلسة انقسمت منتصف آية) — تُستهلك بصمت ولا تُحسب خطأ.
+  // أما إن غطت آية كاملة فهي آية منسية وتُكشف أدناه كالمعتاد.
+  {
+    const fb = refMatched.findIndex((m) => !m);
+    if (fb === 0) {
+      let runEnd = 0;
+      while (runEnd < refClean.length && !refMatched[runEnd]) runEnd++;
+      const runAyahs = [...new Set(refClean.slice(0, runEnd).map((w) => w.ayah))];
+      const coversWholeAyah = runAyahs.some((a) => {
+        let anyInWindow = false;
+        let allUnmatched = true;
+        for (let k = 0; k < refClean.length; k++) {
+          if (refClean[k].ayah === a) {
+            anyInWindow = true;
+            if (refMatched[k]) { allUnmatched = false; break; }
+          }
+        }
+        return anyInWindow && allUnmatched;
+      });
+      if (!coversWholeAyah) {
+        for (let k = 0; k < runEnd; k++) refMatched[k] = true;
+      }
+    }
+  }
+
   const matchedSpoken = spokenMatched.filter(Boolean).length;
   ok.matchedSpoken = matchedSpoken;
+
+  // [1.0.98] فحص الحرف (و/ا/ل): كلمة مطابقة تختلف بحرف واحد تُفحص
+  // حرفًا حرفًا — يُغفر تشويش التعرف المعروف فقط، ويُوقف على الحرف
+  // المنسي أو الخاطئ. يُقارَن مع تشخيص الكلمات أدناه ويُبلَّغ الأسبق.
+  const letterErr = checkLetterErrors(refClean, spoken, spokenOriginal, spokenMatched, spokenToRef);
+
+  // التشخيص على مستوى الكلمات (منطق 1.0.96 دون تغيير).
+  const wd: StreamDiagnosis = (() => {
 
   // [1.0.96] كلمة منطوقة لا تطابق شيئًا قبل آخر كلمة مطابقة = خطأ
   // (إدراج أو كلمة خاطئة وسط الآية) — حتى لو بقيت كلمات مرجعية
@@ -684,8 +850,8 @@ export function diagnoseStream(
     const anchorRef = earlyExtraIdx > 0 ? spokenToRef[earlyExtraIdx - 1] : 0;
     return {
       kind: "wrong-word",
-      consumed: firstBadTmp === -1 ? ref.length : firstBadTmp,
-      errorAyah: ref[Math.max(0, anchorRef)].ayah,
+      consumed: firstBadTmp === -1 ? refClean.length : firstBadTmp,
+      errorAyah: refClean[Math.max(0, anchorRef)].ayah,
       skippedAyahs: [],
       wrongSpoken: spokenOriginal[earlyExtraIdx] ?? spoken[earlyExtraIdx] ?? null,
       matchedSpoken,
@@ -697,11 +863,11 @@ export function diagnoseStream(
     // كل الكلمات المرجعية مطابقة — لكن كلمة منطوقة زائدة خطأ أيضًا.
     const extraIdx = spokenMatched.findIndex((m) => !m);
     if (extraIdx !== -1) {
-      const anchorRef = extraIdx > 0 ? spokenToRef[extraIdx - 1] : ref.length - 1;
+      const anchorRef = extraIdx > 0 ? spokenToRef[extraIdx - 1] : refClean.length - 1;
       return {
         kind: "wrong-word",
-        consumed: ref.length,
-        errorAyah: ref[Math.max(0, anchorRef)].ayah,
+        consumed: refClean.length,
+        errorAyah: refClean[Math.max(0, anchorRef)].ayah,
         skippedAyahs: [],
         wrongSpoken: spokenOriginal[extraIdx] ?? spoken[extraIdx] ?? null,
         matchedSpoken,
@@ -712,9 +878,9 @@ export function diagnoseStream(
 
   // مدى الكلمات غير المطابقة بدءًا من أول خطأ.
   let runEnd = firstBad;
-  while (runEnd < ref.length && !refMatched[runEnd]) runEnd++;
+  while (runEnd < refClean.length && !refMatched[runEnd]) runEnd++;
 
-  if (runEnd === ref.length) {
+  if (runEnd === refClean.length) {
     // غير مطابقة في آخر التدفق فقط: كلمات لم تُقَل بعد — لكن كلمة
     // منطوقة زائدة بعد آخر كلمة مطابقة لا تطابق الكلمات القادمة
     // (نظرة 3 كلمات) فهي خطأ أيضًا، لا «لم تُقَل بعد».
@@ -728,7 +894,7 @@ export function diagnoseStream(
         return {
           kind: "wrong-word",
           consumed: firstBad,
-          errorAyah: firstBad > 0 ? ref[firstBad - 1].ayah : ref[0].ayah,
+          errorAyah: firstBad > 0 ? refClean[firstBad - 1].ayah : refClean[0].ayah,
           skippedAyahs: [],
           wrongSpoken: spokenOriginal[lastMatchedSpoken + 1 + badIdx] ?? after[badIdx] ?? null,
           matchedSpoken,
@@ -739,12 +905,12 @@ export function diagnoseStream(
   }
 
   // خطأ داخلي: كلمات غير مطابقة يتبعها كلمات مطابقة.
-  const runAyahs = [...new Set(ref.slice(firstBad, runEnd).map((w) => w.ayah))];
+  const runAyahs = [...new Set(refClean.slice(firstBad, runEnd).map((w) => w.ayah))];
   const skippedAyahs = runAyahs.filter((a) => {
     let anyInWindow = false;
     let allUnmatched = true;
-    for (let k = 0; k < ref.length; k++) {
-      if (ref[k].ayah === a) {
+    for (let k = 0; k < refClean.length; k++) {
+      if (refClean[k].ayah === a) {
         anyInWindow = true;
         if (refMatched[k]) {
           allUnmatched = false;
@@ -768,9 +934,152 @@ export function diagnoseStream(
   return {
     kind: "wrong-word",
     consumed: firstBad,
-    errorAyah: ref[firstBad].ayah,
+    errorAyah: refClean[firstBad].ayah,
     skippedAyahs: [],
     wrongSpoken: wrongIdx !== -1 ? (spokenOriginal[wrongIdx] ?? spoken[wrongIdx] ?? null) : null,
     matchedSpoken,
   };
+  })();
+
+  // يُبلَّغ الخطأ الأسبق: إن لم يجد تشخيص الكلمات خطأً فخطأ الحرف
+  // وحده يكفي؛ وإن وجد خطأً في الكلمات فالأسبق منهما يُبلَّغ.
+  if (wd.kind === "ok") return letterErr ?? { ...ok, consumed: wd.consumed };
+  if (letterErr && letterErr.consumed <= wd.consumed) return letterErr;
+  return wd;
+}
+
+/**
+ * [1.0.98] فحص الحرف: لكل كلمة منطوقة طابقتها المحاذاة مع كلمة مرجعية،
+ * قارن الحروف. فرق حرف واحد يُغفر فقط إن كان من تشويش التعرف المعروف
+ * (حروف مدّ، تنوين ه/ا، ألف خنجرية)، وإلا فهو حرف منسي أو خاطئ —
+ * واو أو ألف أو لام — فيُوقف التسميع عند آيته.
+ */
+function checkLetterErrors(
+  ref: StreamWord[],
+  spoken: string[],
+  spokenOriginal: string[],
+  spokenMatched: boolean[],
+  spokenToRef: number[]
+): StreamDiagnosis | null {
+  const matchedSpoken = spokenMatched.filter(Boolean).length;
+  for (let j = 0; j < spoken.length; j++) {
+    const ri = spokenToRef[j];
+    if (ri < 0 || !spokenMatched[j]) continue;
+    const Rk = stripTashkeelKeepDagger(ref[ri].word);
+    const S = spoken[j];
+    if (Rk === S) continue;
+    if (classifyLetterDiff(ref[ri].word, Rk, S) === "error") {
+      return {
+        kind: "wrong-word",
+        consumed: ri,
+        errorAyah: ref[ri].ayah,
+        skippedAyahs: [],
+        wrongSpoken: spokenOriginal[j] ?? S,
+        matchedSpoken,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * مواضع الألف الخنجرية في كلمة أصلية: فهرسها في النسخة المحفوظة
+ * (stripTashkeelKeepDagger)، والحرف الذي قبلها، وهل هي آخر حرف.
+ * (في النص 425 كلمة فيها ألفان خنجريتان فأكثر — لا يكفي فهرس أول واحدة.)
+ */
+interface DaggerInfo { rkIndex: number; origIndex: number; prevLetter: string | null; isLastLetter: boolean; }
+function daggerInfos(original: string): DaggerInfo[] {
+  // [1.0.98 قالون] تُعالَج الكلمة كما في stripTashkeelKeepDagger حتى
+  // خطوة الألف الخنجرية — فهارس الألفات يجب أن تطابق النسخة المحفوظة
+  // (Rk)، وإلا اختلّت عند حذف همزة قبلها (ءَايَةٍ: الهمزة تُحذف
+  // فتنزاح الفهارس). الخطوات الباقية (همزة، ة→ه، ى→ي) حرف بحرف
+  // فلا تزيح الفهارس.
+  const pre = normalizeSmallWawYeh(original)
+    .replace(/و\u0670(?=ة)/g, "ا")
+    .replace(/[\u064B-\u065F\u06D6-\u06DC\u06DE\u06DF-\u06E8\u06E9\u06EA-\u06ED\u08F0-\u08F2\u200F]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ء(?=ا)/g, "");
+  const chars = [...pre];
+  const infos: DaggerInfo[] = [];
+  let rk = 0;
+  let prevLetter: string | null = null;
+  for (let idx = 0; idx < chars.length; idx++) {
+    const ch = chars[idx];
+    if (ch === "\u0670") {
+      infos.push({ rkIndex: rk, origIndex: idx, prevLetter, isLastLetter: false });
+      rk++;
+      prevLetter = "ا";
+      continue;
+    }
+    rk++;
+    prevLetter = ch;
+  }
+  for (const info of infos) {
+    let hasLetterAfter = false;
+    for (let j = info.origIndex + 1; j < chars.length; j++) {
+      if (chars[j] !== "\u0670") { hasLetterAfter = true; break; }
+    }
+    info.isLastLetter = !hasLetterAfter;
+  }
+  return infos;
+}
+
+/**
+ * فرق بين كلمة مرجعية (بألفها الخنجرية محفوظة) وكلمة منطوقة.
+ * «benign» = تشويش تعرف/لكنة معروف؛ «error» = حرف منسي أو خاطئ.
+ */
+function classifyLetterDiff(
+  refOriginal: string,
+  refKeep: string,
+  spoken: string
+): "benign" | "error" {
+  if (refKeep === spoken) return "benign";
+  // [1.0.98 قالون] الإملاء الحديث للكلمة: إن طابق المنطوقُ الإملاءَ
+  // الحديث للكلمة المرجعية فالتلاوة صحيحة — الألف الخنجرية ليست
+  // دائمًا ألفًا (ذلك، هذا، الرحمن، موسى)، ومقعد الهمزة قد يختلف
+  // (إسرائيل). يغطي فرق الحذف والاستبدال معًا.
+  if (DAGGER_ALIF_FIXES[refKeep] === spoken) return "benign";
+  // نفس الطول ونفس الهيكل الساكن = اختلاف حروف مدّ فقط (لكنة).
+  if (refKeep.length === spoken.length && skeletonOf(refKeep) === skeletonOf(spoken)) return "benign";
+  if (levenshtein(refKeep, spoken) !== 1) return "error";
+  // فرق حرف واحد — حدّد موضعه ونوعه.
+  if (spoken.length === refKeep.length - 1) {
+    // حذف حرف من المنطوق.
+    let i = 0;
+    while (i < spoken.length && refKeep[i] === spoken[i]) i++;
+    const deleted = refKeep[i];
+    const infos = daggerInfos(refOriginal);
+    // واو صامتة بعد ألف خنجرية (الصلوة/الزكوة تُنطق «الصلاة») —
+    // ليست حرفًا منسيًا.
+    if (deleted === "و" && infos.some((d) => d.rkIndex === i - 1)) return "benign";
+    // ألف خنجرية أخيرة في آخر الكلمة أو بعد ألف مقصورة (موسى، عيسى)
+    // يكتبها التعرف دائمًا بلا ألف — ليست حرفًا منسيًا. (الحالات
+    // المثبتة في الجدول أعلاه تُغفر هناك؛ هذا احتياط لكلمات قالون
+    // غير المغطاة بالجدول.)
+    if (deleted === "ا") {
+      const info = infos.find((d) => d.rkIndex === i);
+      if (info) {
+        const isLastDagger = infos.indexOf(info) === infos.length - 1;
+        if (isLastDagger && (info.isLastLetter || info.prevLetter === "ى")) return "benign";
+      }
+    }
+    return "error";
+  }
+  if (spoken.length === refKeep.length + 1) {
+    // زيادة حرف في المنطوق.
+    let i = 0;
+    while (i < refKeep.length && refKeep[i] === spoken[i]) i++;
+    const inserted = spoken[i];
+    if (inserted === "ه" && i === spoken.length - 1) return "benign"; // تنوين يُسمع هاءً (بحمده)
+    if (inserted === "ا" && refOriginal.includes("\u0670")) return "benign"; // ألف خنجرية مكتوبة (الرحمان)
+    return "error";
+  }
+  // استبدال حرف واحد بنفس الطول.
+  let i = 0;
+  while (i < spoken.length && refKeep[i] === spoken[i]) i++;
+  const a = refKeep[i], b = spoken[i];
+  if (a === "ا" && b === "ه" && i === spoken.length - 1) return "benign"; // تنوين (توابا/توابه)
+  if (a === "ه" && b === "ا" && i === spoken.length - 1) return "benign";
+  if (VOWEL_LETTERS.has(a) && VOWEL_LETTERS.has(b)) return "benign";
+  return "error";
 }
