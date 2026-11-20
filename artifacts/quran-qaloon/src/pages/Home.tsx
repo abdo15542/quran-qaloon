@@ -213,12 +213,46 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           </div>
         </div>
 
+        {/* [1.0.93] المتابعة اليومية في الأعلى: المصحف ووردي اليومي —
+            أكثر ما يُفتح كل يوم، وكانا مدفونين تحت شبكة الوصول السريع.
+            (نُقلا من أسفل الشبكة؛ لا نسخة مكررة.) */}
+        <div className="grid grid-cols-2 gap-3 mb-6 animate-fade-up" style={{ animationDelay: "60ms" }}>
+          <Link href={`/reading/${lastMushafPage}`}>
+            <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 hover:border-primary/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer h-full">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
+                <span className="font-arabic text-base text-foreground">المصحف</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {lastMushafPage > 1
+                  ? `متابعة — صفحة ${lastMushafPage}`
+                  : "وضع القراءة بملء الشاشة"}
+              </div>
+            </div>
+          </Link>
+          <Link href="/wird">
+            <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-3xl p-4 hover:border-amber-500/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer h-full">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-lg">📖</span>
+                <span className="font-arabic text-base text-foreground">وردي اليومي</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {todayDone
+                  ? "أحسنت! ورد الغد بانتظارك"
+                  : startPage === endPage
+                    ? `صفحة ${startPage} — اضغط لتبدأ`
+                    : `الصفحات ${startPage} – ${endPage}`}
+              </div>
+            </div>
+          </Link>
+        </div>
+
         {/* Khatma Progress Card — حلقة تقدم */}
         <div className={`mb-6 card-modern overflow-hidden animate-fade-up ${
           isKhatmaComplete
             ? "border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
             : "border-border bg-card"
-        }`} style={{ animationDelay: "60ms" }}>
+        }`} style={{ animationDelay: "120ms" }}>
           <div className="px-5 py-4 flex items-center gap-4">
             <div className="relative w-[76px] h-[76px] shrink-0">
               <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90">
@@ -284,7 +318,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         {/* آية اليوم */}
         {verseAyah && verseSurah && (
           <Link href={`/surah/${verseOfDay.surah}?ayah=${verseOfDay.ayah}`}>
-            <div className="card-modern p-5 pt-4 mb-6 cursor-pointer hover:shadow-lg active:scale-[0.99] transition-all border-r-4 border-r-amber-500 animate-fade-up" style={{ animationDelay: "120ms" }}>
+            <div className="card-modern p-5 pt-4 mb-6 cursor-pointer hover:shadow-lg active:scale-[0.99] transition-all border-r-4 border-r-amber-500 animate-fade-up" style={{ animationDelay: "180ms" }}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-9 h-9 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
                   <Quote className="w-4 h-4" />
@@ -303,11 +337,11 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
         )}
 
         {/* الوصول السريع */}
-        <div className="flex items-center gap-2 mb-3 animate-fade-up" style={{ animationDelay: "180ms" }}>
+        <div className="flex items-center gap-2 mb-3 animate-fade-up" style={{ animationDelay: "240ms" }}>
           <span className="section-label text-sm">الوصول السريع</span>
           <span className="flex-1 h-px bg-border" />
         </div>
-        <div className="grid grid-cols-2 gap-3 mb-6 animate-fade-up" style={{ animationDelay: "180ms" }}>
+        <div className="grid grid-cols-2 gap-3 mb-6 animate-fade-up" style={{ animationDelay: "240ms" }}>
           <Link href="/favourites">
             <div className="rounded-3xl border border-rose-500/25 bg-rose-500/[0.08] dark:bg-rose-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
               <div className="flex items-center gap-2 mb-1.5">
@@ -382,13 +416,13 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               </div>
             </div>
           </Link>
-          <Link href="/asma" className="col-span-2">
-            <div className="rounded-3xl border border-indigo-500/25 bg-indigo-500/[0.08] dark:bg-indigo-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer flex items-center gap-3">
-              <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 shadow-sm"><Sparkles className="w-5 h-5" /></span>
-              <div className="min-w-0">
-                <div className="font-arabic text-[15px] font-bold text-foreground">أسماء الله الحسنى</div>
-                <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
+          <Link href="/asma">
+            <div className="rounded-3xl border border-indigo-500/25 bg-indigo-500/[0.08] dark:bg-indigo-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 shadow-sm"><Sparkles className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">أسماء الله الحسنى</span>
               </div>
+              <div className="text-xs text-muted-foreground">الأسماء التسعة والتسعون ومعانيها</div>
             </div>
           </Link>
           {/* [1.0.74] المميزات العميقة دون إنترنت */}
@@ -420,47 +454,6 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
             </div>
           </Link>
         </div>
-
-        {/* وردي اليومي */}
-        <Link href="/wird">
-          <div className="bg-gradient-to-l from-amber-500/15 to-amber-500/5 border border-amber-500/30 rounded-3xl p-4 mb-6 hover:border-amber-500/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "240ms" }}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-lg">📖</span>
-              <span className="font-arabic text-base text-foreground">وردي اليومي</span>
-              {todayDone ? (
-                <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">✓ أُكمل اليوم</span>
-              ) : (
-                <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
-                  {startPage === endPage ? `صفحة ${startPage}` : `الصفحات ${startPage} – ${endPage}`}
-                </span>
-              )}
-              {streak > 0 && (
-                <span className="text-xs text-muted-foreground">🔥 {streak} {streak === 1 ? "يوم" : streak === 2 ? "يومين" : "أيام"}</span>
-              )}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {todayDone
-                ? "أحسنت! ورد الغد بانتظارك"
-                : "وردك اليومي بانتظارك — اضغط لتبدأ القراءة"}
-            </div>
-          </div>
-        </Link>
-
-        {/* المصحف — وضع القراءة بملء الشاشة للقراءة السريعة */}
-        <Link href={`/reading/${lastMushafPage}`}>
-          <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "280ms" }}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
-              <span className="font-arabic text-base text-foreground">المصحف</span>
-              <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">٦٠٤ صفحات</span>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {lastMushafPage > 1
-                ? `متابعة القراءة — صفحة ${lastMushafPage}`
-                : "وضع القراءة بملء الشاشة — اسحب للتنقل بين الصفحات"}
-            </div>
-          </div>
-        </Link>
 
         {/* Resume Listening */}
         {inProgressSurahs.length > 0 && (
