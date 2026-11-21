@@ -103,6 +103,18 @@ export function useSpeechRecognition() {
   // start() التالية بصمت (فيديو 1.0.98: بعد «متابعة الاستماع»
   // بقيت الواجهة «تستمع» 13 ثانية من التلاوة بلا أي نتيجة).
   const sessionActiveRef = useRef(false);
+  // [1.0.100] جلسة زومبي: استُدعي start() ولم يصل 'started' ولا
+  // 'stopped' ولا رفض — المعرّف الأندرويدي قد يبقى حيًا فيُفشل كل
+  // start() تالية بصمت (فيديو 1.0.99: 5 نبضات بدء ~4.4ث تفصل
+  // بينها، بلا أي نتيجة). stopIssued يضمن stop() واحدة فقط لكل
+  // محاولة (التسمم في 1.0.98 كان من stop مزدوج).
+  const startAttemptedRef = useRef(false);
+  const stopIssuedRef = useRef(false);
+  // [1.0.100] عدّاد محاولات البدء المتتالية التي لم يصل 'started'
+  // فيها أبدًا — يُصفَّر عند وصول 'started'.
+  const neverStartedStreakRef = useRef(0);
+  // [1.0.100] لحظة آخر تفكيك زومبي — البدء التالي يُمهل 600ms بعدها.
+  const lastTeardownAtRef = useRef(0);
   // [1.0.99] مراقب الجلسة: مؤقت واحد يُعاد تسليحه — عند البدء ينتظر
   // حدث 'started' (4 ثوانٍ)، وبعد البدء ينتظر أي نتيجة جزئية
   // (6 ثوانٍ). المعرّف الأندرويدي قد يموت بصمت (انتهاء مهلة الكلام
@@ -153,9 +165,23 @@ export function useSpeechRecognition() {
     }
   }, []);
 
+  // [1.0.100] تفكيك جلسة زومبي مرة واحدة فقط: إن كان start() قد
+  // استُدعي ولم يصل 'started' ولا 'stopped' ولا رفض، ولم يُصدر
+  // stop() لهذه المحاولة بعد، أصدره مرة واحدة. بلا هذا يبقى
+  // المعرّف الأندرويدي حيًا فيُفشل كل start() تالية بصمت، فيدور
+  // المستخدم في حلقة جلسات صمّاء بلا تعافٍ.
+  const stopZombieOnce = useCallback(() => {
+    if (!startAttemptedRef.current || stopIssuedRef.current) return;
+    stopIssuedRef.current = true;
+    startAttemptedRef.current = false;
+    lastTeardownAtRef.current = Date.now();
+    void SpeechRecognition.stop().catch(() => undefined);
+  }, []);
+
   const finalizeNativeSession = useCallback(() => {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
+    stopZombieOnce();
     sessionActiveRef.current = false;
     clearStopSafetyTimer();
     clearSessionWatchdog();
@@ -171,7 +197,7 @@ export function useSpeechRecognition() {
       // فقط لمشاكل حقيقية (إذن الميكروفون، الشبكة).
       error: null,
     }));
-  }, [clearStopSafetyTimer]);
+  }, [clearStopSafetyTimer, stopZombieOnce]);
 
   const cleanupNativeListeners = useCallback(() => {
     clearStopSafetyTimer();
@@ -185,6 +211,7 @@ export function useSpeechRecognition() {
     if (sessionActiveRef.current) return; // بدأت فعلًا قبل حلّ الوعد.
     sessionWatchdogRef.current = setTimeout(() => {
       if (!sessionActiveRef.current && !finalizedRef.current) {
+        neverStartedStreakRef.current += 1;
         finalizeNativeSession();
       }
     }, 4000);
@@ -252,15 +279,28 @@ export function useSpeechRecognition() {
       (data: { status: "started" | "stopped" }) => {
         if (data.status === "started") {
           sessionActiveRef.current = true;
+          // [1.0.100] بدأت فعلًا — ليست زومبي، ويُصفَّر عدّاد الفشل.
+          startAttemptedRef.current = false;
+          neverStartedStreakRef.current = 0;
           armActivityWatchdog();
           setState((s) => ({ ...s, isListening: true }));
         } else {
+          // توقفت من تلقاء نفسها — لا حاجة لتفكيك زومبي.
+          startAttemptedRef.current = false;
           finalizeNativeSession();
         }
       }
     );
 
     try {
+      // [1.0.100] بعد تفكيك زومبي أمهل المعرّف 600ms قبل البدء
+      // التالي، وإلا عاد البدء الفوري إلى المعرّف الميت نفسه.
+      const sinceTeardown = Date.now() - lastTeardownAtRef.current;
+      if (sinceTeardown < 600) {
+        await new Promise((resolve) => setTimeout(resolve, 600 - sinceTeardown));
+      }
+      startAttemptedRef.current = true;
+      stopIssuedRef.current = false;
       // With partialResults:true the promise resolves as soon as listening
       // starts; results arrive through the partialResults events.
       await SpeechRecognition.start({
@@ -271,6 +311,8 @@ export function useSpeechRecognition() {
       });
       armStartWatchdog();
     } catch (err) {
+      // رفض start() نفسه — وصل الرفض، فليست محاولة زومبي معلّقة.
+      startAttemptedRef.current = false;
       clearSessionWatchdog();
       const msg = err instanceof Error ? err.message : "";
       if (!finalizedRef.current) {
@@ -289,6 +331,10 @@ export function useSpeechRecognition() {
     // never stays stuck listening if a native callback is lost (e.g. the
     // no-match error path, which fires no 'stopped' event).
     sessionActiveRef.current = false;
+    // [1.0.100] هذا stop() صريح لهذه المحاولة — لا يصدره التفكيك
+    // مرة أخرى عند finalize (مؤقت الأمان)، فيبقى stop واحدًا.
+    stopIssuedRef.current = true;
+    startAttemptedRef.current = false;
     clearSessionWatchdog();
     void SpeechRecognition.stop().catch(() => undefined);
     clearStopSafetyTimer();
@@ -308,9 +354,15 @@ export function useSpeechRecognition() {
     // stop() على معرّف متوقف أصلًا (كما كان يحدث في كل إعادة تشغيل
     // بعد خطأ: fireError أوقفته، ثم reset() أوقفته مجددًا) يترك
     // المعرّف الأندرويدي في حالة خطأ فتفشل start() التالية بصمت.
+    // [1.0.100] أو إن كانت محاولة زومبي معلّقة: بدأ start() ولم
+    // يصل 'started' — فكّكها بـ stop() واحدة فقط لهذه المحاولة.
     if (sessionActiveRef.current) {
       sessionActiveRef.current = false;
+      stopIssuedRef.current = true;
+      startAttemptedRef.current = false;
       void SpeechRecognition.stop().catch(() => undefined);
+    } else {
+      stopZombieOnce();
     }
     setState((s) => ({
       ...s,
@@ -319,7 +371,7 @@ export function useSpeechRecognition() {
       interimTranscript: "",
       error: null,
     }));
-  }, [cleanupNativeListeners, clearStopSafetyTimer, clearSessionWatchdog]);
+  }, [cleanupNativeListeners, clearStopSafetyTimer, clearSessionWatchdog, stopZombieOnce]);
 
   // Native listeners must not leak across sessions or unmounts.
   useEffect(() => {

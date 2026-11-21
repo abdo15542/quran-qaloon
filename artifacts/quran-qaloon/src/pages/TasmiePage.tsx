@@ -150,6 +150,12 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const helpPlayingRef = useRef(false);
   const chunkErrorFiredRef = useRef(false);
   const emptyStreakRef = useRef(0);
+  // [1.0.100] جلسات صمّاء متتالية منذ بدء الجلسة: جلسة تنتهي بلا أي
+  // نتيجة جزئية ولا نهائية. إن لم يسمع التطبيق شيئًا إطلاقًا منذ
+  // البدء فالميكروفون لا يصله صوت أصلًا (مكالمة تمسكه عادةً) — لا
+  // صمت عادي بين الآيات، فالصمت العادي يأتي بعد كلام مسموع.
+  const everHeardRef = useRef(false);
+  const deafStreakRef = useRef(0);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -408,6 +414,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     chunkErrorFiredRef.current = false;
     pausedOnErrorRef.current = false;
     clearLiveTimer();
+    deafStreakRef.current = 0;
     setStatus(null);
     setErrorAyah(null);
     setRevealed(false);
@@ -432,6 +439,8 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
         // التنبيه الحي أطلق already — لا إعادة تقييم.
         chunkErrorFiredRef.current = false;
       } else if (hasTranscript && transcriptChanged) {
+        everHeardRef.current = true;
+        deafStreakRef.current = 0;
         const chunk = state.transcript.trim();
         setLastHeard(chunk);
         const norm = stripTashkeel(chunk);
@@ -462,6 +471,24 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           fireError(d);
         }
       } else {
+        // [1.0.100] لم يُسمع شيء إطلاقًا منذ بدء الجلسة: بعد 3 جلسات
+        // صمّاء متتالية (~13 ثانية على الهاتف) أوقف الحلقة وقل
+        // السبب صراحةً بدل إعادة التشغيل الصامت إلى الأبد —
+        // الميكروفون مشغول على الأرجح بمكالمة أو تطبيق آخر.
+        // زر «متابعة الاستماع» يعيد المحاولة بعد إغلاق المكالمة.
+        if (!everHeardRef.current) {
+          deafStreakRef.current += 1;
+          if (deafStreakRef.current >= 3) {
+            deafStreakRef.current = 0;
+            setLoopActive(false);
+            loopActiveRef.current = false;
+            setStatus("لا يصلني أي صوت من الميكروفون — قد يكون مشغولًا بمكالمة أو تطبيق آخر؛ أغلق المكالمة ثم اضغط «متابعة الاستماع»");
+            setStatusKind("error");
+            prevListening.current = state.isListening;
+            prevTranscript.current = state.transcript;
+            return;
+          }
+        }
         // صمت بلا كلام — أعد الاستماع. [1.0.98] لا توقف أبدًا ولا طلب
         // ضغطة للمتابعة: بعد 40 مقطعًا صامتًا استراحة 5 ثوانٍ ثم
         // استئناف تلقائي، فيلتقط الصوت الضعيف متى عاد.
@@ -495,6 +522,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     const combined = `${state.transcript} ${state.interimTranscript}`.trim();
     interimRef.current = combined;
     if (!combined) return;
+    everHeardRef.current = true;
     const d = diagnoseChunk(combined);
     if (d.kind === "ok" || d.kind === "wrong-word") {
       clearLiveTimer();
@@ -615,6 +643,8 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     setAudioError(null);
     setCompleted(false);
     emptyStreakRef.current = 0;
+    everHeardRef.current = false;
+    deafStreakRef.current = 0;
     chunkErrorFiredRef.current = false;
     pausedOnErrorRef.current = false;
     saveLast(surah, a);
