@@ -70,10 +70,6 @@ const HELP_COMMANDS = ["سمعني", "سمي لي", "سمع لي"];
 const WINDOW_WORDS = 80;
 const LIVE_CONFIRM_MS = 1200;
 const RESTART_DELAY_MS = 300;
-// [1.0.98] 40 مقطعًا صامتًا قبل استراحة 5 ثوانٍ ثم استئناف تلقائي —
-// الاستماع لا يتوقف أبدًا للصمت ولا يطلب ضغطة للمتابعة.
-const MAX_EMPTY_CHUNKS = 40;
-const SILENCE_RESUME_MS = 5000;
 
 function toArabicNum(n: number): string {
   return n.toString().replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[parseInt(d)]);
@@ -149,7 +145,13 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const pausedOnErrorRef = useRef(false);
   const helpPlayingRef = useRef(false);
   const chunkErrorFiredRef = useRef(false);
-  const emptyStreakRef = useRef(0);
+  // [1.0.101] جلسات صامتة متتالية بعد أن سُمع من قبل: سُمع من قبل
+  // وتوقّف بعدها عن الكلام (نسي آية أو كلمة أو حرفًا) — بعد 3
+  // جلسات كهذه (~13 ثانية) يُوقَف بالتنبيه نفسه بدل الانتظار إلى
+  // الأبد. أي نص نهائي أو جزئي في جلسة يُصفّر العدّاد، فالصوت
+  // الضعيف المتقطع لا يُوقَف أبدًا.
+  const stallStreakRef = useRef(0);
+  const heardThisSessionRef = useRef(false);
   // [1.0.100] جلسات صمّاء متتالية منذ بدء الجلسة: جلسة تنتهي بلا أي
   // نتيجة جزئية ولا نهائية. إن لم يسمع التطبيق شيئًا إطلاقًا منذ
   // البدء فالميكروفون لا يصله صوت أصلًا (مكالمة تمسكه عادةً) — لا
@@ -158,7 +160,6 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   const deafStreakRef = useRef(0);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingErrorRef = useRef<{ key: string; diagnosis: StreamDiagnosis } | null>(null);
   const interimRef = useRef("");
 
@@ -170,7 +171,6 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     return () => {
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (audioRef.current) audioRef.current.pause();
       if (audioCtxRef.current) void audioCtxRef.current.close().catch(() => undefined);
     };
@@ -399,6 +399,26 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     [clearLiveTimer, playAlertSound, currentAyah, stop]
   );
 
+  // [1.0.101] إيقاف النسيان: سُمع من قبل ثم صمت 3 جلسات متتالية
+  // بلا أي نص نهائي ولا جزئي — نسي آية أو كلمة أو حرفًا. نفس
+  // التنبيه الصوتي والاهتزاز واللافتة الحمراء كما في fireError،
+  // مع اسم الآية التي يقف عندها؛ بلا استئناف تلقائي، و«متابعة
+  // الاستماع» تستأنف من الموضع نفسه.
+  const fireForgotStop = useCallback(() => {
+    if (pausedOnErrorRef.current) return;
+    pausedOnErrorRef.current = true;
+    chunkErrorFiredRef.current = true;
+    clearLiveTimer();
+    playAlertSound();
+    const a = currentAyah;
+    setErrorAyah(a);
+    setStatus(`لم أسمعك منذ ثوانٍ — إن نسيتَ فعاود الآية ${toArabicNum(a)}`);
+    setStatusKind("error");
+    setLoopActive(false);
+    loopActiveRef.current = false;
+    void stop();
+  }, [clearLiveTimer, playAlertSound, currentAyah, stop]);
+
   const scheduleRestart = useCallback(() => {
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     restartTimerRef.current = setTimeout(() => {
@@ -415,6 +435,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     pausedOnErrorRef.current = false;
     clearLiveTimer();
     deafStreakRef.current = 0;
+    stallStreakRef.current = 0;
     setStatus(null);
     setErrorAyah(null);
     setRevealed(false);
@@ -427,6 +448,9 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
   // تقييم المقطع عند توقف جلسة الاستماع (صمت) — الفحص الحاسم.
   useEffect(() => {
     const justStopped = prevListening.current && !state.isListening;
+    const justStarted = !prevListening.current && state.isListening;
+    // جلسة جديدة: أي نص جزئي فيها يُحسب مسموعًا (انظر الفحص الحي).
+    if (justStarted) heardThisSessionRef.current = false;
     const hasTranscript = state.transcript.trim().length > 0;
     const transcriptChanged = state.transcript !== prevTranscript.current;
     if (
@@ -452,7 +476,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
         }
         const d = diagnoseChunk(chunk);
         if (d.kind === "ok") {
-          emptyStreakRef.current = 0;
+          stallStreakRef.current = 0;
           setCorrectCount((c) => c + 1);
           const nextPos = posRef.current + d.consumed;
           if (nextPos >= wordsRef.current.length) {
@@ -471,12 +495,20 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
           fireError(d);
         }
       } else {
-        // [1.0.100] لم يُسمع شيء إطلاقًا منذ بدء الجلسة: بعد 3 جلسات
-        // صمّاء متتالية (~13 ثانية على الهاتف) أوقف الحلقة وقل
-        // السبب صراحةً بدل إعادة التشغيل الصامت إلى الأبد —
-        // الميكروفون مشغول على الأرجح بمكالمة أو تطبيق آخر.
-        // زر «متابعة الاستماع» يعيد المحاولة بعد إغلاق المكالمة.
-        if (!everHeardRef.current) {
+        // لا نص نهائي جديد في هذه الجلسة.
+        if (heardThisSessionRef.current) {
+          // سُمعت نتائج جزئية بلا نص نهائي — يُحسب مسموعًا: صفّر
+          // عدّاد التوقف واستأنف. الصوت الضعيف المتقطع لا يُوقَف
+          // أبدًا بهذا. (كان الفرع القديم يتجاهل الجزئي تمامًا
+          // فيحسب الجلسة صامتة رغم أن التعرف سمع فيها.)
+          stallStreakRef.current = 0;
+          scheduleRestart();
+        } else if (!everHeardRef.current) {
+          // [1.0.100] لم يُسمع شيء إطلاقًا منذ بدء الجلسة: بعد 3
+          // جلسات صمّاء متتالية (~13 ثانية على الهاتف) أوقف الحلقة
+          // وقل السبب صراحةً بدل إعادة التشغيل الصامت إلى الأبد —
+          // الميكروفون مشغول على الأرجح بمكالمة أو تطبيق آخر.
+          // زر «متابعة الاستماع» يعيد المحاولة بعد إغلاق المكالمة.
           deafStreakRef.current += 1;
           if (deafStreakRef.current >= 3) {
             deafStreakRef.current = 0;
@@ -488,29 +520,32 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
             prevTranscript.current = state.transcript;
             return;
           }
-        }
-        // صمت بلا كلام — أعد الاستماع. [1.0.98] لا توقف أبدًا ولا طلب
-        // ضغطة للمتابعة: بعد 40 مقطعًا صامتًا استراحة 5 ثوانٍ ثم
-        // استئناف تلقائي، فيلتقط الصوت الضعيف متى عاد.
-        emptyStreakRef.current += 1;
-        if (emptyStreakRef.current >= MAX_EMPTY_CHUNKS) {
-          emptyStreakRef.current = 0;
-          setStatus("صامت — بانتظار صوتك… سأستأنف الاستماع تلقائيًا");
-          setStatusKind("info");
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            if (loopActiveRef.current && !pausedOnErrorRef.current && !helpPlayingRef.current) {
-              scheduleRestart();
-            }
-          }, SILENCE_RESUME_MS);
-        } else {
           scheduleRestart();
+        } else if (posRef.current >= wordsRef.current.length) {
+          // اكتملت السورة (دفاعيًا — الإكمال يوقف الحلقة عادةً
+          // في فرع المقطع المسموع) فلا إيقاف نسيان هنا.
+          scheduleRestart();
+        } else {
+          // [1.0.101] نسيان: سُمع من قبل، والسورة لم تكتمل، وهذه
+          // الجلسة الثالثة المتتالية بلا أي نص نهائي ولا جزئي
+          // (~13 ثانية) — نسي آية أو كلمة أو حرفًا فتوقف عن
+          // الكلام. أوقفه بالتنبيه نفسه، بلا استئناف تلقائي؛
+          // «متابعة الاستماع» تستأنف من الموضع نفسه. (مسار
+          // «صامت — بانتظار صوتك» بعد 40 مقطعًا في 1.0.98
+          // أُلغي هنا: كان يترك الناسي بلا تنبيه دقائق.)
+          stallStreakRef.current += 1;
+          if (stallStreakRef.current >= 3) {
+            stallStreakRef.current = 0;
+            fireForgotStop();
+          } else {
+            scheduleRestart();
+          }
         }
       }
     }
     prevListening.current = state.isListening;
     prevTranscript.current = state.transcript;
-  }, [state.isListening, state.transcript, diagnoseChunk, fireError, scheduleRestart, setPosition]);
+  }, [state.isListening, state.transcript, diagnoseChunk, fireError, fireForgotStop, scheduleRestart, setPosition]);
 
   // الفحص الحي أثناء الكلام: [1.0.98] آية منسية ثابتة ~ثانية تُطلق
   // التنبيه فورًا؛ أما خطأ الكلمة فلا يُحكم عليه من فرضية جزئية غير
@@ -523,6 +558,9 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     interimRef.current = combined;
     if (!combined) return;
     everHeardRef.current = true;
+    // [1.0.101] أي نص جزئي في هذه الجلسة يُحسب مسموعًا — يُصفّر
+    // عدّاد التوقف عند نهاية الجلسة ولو لم يصل نص نهائي.
+    heardThisSessionRef.current = true;
     const d = diagnoseChunk(combined);
     if (d.kind === "ok" || d.kind === "wrong-word") {
       clearLiveTimer();
@@ -642,7 +680,7 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
     setHelpedCount(0);
     setAudioError(null);
     setCompleted(false);
-    emptyStreakRef.current = 0;
+    stallStreakRef.current = 0;
     everHeardRef.current = false;
     deafStreakRef.current = 0;
     chunkErrorFiredRef.current = false;
@@ -657,7 +695,6 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
 
   const resetSession = useCallback(() => {
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     clearLiveTimer();
     setLoopActive(false);
     loopActiveRef.current = false;
@@ -681,7 +718,6 @@ export default function TasmiePage({ darkMode, toggleDarkMode }: { darkMode: boo
       setLoopActive(false);
       loopActiveRef.current = false;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (state.isListening) stop();
       setStatus("متوقف مؤقتًا — اضغط للمتابعة");
       setStatusKind("info");
