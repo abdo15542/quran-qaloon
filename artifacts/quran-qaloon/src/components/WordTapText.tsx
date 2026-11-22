@@ -1,4 +1,4 @@
-import { Fragment, useRef } from "react";
+import { Fragment, useMemo, useRef } from "react";
 import TajweedText from "@/components/TajweedText";
 import { splitAyahWords } from "@/lib/word-root";
 
@@ -54,14 +54,18 @@ export default function WordTapText({
       longPressRef.current.timer = null;
     }
   };
-  const tokens = splitAyahWords(text);
-  // Char offsets of each token, in the same order as splitAyahWords.
-  const offsets: { start: number; end: number }[] = [];
-  const re = /\S+/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    offsets.push({ start: m.index, end: m.index + m[0].length });
-  }
+  // [1.0.104] التقطيع كان يُعاد عند كل رسم لكل آية — فصار محفوظًا:
+  // لا يُعاد إلا حين يتغير نص الآية.
+  const { tokens, offsets } = useMemo(() => {
+    const t = splitAyahWords(text);
+    const o: { start: number; end: number }[] = [];
+    const re = /\S+/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      o.push({ start: m.index, end: m.index + m[0].length });
+    }
+    return { tokens: t, offsets: o };
+  }, [text]);
   // If tokenisation ever disagrees, fall back to plain text (no tap).
   if (offsets.length !== tokens.length) {
     return (

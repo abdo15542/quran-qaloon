@@ -5,7 +5,7 @@
 // على النص المضمّن في التطبيق. المقاطع المتداخلة (٣٩ آية، كلها غنة
 // تتداخل مع الحكم التالي عند التنوين) تُقصّ: الأول يفوز بالحرف
 // المشترك، فيُلوَّن كل حرف مرة واحدة.
-import { Fragment } from "react";
+import { Fragment, memo, useMemo } from "react";
 import { TAJWEED, TAJWEED_RULES } from "@/data/tajweed";
 
 const RULE_CLASS: Record<string, string> = {
@@ -55,26 +55,32 @@ interface TajweedTextProps {
   onRuleClick?: (rule: string) => void;
 }
 
-export default function TajweedText({ surahNumber, ayahNumber, text, enabled, window, onRuleClick }: TajweedTextProps) {
-  if (!enabled) return <>{text}</>;
-  const spans = TAJWEED[`${surahNumber}:${ayahNumber}`];
-  if (!spans || spans.length === 0) return <>{text}</>;
+function TajweedText({ surahNumber, ayahNumber, text, enabled, window, onRuleClick }: TajweedTextProps) {
   const w0 = window ? window[0] : 0;
   const w1 = window ? window[1] : text.length;
-  // الأطول أولًا عند نفس البداية؛ ثم قصّ أي تداخل.
-  const sorted = [...spans].sort((a, b) => a[1] - b[1] || b[2] - b[1] - (a[2] - a[1]));
-  const segments: { start: number; end: number; rule: string | null }[] = [];
-  let pos = w0;
-  for (const [ri, st, en] of sorted) {
-    // قصّ المقطع على النافذة أولًا، ثم على ما سبق عرضه.
-    const cs = Math.max(st, w0, pos);
-    const ce = Math.min(en, w1);
-    if (ce <= cs) continue;
-    if (cs > pos) segments.push({ start: pos, end: cs, rule: null });
-    segments.push({ start: cs, end: ce, rule: TAJWEED_RULES[ri] });
-    pos = ce;
-  }
-  if (pos < w1) segments.push({ start: pos, end: w1, rule: null });
+  // [1.0.104] الفرز والتقطيع كانا يُعادان عند كل رسم لكل آية —
+  // فصارا محفوظين: لا يُعادان إلا حين يتغير النص أو النافذة.
+  const segments = useMemo(() => {
+    if (!enabled) return null;
+    const spans = TAJWEED[`${surahNumber}:${ayahNumber}`];
+    if (!spans || spans.length === 0) return null;
+    // الأطول أولًا عند نفس البداية؛ ثم قصّ أي تداخل.
+    const sorted = [...spans].sort((a, b) => a[1] - b[1] || b[2] - b[1] - (a[2] - a[1]));
+    const segs: { start: number; end: number; rule: string | null }[] = [];
+    let pos = w0;
+    for (const [ri, st, en] of sorted) {
+      // قصّ المقطع على النافذة أولًا، ثم على ما سبق عرضه.
+      const cs = Math.max(st, w0, pos);
+      const ce = Math.min(en, w1);
+      if (ce <= cs) continue;
+      if (cs > pos) segs.push({ start: pos, end: cs, rule: null });
+      segs.push({ start: cs, end: ce, rule: TAJWEED_RULES[ri] });
+      pos = ce;
+    }
+    if (pos < w1) segs.push({ start: pos, end: w1, rule: null });
+    return segs;
+  }, [surahNumber, ayahNumber, text, enabled, w0, w1]);
+  if (segments == null) return <>{text}</>;
   return (
     <>
       {segments.map((seg, i) =>
@@ -101,3 +107,5 @@ export default function TajweedText({ surahNumber, ayahNumber, text, enabled, wi
     </>
   );
 }
+
+export default memo(TajweedText);

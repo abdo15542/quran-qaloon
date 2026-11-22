@@ -14,10 +14,15 @@ import org.json.JSONObject;
  * boot receiver: persisting the 7-day alarm set, (re-)registering it
  * with AlarmManager, and cancelling it.
  *
- * The alarms are exact (setExactAndAllowWhileIdle) so they fire on time
- * even in Doze — that is the whole point: the LocalNotifications plugin
- * falls back to an inexact alarm when the app lacks the exact-alarm
- * permission, which is why the adhan sometimes came late or not at all.
+ * The alarms use setAlarmClock — the strongest delivery Android
+ * offers: fully exempt from Doze and from the allow-while-idle quota.
+ * setExactAndAllowWhileIdle (used until 1.0.103) is rate-limited to
+ * one alarm per app per 9-15 minutes and ColorOS batches Doze
+ * wake-ups — the Isha adhan fired 2 minutes late (19:25 -> 19:27)
+ * while the 5-minute pre-alert was late too, although the scheduled
+ * time was exactly the displayed prayer time. setAlarmClock also
+ * shows an alarm-clock icon in the status bar while an adhan is
+ * pending — the price of the guarantee.
  */
 public final class AdhanAlarms {
     static final String PREFS = "adhan_alarms";
@@ -120,6 +125,14 @@ public final class AdhanAlarms {
         return alarmIntent(ctx, id, title, false, "a3");
     }
 
+    /** Opens the app when the user taps the alarm-clock icon. */
+    static PendingIntent showIntent(Context ctx) {
+        Intent i = new Intent(ctx, MainActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(ctx, 0, i,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
     /** Register every future alarm in the set (past ones are skipped). */
     static void registerAll(Context ctx, JSONArray alarms) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
@@ -140,7 +153,14 @@ public final class AdhanAlarms {
                 if (at <= now) continue;
                 PendingIntent pi = alarmIntent(ctx, id, title, fajr, voice);
                 if (exact) {
-                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                    // [1.0.104] setAlarmClock, not setExactAndAllowWhileIdle:
+                    // the allow-while-idle quota (one per 9-15 min) and
+                    // ColorOS Doze batching delayed the Isha adhan by 2
+                    // minutes even though `at` was exactly the displayed
+                    // prayer time. setAlarmClock is exempt from both.
+                    AlarmManager.AlarmClockInfo info =
+                        new AlarmManager.AlarmClockInfo(at, showIntent(ctx));
+                    am.setAlarmClock(info, pi);
                 } else {
                     am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
                 }

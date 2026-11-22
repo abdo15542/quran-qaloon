@@ -25,7 +25,7 @@
 // إن تجاوزت ربع العرض، وإلا عادت مكانها — لا أزرار لتقليب الصفحات.
 // (1.0.79) الصفحة كاملة بلا تمرير عمودي: الخط يتكيّف حتى تدخل الصفحة
 // كلها في الشاشة. والصوت ملف MP3 لكل آية فلا حاجة لجداول توقيت.
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BookOpen,
@@ -208,6 +208,11 @@ function PageContent({
     </div>
   );
 }
+
+// [1.0.104] الصفحات الثلاث كانت تُعاد كتابتها عند كل قلبة
+// (788 وسمًا) — فتُحفَظ الصفحة المُصيَّرة: مع خصائص مستقرة
+// يتخطى React إعادة رسم المعاينات حين لا يتغير محتواها.
+const MemoPageContent = memo(PageContent);
 
 // [1.0.82] زر أيقونة في الشريط السفلي: أيقونة + تسمية صغيرة.
 function BarButton({
@@ -591,6 +596,10 @@ export default function ReadingMode({
   // [1.0.81] خط يدوي (manualFont > 0): يُستعمل كما هو؛ وإن زاد عن
   // الشاشة يُمرَّر عموديًا (الحاوية قابلة للتمرير أصلًا).
   const [fitFontSize, setFitFontSize] = useState(30);
+  // [1.0.104] الملاءمة كانت حلقة خطية حتى 15 قياسًا قسريًا
+  // (إعادة تخطيط كاملة للصفحة عند كل قياس) عند كل قلبة —
+  // فصارت بحثًا ثنائيًا (≤5 قياسات) مع حفظ النتيجة لكل صفحة.
+  const fitCacheRef = useRef(new Map<string, number>());
   const fitPage = useCallback(() => {
     const el = contentRef.current;
     const inner = innerRef.current;
@@ -600,15 +609,33 @@ export default function ReadingMode({
       setFitFontSize(manualFont);
       return;
     }
-    let size = 30;
-    inner.style.fontSize = `${size}px`;
-    let guard = 0;
-    while (el.scrollHeight > el.clientHeight && size > 15 && guard++ < 20) {
-      size -= 1;
-      inner.style.fontSize = `${size}px`;
+    const key = `${page}|${showBottomBar ? 1 : 0}|${showTools ? 1 : 0}|${toolsTopH}`;
+    const cached = fitCacheRef.current.get(key);
+    if (cached != null) {
+      inner.style.fontSize = `${cached}px`;
+      setFitFontSize(cached);
+      return;
     }
+    const fits = (s: number) => {
+      inner.style.fontSize = `${s}px`;
+      return el.scrollHeight <= el.clientHeight;
+    };
+    let size: number;
+    if (fits(30)) {
+      size = 30;
+    } else {
+      let lo = 15;
+      let hi = 29;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (fits(mid)) lo = mid;
+        else hi = mid - 1;
+      }
+      size = lo;
+    }
+    fitCacheRef.current.set(key, size);
     setFitFontSize(size);
-  }, [manualFont]);
+  }, [manualFont, page, showBottomBar, showTools, toolsTopH]);
   useLayoutEffect(() => {
     fitPage();
   }, [page, tajweed, manualFont, showBottomBar, showTools, fitPage, toolsTopH]);
@@ -619,15 +646,23 @@ export default function ReadingMode({
   useEffect(() => {
     let on = true;
     document.fonts?.ready.then(() => {
-      if (on) fitPage();
+      // الخط الحقيقي يبدّل المقاسات — الحفظ القديم (بخط بديل) باطل.
+      if (on) {
+        fitCacheRef.current.clear();
+        fitPage();
+      }
     });
     return () => {
       on = false;
     };
   }, [fitPage]);
   useEffect(() => {
-    window.addEventListener("resize", fitPage);
-    return () => window.removeEventListener("resize", fitPage);
+    const onResize = () => {
+      fitCacheRef.current.clear();
+      fitPage();
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, [fitPage]);
 
   // رسالة خطأ الصوت تختفي وحدها بعد ٤ ثوانٍ (بلا لوحة تحت الآية).
@@ -640,6 +675,18 @@ export default function ReadingMode({
   const goTo = useCallback((p: number) => {
     if (p >= 1 && p <= 604) setPage(p);
   }, []);
+
+  // [1.0.104] ردّا النداء كانا سهمين مضمّنين يُعاد إنشاؤهما عند كل
+  // رسم — فيكسرا حفظ PageContent. الآن مرجعان ثابتان.
+  const handlePlayAyah = useCallback(
+    (s: number, a: number) => void playAyah(s, a, true),
+    [playAyah],
+  );
+  const handleWordLongPress = useCallback(
+    (s: number, a: number, wi: number, wt: string) =>
+      setWordSheet({ surahNumber: s, ayahNumber: a, wordIndex: wi, wordText: wt }),
+    [],
+  );
 
   // [1.0.82] العلامة: حفظ الصفحة الجارية، والقفز إلى المحفوظة.
   const saveBookmark = useCallback(() => {
@@ -694,12 +741,25 @@ export default function ReadingMode({
   // فيُكبَت النقر الذي يليه حتى لا يُشغَّل صوت آية بالخطأ.
   // (بلا setPointerCapture: الالتقاط يغيّر هدف النقر فيكسر ضغطة
   // الكلمة؛ وtouch-pan-y على الحاوية يكفي ليوصل السحب الأفقي.)
+  // [1.0.104] القلبة أقصر: انزلاق الخروج 300ms ← 200ms (كقلب
+  // صفحة كتاب حقيقي)، والارتداد النابض 380ms ← 260ms.
   const flipRef = useRef<HTMLDivElement | null>(null);
   const previewNextRef = useRef<HTMLDivElement | null>(null);
   const previewPrevRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; dragging: boolean; dir: 1 | -1 | null; startT: number } | null>(null);
   const turningRef = useRef(false);
   const swipedRef = useRef(false);
+
+  // [1.0.104] المعاينات (السابقة/التالية) كانت تُبنى مع كل قلبة،
+  // فتتضاعف كلفة القلبة ثلاث مرات (788 وسمًا). الآن تُبنى بعد
+  // القلبة بقليل (60ms) — فالقلبة نفسها ترسم صفحة واحدة فقط —
+  // وتُزامَن فورًا عند بدء السحب التالي إن تأخرت.
+  const [previewPage, setPreviewPage] = useState(page);
+  useEffect(() => {
+    if (previewPage === page) return;
+    const t = window.setTimeout(() => setPreviewPage(page), 60);
+    return () => window.clearTimeout(t);
+  }, [page, previewPage]);
 
   // [1.0.85] سلاسة القلب: تطبيق التحويل كان يجري مع كل حدث مؤشر
   // (ظل يُعاد حسابه + فلتر المعاينة + قراءة عرض) فيعيد رسم ثلاث
@@ -742,7 +802,7 @@ export default function ReadingMode({
   const hidePreviews = useCallback((animate: boolean) => {
     for (const pv of [previewNextRef.current, previewPrevRef.current]) {
       if (!pv) continue;
-      pv.style.transition = animate ? "opacity 300ms ease-out" : "none";
+      pv.style.transition = animate ? "opacity 200ms ease-out" : "none";
       pv.style.opacity = "0";
       pv.style.filter = "";
       pv.style.top = "";
@@ -774,7 +834,7 @@ export default function ReadingMode({
       const el = flipRef.current;
       if (!el) return;
       el.style.transition = animate
-        ? `transform 380ms ${EASE_SPRING}, opacity 380ms ${EASE_SPRING}`
+        ? `transform 260ms ${EASE_SPRING}, opacity 260ms ${EASE_SPRING}`
         : "none";
       el.style.transform = "";
       el.style.opacity = "";
@@ -785,6 +845,9 @@ export default function ReadingMode({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (turningRef.current) return;
+    // [1.0.104] معاينة متأخرة (قلبة متتالية سريعة) تُبنى الآن قبل
+    // أن يكشفها السحب — فلا تُكشف صفحة خاطئة.
+    if (previewPage !== page) setPreviewPage(page);
     dragRef.current = { x: e.clientX, y: e.clientY, dragging: false, dir: null, startT: performance.now() };
   };
 
@@ -858,7 +921,7 @@ export default function ReadingMode({
     turningRef.current = true;
     const el = flipRef.current;
     if (el) {
-      el.style.transition = `transform 300ms ${EASE_OUT}, opacity 300ms ${EASE_OUT}`;
+      el.style.transition = `transform 200ms ${EASE_OUT}, opacity 200ms ${EASE_OUT}`;
       el.style.transform = `translate3d(${-dir * (w + 80)}px, 0, 0)`;
       el.style.opacity = "0.7";
     }
@@ -867,7 +930,7 @@ export default function ReadingMode({
       hidePreviews(false);
       resetFlip(false);
       turningRef.current = false;
-    }, 300);
+    }, 200);
   };
 
   const onPointerCancel = () => {
@@ -959,8 +1022,8 @@ export default function ReadingMode({
             style={{ opacity: 0, paddingTop: toolsPadTopPx }}
             aria-hidden
           >
-            <PageContent
-              page={page + 1}
+            <MemoPageContent
+              page={previewPage + 1}
               fontSize={fitFontSize}
               tajweed={tajweed}
               interactive={false}
@@ -979,8 +1042,8 @@ export default function ReadingMode({
             style={{ opacity: 0, paddingTop: toolsPadTopPx }}
             aria-hidden
           >
-            <PageContent
-              page={page - 1}
+            <MemoPageContent
+              page={previewPage - 1}
               fontSize={fitFontSize}
               tajweed={tajweed}
               interactive={false}
@@ -996,17 +1059,15 @@ export default function ReadingMode({
           className={`relative min-h-full px-5 pb-6 bg-[#f8f2dc]`}
           style={{ willChange: "transform", paddingTop: toolsPadTopPx }}
         >
-          <PageContent
+          <MemoPageContent
             page={page}
             fontSize={fitFontSize}
             tajweed={tajweed}
             interactive
             playingAyah={playingAyah}
             onRuleClick={setSelectedRule}
-            onPlayAyah={(s, a) => void playAyah(s, a, true)}
-            onWordLongPress={(s, a, wi, wt) =>
-              setWordSheet({ surahNumber: s, ayahNumber: a, wordIndex: wi, wordText: wt })
-            }
+            onPlayAyah={handlePlayAyah}
+            onWordLongPress={handleWordLongPress}
             innerRef={innerRef}
           />
           {/* Clearance for the floating page pill / tools button, so the
@@ -1366,7 +1427,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.103
+              قالون عن نافع — الإصدار 1.0.104
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
