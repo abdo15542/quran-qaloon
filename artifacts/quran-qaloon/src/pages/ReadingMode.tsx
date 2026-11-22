@@ -743,12 +743,29 @@ export default function ReadingMode({
   // الكلمة؛ وtouch-pan-y على الحاوية يكفي ليوصل السحب الأفقي.)
   // [1.0.104] القلبة أقصر: انزلاق الخروج 300ms ← 200ms (كقلب
   // صفحة كتاب حقيقي)، والارتداد النابض 380ms ← 260ms.
+  // [1.0.105] قلبة ورق حقيقية: الصفحة تتبع الإصبع 1:1
+  // (translate3d عبر rAF) وتتقشر حول حافة العمود (rotateY حتى
+  // 55° مع منظور 1500px + ظل طية)، والتالية ظاهرة تحتها.
+  // الالتزام بالسرعة اللحظية (آخر 120ms) لا بمتوسط الإيماءة —
+  // نقرة سريعة بعد إمساك طويل تُكمل القلبة؛ وعتبة السحب
+  // البطيء 15% بدل 25%؛ والارتداد 150ms؛ وبلا قفل بين القلبات
+  // (المعلّقة تُستكمل فورًا عند اللمسة التالية).
   const flipRef = useRef<HTMLDivElement | null>(null);
   const previewNextRef = useRef<HTMLDivElement | null>(null);
   const previewPrevRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; dragging: boolean; dir: 1 | -1 | null; startT: number } | null>(null);
-  const turningRef = useRef(false);
   const swipedRef = useRef(false);
+  // [1.0.105] قلبة ورق: الغلاف الداخلي يدور (rotateY) حول حافة
+  // العمود بينما الخارجي ينزلق 1:1 مع الإصبع؛ والظل على الطية.
+  const curlRef = useRef<HTMLDivElement | null>(null);
+  const foldRef = useRef<HTMLDivElement | null>(null);
+  // قلبة معلّقة (انزلاق الخروج 200ms) — تُستكمل فورًا عند لمسة
+  // جديدة بدل قفل الإدخال (turningRef في 1.0.104 كان يسقط
+  // السحبة الثانية السريعة).
+  const pendingTurnRef = useRef<number | null>(null);
+  const pendingTargetRef = useRef<number | null>(null);
+  // عينات حركة أخيرة لحساب سرعة لحظية (لا متوسط الإيماءة كلها).
+  const moveSamplesRef = useRef<{ t: number; x: number }[]>([]);
 
   // [1.0.104] المعاينات (السابقة/التالية) كانت تُبنى مع كل قلبة،
   // فتتضاعف كلفة القلبة ثلاث مرات (788 وسمًا). الآن تُبنى بعد
@@ -760,6 +777,17 @@ export default function ReadingMode({
     const t = window.setTimeout(() => setPreviewPage(page), 60);
     return () => window.clearTimeout(t);
   }, [page, previewPage]);
+
+  // [1.0.105] طبقة ثانية لمنع تحديد النص: مستمع أصلي يمنع
+  // selectstart حتى لو تجاوز عنصر متداخل select-none يومًا —
+  // فأي تحديد متبقٍّ يعيد إحياء سحب النص الأصلي وإلغاء المؤشر.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const block = (e: Event) => e.preventDefault();
+    el.addEventListener("selectstart", block);
+    return () => el.removeEventListener("selectstart", block);
+  }, []);
 
   // [1.0.85] سلاسة القلب: تطبيق التحويل كان يجري مع كل حدث مؤشر
   // (ظل يُعاد حسابه + فلتر المعاينة + قراءة عرض) فيعيد رسم ثلاث
@@ -781,13 +809,29 @@ export default function ReadingMode({
   const applyDragFrame = useCallback(() => {
     dragRafRef.current = null;
     const el = flipRef.current;
+    const curl = curlRef.current;
+    const fold = foldRef.current;
     const d = dragRef.current;
     const eff = pendingDxRef.current;
     if (!el || !d || eff == null || !d.dragging) return;
     el.style.transition = "none";
     el.style.transform = `translate3d(${eff}px, 0, 0)`;
     const w = dragWidthRef.current;
-    const threshold = Math.max(100, w * 0.25);
+    const threshold = Math.max(54, w * 0.15);
+    // [1.0.105] تقشير الورق: الغلاف يدور حول حافة العمود
+    // (يسارًا للتالية، يمينًا للسابقة) حتى 55° أثناء السحب،
+    // وظل الطية يشتد مع التقدّم — فتبدو الصفحة ورقة تُقلب لا
+    // لوحة تنزلق. التقدّم من |eff| فيتطابق مع موضع الإصبع.
+    const p = Math.min(1, Math.abs(eff) / w);
+    if (curl && d.dir) {
+      curl.style.transition = "none";
+      curl.style.transformOrigin = d.dir === 1 ? "left center" : "right center";
+      curl.style.transform = `perspective(1500px) rotateY(${(d.dir === 1 ? -55 : 55) * Math.min(1, p * 1.4)}deg)`;
+    }
+    if (fold) {
+      fold.style.transition = "none";
+      fold.style.opacity = String(p);
+    }
     const q = Math.round(Math.min(1, Math.abs(eff) / threshold) / 0.05);
     if (q !== lastFilterRef.current && d.dir) {
       lastFilterRef.current = q;
@@ -797,7 +841,6 @@ export default function ReadingMode({
   }, []);
 
   const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
-  const EASE_SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 
   const hidePreviews = useCallback((animate: boolean) => {
     for (const pv of [previewNextRef.current, previewPrevRef.current]) {
@@ -832,29 +875,58 @@ export default function ReadingMode({
     (animate: boolean) => {
       cancelDragRaf();
       const el = flipRef.current;
-      if (!el) return;
-      el.style.transition = animate
-        ? `transform 260ms ${EASE_SPRING}, opacity 260ms ${EASE_SPRING}`
-        : "none";
-      el.style.transform = "";
-      el.style.opacity = "";
-      el.style.boxShadow = "";
+      const curl = curlRef.current;
+      const fold = foldRef.current;
+      // [1.0.105] الارتداد 150ms بتسارع خارجي بلا تجاوز —
+      // كصفحة كتاب تعود لمكانها بخفة.
+      const t = animate ? `150ms ${EASE_OUT}` : "none";
+      if (el) {
+        el.style.transition = animate ? `transform ${t}, opacity ${t}` : "none";
+        el.style.transform = "";
+        el.style.opacity = "";
+        el.style.boxShadow = "";
+      }
+      if (curl) {
+        curl.style.transition = animate ? `transform ${t}` : "none";
+        curl.style.transform = "";
+      }
+      if (fold) {
+        fold.style.transition = animate ? "opacity 150ms ease-out" : "none";
+        fold.style.opacity = "0";
+      }
     },
-    [EASE_SPRING, cancelDragRaf]
+    [EASE_OUT, cancelDragRaf]
   );
 
+  // [1.0.105] بلا قفل: قلبة معلّقة تُستكمل فورًا عند أي لمسة
+  // جديدة — فالقلبات المتتالية السريعة تعمل كلها.
+  const flushPendingTurn = useCallback(() => {
+    if (pendingTurnRef.current == null) return;
+    window.clearTimeout(pendingTurnRef.current);
+    pendingTurnRef.current = null;
+    const target = pendingTargetRef.current;
+    pendingTargetRef.current = null;
+    if (target != null) {
+      goTo(target);
+      hidePreviews(false);
+      resetFlip(false);
+    }
+  }, [goTo, hidePreviews, resetFlip]);
+
   const onPointerDown = (e: React.PointerEvent) => {
-    if (turningRef.current) return;
+    flushPendingTurn();
     // [1.0.104] معاينة متأخرة (قلبة متتالية سريعة) تُبنى الآن قبل
     // أن يكشفها السحب — فلا تُكشف صفحة خاطئة.
     if (previewPage !== page) setPreviewPage(page);
     dragRef.current = { x: e.clientX, y: e.clientY, dragging: false, dir: null, startT: performance.now() };
+    moveSamplesRef.current = [{ t: performance.now(), x: e.clientX }];
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     const el = flipRef.current;
-    if (!d || !el || turningRef.current) return;
+    if (!d || !el) return;
+    flushPendingTurn();
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
     if (!d.dragging) {
@@ -869,12 +941,25 @@ export default function ReadingMode({
       // ظل ثابت طوال السحب بدل إعادة حسابه مع كل حركة.
       el.style.boxShadow = "0 18px 40px rgba(0,0,0,0.35)";
     }
+    // [1.0.105] عينات حركة أخيرة (آخر 150ms) لحساب سرعة لحظية
+    // عند الإفلات — لا متوسط الإيماءة كلها منذ اللمس.
+    const now = performance.now();
+    const samples = moveSamplesRef.current;
+    samples.push({ t: now, x: e.clientX });
+    while (samples.length > 1 && samples[0].t < now - 150) samples.shift();
     const dir: 1 | -1 = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
     const w = dragWidthRef.current;
-    const threshold = Math.max(100, w * 0.25);
+    const threshold = Math.max(54, w * 0.15);
     if (d.dir !== dir) {
       d.dir = dir;
       showPreview(dir, Math.abs(dx) / threshold);
+      // ظل الطية عند حافة العمود (يسارًا للتالية، يمينًا للسابقة).
+      const fold = foldRef.current;
+      if (fold)
+        fold.style.background =
+          dir === 1
+            ? "linear-gradient(to right, rgba(0,0,0,0.30), rgba(0,0,0,0) 35%)"
+            : "linear-gradient(to left, rgba(0,0,0,0.30), rgba(0,0,0,0) 35%)";
     }
     // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
     let eff = dx;
@@ -887,17 +972,33 @@ export default function ReadingMode({
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    flushPendingTurn();
     const d = dragRef.current;
+    const samples = moveSamplesRef.current;
     dragRef.current = null;
+    moveSamplesRef.current = [];
     cancelDragRaf();
-    if (!d || !d.dragging || turningRef.current) return;
+    if (!d || !d.dragging) return;
     const dx = e.clientX - d.x;
     const w = contentRef.current?.clientWidth ?? 360;
-    const threshold = Math.max(100, w * 0.25);
-    const dir = dx < 0 ? 1 : -1; // يسار = التالية، يمين = السابقة
+    // [1.0.105] عتبة صغيرة للسحب البطيء (15% بدل 25%)،
+    // والالتزام بالسرعة اللحظية: نقرة سريعة قصيرة تُكمل القلبة
+    // حتى بعد إمساك طويل — السرعة من آخر 120ms لا من اللمس.
+    const threshold = Math.max(54, w * 0.15);
+    const now = performance.now();
+    const recent = samples.filter((s) => now - s.t <= 120);
+    let v = 0;
+    let recentDx = 0;
+    if (recent.length >= 2) {
+      recentDx = recent[recent.length - 1].x - recent[0].x;
+      v = recentDx / Math.max(1, recent[recent.length - 1].t - recent[0].t);
+    }
+    const flick = Math.abs(v) > 0.6 && Math.abs(recentDx) >= 20;
+    // اتجاه الالتزام من الحركة الأخيرة لا من الإزاحة الكلية —
+    // سحبة ذهابًا وإيابًا ثم نقرة سريعة تلتزم باتجاه النقرة.
+    const dir: 1 | -1 =
+      Math.abs(recentDx) >= 20 ? (recentDx < 0 ? 1 : -1) : dx < 0 ? 1 : -1;
     const atEdge = (dir === 1 && page >= 604) || (dir === -1 && page <= 1);
-    const velocity = Math.abs(dx) / Math.max(1, performance.now() - d.startT);
-    const flick = velocity > 0.5 && Math.abs(dx) > 40;
     // أي سحب — حتى المرتد — يكبت النقرة التي تليه.
     swipedRef.current = true;
     window.setTimeout(() => {
@@ -913,30 +1014,40 @@ export default function ReadingMode({
       resetFlip(true);
       return;
     }
-    // أكمل الدورة: الصفحة تنزلق خارج الشاشة، والجديدة — وهي
-    // نفسها المعاينة التي كُشفت — تظهر في مكانها فورًا بلا
-    // انزلاق دخول (فلا قفزة تُرى).
+    // أكمل الدورة: الصفحة تتقشر (تدور حتى 80° حول حافة العمود)
+    // وتنزلق خارج الشاشة في 200ms، والجديدة — وهي نفسها المعاينة
+    // التي كُشفت — تظهر في مكانها فورًا بلا انزلاق دخول.
     // [1.0.83] الانزلاق يستمر في اتجاه السحب نفسه (يسارًا
     // للتالية، يمينًا للسابقة) — لا يرتدّ عبر الشاشة عكس السحب.
-    turningRef.current = true;
     const el = flipRef.current;
+    const curl = curlRef.current;
     if (el) {
       el.style.transition = `transform 200ms ${EASE_OUT}, opacity 200ms ${EASE_OUT}`;
       el.style.transform = `translate3d(${-dir * (w + 80)}px, 0, 0)`;
       el.style.opacity = "0.7";
     }
-    window.setTimeout(() => {
-      goTo(page + dir);
+    if (curl) {
+      curl.style.transition = `transform 200ms ${EASE_OUT}`;
+      curl.style.transform = `perspective(1500px) rotateY(${dir === 1 ? -80 : 80}deg)`;
+    }
+    const target = page + dir;
+    pendingTargetRef.current = target;
+    pendingTurnRef.current = window.setTimeout(() => {
+      pendingTurnRef.current = null;
+      pendingTargetRef.current = null;
+      goTo(target);
       hidePreviews(false);
       resetFlip(false);
-      turningRef.current = false;
     }, 200);
   };
 
   const onPointerCancel = () => {
     dragRef.current = null;
+    moveSamplesRef.current = [];
     cancelDragRaf();
-    if (!turningRef.current) {
+    // قلبة معلّقة تُستكمل وحدها في موعدها؛ الإلغاء يعيد فقط
+    // السحب الجاري إلى مكانه.
+    if (pendingTurnRef.current == null) {
       hidePreviews(true);
       resetFlip(true);
     }
@@ -1002,14 +1113,20 @@ export default function ReadingMode({
           page, and the fit measures only the page itself. */}
       <div
         ref={contentRef}
-        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y relative bg-[#f8f2dc]"
+        className="flex-1 overflow-y-auto overscroll-contain touch-pan-y relative bg-[#f8f2dc] select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        onPointerLeave={onPointerCancel}
         onClickCapture={onClickCapture}
         onContextMenu={(e) => e.preventDefault()}
+        // [1.0.105] منع تحديد النص والسحب الأصلي: السحب الأفقي فوق
+        // نص قابل للتحديد كان ينشئ تحديدًا (مرساته على كلمة)، فالسحبة
+        // التالية فوقه تبدأ سحب نص أصليًا (dragstart) فيلغي المتصفح
+        // تدفق المؤشر (pointercancel) ويموت السحب — فتبدو الصفحة
+        // عالقة في المنتصف وكل قلبة بعدها تفشل. لا شيء في التطبيق
+        // يقرأ تحديد DOM (النسخ عبر navigator.clipboard من البيانات).
+        onDragStart={(e) => e.preventDefault()}
       >
         {/* [1.0.81] الصفحتان المجاورتان تحت الجارية — السحب يكشف
             التالية (أو السابقة) فعلًا بدل فراغ أبيض. شفافة حتى يبدأ
@@ -1059,17 +1176,40 @@ export default function ReadingMode({
           className={`relative min-h-full px-5 pb-6 bg-[#f8f2dc]`}
           style={{ willChange: "transform", paddingTop: toolsPadTopPx }}
         >
-          <MemoPageContent
-            page={page}
-            fontSize={fitFontSize}
-            tajweed={tajweed}
-            interactive
-            playingAyah={playingAyah}
-            onRuleClick={setSelectedRule}
-            onPlayAyah={handlePlayAyah}
-            onWordLongPress={handleWordLongPress}
-            innerRef={innerRef}
-          />
+          {/* [1.0.105] غلاف التقشير: يدور حول حافة العمود
+              (rotateY مع منظور) بينما الخارجي ينزلق 1:1 مع
+              الإصبع — فتبدو الصفحة ورقة تُقلب لا لوحة تنزلق. */}
+          <div
+            ref={curlRef}
+            data-testid="reading-curl"
+            className="relative"
+            style={{ willChange: "transform" }}
+          >
+            <MemoPageContent
+              page={page}
+              fontSize={fitFontSize}
+              tajweed={tajweed}
+              interactive
+              playingAyah={playingAyah}
+              onRuleClick={setSelectedRule}
+              onPlayAyah={handlePlayAyah}
+              onWordLongPress={handleWordLongPress}
+              innerRef={innerRef}
+            />
+            {/* ظل الطية — يشتد مع تقدّم السحب، واتجاهه يُضبط
+                عند تغيّر اتجاه السحب (يسارًا للتالية). */}
+            <div
+              ref={foldRef}
+              data-testid="reading-fold"
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                opacity: 0,
+                background:
+                  "linear-gradient(to right, rgba(0,0,0,0.30), rgba(0,0,0,0) 35%)",
+              }}
+              aria-hidden
+            />
+          </div>
           {/* Clearance for the floating page pill / tools button, so the
               last line of the page is never hidden behind them.
               [1.0.83] والشريط السفلي حين يظهر (96px): مساحة أكبر
@@ -1427,7 +1567,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.104
+              قالون عن نافع — الإصدار 1.0.105
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
