@@ -16,6 +16,10 @@ public class AdhanBootReceiver extends BroadcastReceiver {
         if (intent != null && (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())
                 || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(intent.getAction()))) {
             AdhanAlarms.registerAll(context, AdhanAlarms.loadStored(context));
+            // Hourly safety net (1.0.102): the boot broadcast itself
+            // is not always delivered on realme/ColorOS — enqueue the
+            // periodic re-registration so a missed boot still heals.
+            AdhanRescheduleWorker.enqueue(context);
         }
     }
 }

@@ -28,7 +28,7 @@ import AnalyticsPage from "@/pages/AnalyticsPage";
 import TasmiePage from "@/pages/TasmiePage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
-import { refreshLocationIfStale } from "@/data/prayer-times";
+import { refreshLocationIfStale, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
 
 const queryClient = new QueryClient();
 
@@ -100,9 +100,16 @@ function AppRoutes() {
     // mode only, 15-minute throttle inside refreshLocationIfStale), so
     // the times follow without any tap. Home's mount effect covers a
     // fresh launch; this covers a warm resume on any page.
+    // The adhan alarms are re-registered on resume too (1.0.102): a
+    // reboot wipes AlarmManager alarms, and a warm resume is the first
+    // moment the app runs again — healing here means the next prayer
+    // already has its alarm, with no tap from the user.
     let resumeHandle: PluginListenerHandle | null = null;
     CapacitorApp.addListener("appStateChange", ({ isActive }) => {
-      if (isActive) refreshLocationIfStale().catch(() => {});
+      if (isActive) {
+        refreshLocationIfStale().catch(() => {});
+        ensurePrayerRemindersScheduled().catch(() => {});
+      }
     }).then((h) => {
       resumeHandle = h;
     });

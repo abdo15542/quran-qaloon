@@ -82,6 +82,9 @@ public class AdhanAlarmPlugin extends Plugin {
         AdhanAlarms.cancelAll(ctx, old);
         AdhanAlarms.saveStored(ctx, alarms);
         AdhanAlarms.registerAll(ctx, alarms);
+        // Hourly safety net (1.0.102): re-registers the stored set
+        // after a reboot even when the boot broadcast never arrives.
+        AdhanRescheduleWorker.enqueue(ctx);
         call.resolve();
     }
 

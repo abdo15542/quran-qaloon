@@ -12,5 +12,9 @@ public class MainActivity extends BridgeActivity {
         // bridge is built from the registered plugins.
         registerPlugin(AdhanAlarmPlugin.class);
         super.onCreate(savedInstanceState);
+        // Hourly safety net (1.0.102): re-registers the adhan alarms
+        // after a reboot even when the boot broadcast never arrives
+        // (realme/ColorOS only delivers it when auto-start is allowed).
+        AdhanRescheduleWorker.enqueue(this);
     }
 }
