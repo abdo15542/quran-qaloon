@@ -1327,10 +1327,11 @@ export default function ReadingMode({
               >
                 <ArrowRight className="w-5 h-5" />
               </button>
-              <span className="font-arabic text-lg text-primary flex-1">وضع القراءة</span>
-              <span className="text-xs text-muted-foreground bg-card border border-border px-2.5 py-1 rounded-full whitespace-nowrap">
-                صفحة {toArabicNum(page)} / {toArabicNum(604)}
-              </span>
+              <span className="font-arabic text-lg text-primary flex-1 whitespace-nowrap">وضع القراءة</span>
+              {/* [1.0.106] حُذفت حبّة رقم الصفحة من الشريط العلوي: كانت
+                  تجعل الصف ~455px فيتجاوز 360px فيلتف العنوان سطرين.
+                  الرقم ما زال ظاهراً في الشريط السفلي (أدوات ظاهرة)
+                  والحبّة العائمة (أدوات مخفية). */}
               <button
                 onClick={toggleTajweed}
                 className={`p-2 rounded-full hover:bg-muted transition-colors ${tajweed ? "bg-primary/10 text-primary" : ""}`}
@@ -1567,7 +1568,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.105
+              قالون عن نافع — الإصدار 1.0.106
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
