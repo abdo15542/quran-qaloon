@@ -1318,7 +1318,12 @@ export default function ReadingMode({
       {showTools && (
         <div data-testid="reading-tools">
           <div ref={toolsTopRef} className="absolute inset-x-0 top-0 bg-background/95 backdrop-blur border-b border-border">
-            <div className="px-4 py-3 flex items-center gap-2">
+            {/* [1.0.107] pt-5 بدل py-3: الشريط كان ملاصقاً للحافة العليا
+                (العنوان على بعد ~16px فقط) فطلب المستخدم إنزاله تحت
+                قليلاً — +8px من الأعلى مع بقاء الحشوة السفلية كما هي،
+                فينزل الشريط كاملاً؛ والحشوة المقيسة تتكيف تلقائياً
+                (ResizeObserver يقيس ارتفاع الشريط + 16px). */}
+            <div className="px-4 pt-5 pb-3 flex items-center gap-2">
               <button
                 onClick={() => navigate(`/mushaf/${page}`)}
                 className="p-2 rounded-full hover:bg-muted transition-colors"
@@ -1568,7 +1573,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">تسميع القرآن</div>
             <div className="text-sm text-muted-foreground mt-1">
-              قالون عن نافع — الإصدار 1.0.106
+              قالون عن نافع — الإصدار 1.0.107
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني
