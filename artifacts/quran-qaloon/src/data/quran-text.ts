@@ -417,8 +417,27 @@ function getNormalizedWords(qirahId?: string): string[][][] {
   return cached;
 }
 
+// Characters that appear in copied/pasted Quran text but are never
+// searchable words in the bundled ayah text: ornate ayah brackets ﴿ ﴾
+// (U+FD3E/U+FD3F), end-of-ayah sign ۝ (U+06DD), hizb marker ۞ (U+06DE),
+// sajdah sign ۩ (U+06E9), Arabic punctuation (، ؛ ؟ «» “” ‘’ … . ! : -
+// ( ) [ ]) and ayah numbers (Arabic-Indic, extended Arabic-Indic and
+// Western digits). A paste like «﴿إِيَّاكَ نَعْبُدُ وَإِيَّاكَ
+// نَسْتَعِينُ﴾ ٥» must match ayah 1:5 — without this, the brackets, the
+// sign and the digit become part of the query words and nothing matches
+// (verified 1.0.108). Applied to the QUERY only; the bundled text is
+// never touched.
+export function cleanSearchQuery(query: string): string {
+  return query
+    .replace(/[﴿﴾۝۞۩]/g, " ")
+    .replace(/[،؛؟«»""''…\.!:\-\(\)\[\]]/g, " ")
+    .replace(/[٠-٩۰-۹0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function searchQuranDetailed(query: string, qirahId?: string): QuranSearchDetailed {
-  const q = normalizeArabic(query.trim(), false);
+  const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
   const empty: QuranSearchDetailed = { query: query.trim(), totalOccurrences: 0, ayahCount: 0, surahCount: 0, hits: [] };
   if (!queryWords.length) return empty;
@@ -472,7 +491,7 @@ export interface HighlightSegment {
 // Normalisation never adds or removes spaces, so the n-th word of the
 // original text aligns with the n-th word of the normalised text.
 export function highlightSegments(text: string, query: string): HighlightSegment[] {
-  const q = normalizeArabic(query.trim(), false);
+  const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
   if (!queryWords.length) return [{ text, matched: false }];
   const joinedQuery = queryWords.length > 1 ? queryWords.join("") : null;

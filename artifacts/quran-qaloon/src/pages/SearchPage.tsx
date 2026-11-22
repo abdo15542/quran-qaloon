@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout } from "lucide-react";
+import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout, ListTree } from "lucide-react";
 import { SURAHS, QIRAAT, getGlobalAyahNumber, type RevelationType } from "@/data/surahs";
 import { getJuzNumber } from "@/data/juz";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
-import { searchQuranDetailed, highlightSegments, normalizeArabic, getAyah, QURAN_TEXT, matchWord, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
+import { searchQuranDetailed, highlightSegments, normalizeArabic, cleanSearchQuery, getAyah, QURAN_TEXT, matchWord, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
 // [1.0.74 advanced search] Topic + revelation-order data (offline, bundled).
-import { TOPICS, TOPIC_PARENTS, TOPIC_COVERAGE_NOTE, getTopicAyahRefs, getTopicAyahCount, getTopicParentName, type QuranTopic } from "@/data/topics";
+import { TOPICS, TOPIC_PARENTS, TOPIC_COVERAGE_NOTE, getTopicAyahRefs, getTopicAyahCount, getTopicParentName, getTopicSourceLabel, type QuranTopic } from "@/data/topics";
+// [1.0.108] Per-surah topic outlines (offline, bundled).
+import { SURAH_SECTIONS, TOTAL_SURAH_SECTIONS, SURAHS_WITH_SECTIONS_COUNT, SURAHS_WITHOUT_SECTIONS, getSurahSections, type SurahSection } from "@/data/surah-sections";
 import { REVELATION_ORDER } from "@/data/revelation-order";
 import TafsirSheet from "@/components/TafsirSheet";
 import RootSearch from "@/components/RootSearch";
@@ -332,7 +334,7 @@ function ayahRefToResult(surahNumber: number, ayahNumber: number): SearchResult 
 }
 
 function firstQueryWord(query: string): string {
-  return normalizeArabic(query.trim(), false).split(/\s+/).filter(Boolean)[0] ?? "";
+  return normalizeArabic(cleanSearchQuery(query.trim()), false).split(/\s+/).filter(Boolean)[0] ?? "";
 }
 
 /** Ayahs whose FIRST word (after normalizeArabic) matches the query word. */
@@ -424,7 +426,7 @@ export function searchByRhyme(ending: string): SearchResult[] {
  * (TOPICS is already sorted by ayah count descending) — browsing.
  */
 export function searchTopics74(query: string): QuranTopic[] {
-  const q = normalizeArabic(query.trim(), false);
+  const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
   if (!q) return TOPICS;
   return TOPICS.filter((t) => {
     if (normalizeArabic(t.name, false).includes(q)) return true;
@@ -448,10 +450,11 @@ export function getTopicResults(topic: QuranTopic): SearchResult[] {
 
 // Mode chips for the Quran tab (text is the pre-1.0.74 search).
 import type { LucideIcon } from "lucide-react";
-const MODES74: Array<{ id: "text" | "topic" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root"; label: string; Icon: LucideIcon }> = [
+const MODES74: Array<{ id: "text" | "topic" | "surah-topics" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root"; label: string; Icon: LucideIcon }> = [
   { id: "text", label: "بحث نصي", Icon: Search },
   { id: "root", label: "الجذر", Icon: Sprout },
   { id: "topic", label: "المواضيع", Icon: Tags },
+  { id: "surah-topics", label: "مواضيع السور", Icon: ListTree },
   { id: "makki", label: "مكي / مدني", Icon: BookOpen },
   { id: "revelation", label: "ترتيب النزول", Icon: ListOrdered },
   { id: "first", label: "أول الكلمة", Icon: AlignStartVertical },
@@ -461,6 +464,7 @@ const MODES74: Array<{ id: "text" | "topic" | "makki" | "revelation" | "first" |
 
 const MODE_PLACEHOLDERS74: Record<string, string> = {
   topic: "ابحث في المواضيع... (مثال: الصلاة)",
+  "surah-topics": "ابحث عن سورة بالاسم أو الرقم...",
   first: "اكتب كلمة للبحث عن الآيات التي تبدأ بها...",
   last: "اكتب كلمة للبحث عن الآيات التي تنتهي بها...",
   rhyme: "ابحث في نهايات الآيات (الفاصلة)...",
@@ -474,9 +478,12 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   // [1.0.74 advanced search] Modes inside the Quran tab. The root-search
   // tab (added later by the coordinator) sits above these — these modes
   // only change what the Quran tab shows, nothing else.
-  type AdvancedMode = "text" | "topic" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root";
+  type AdvancedMode = "text" | "topic" | "surah-topics" | "makki" | "revelation" | "first" | "last" | "rhyme" | "root";
   const [mode, setMode] = useState<AdvancedMode>("text");
   const [selectedTopic, setSelectedTopic] = useState<QuranTopic | null>(null);
+  // [1.0.108] Surah-topics mode: selected surah, then selected section.
+  const [selectedSurahTopics, setSelectedSurahTopics] = useState<number | null>(null);
+  const [selectedSection, setSelectedSection] = useState<{ surah: number; section: SurahSection } | null>(null);
   const [selectedRhyme, setSelectedRhyme] = useState<string | null>(null);
   const [makkiFilter, setMakkiFilter] = useState<RevelationType | "all">("all");
   const [showAllTopics, setShowAllTopics] = useState(false);
@@ -641,6 +648,8 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   const handleModeChange = (newMode: typeof mode) => {
     setMode(newMode);
     setSelectedTopic(null);
+    setSelectedSurahTopics(null);
+    setSelectedSection(null);
     setSelectedRhyme(null);
     setShowAllTopics(false);
     setShowAllRhymes(false);
@@ -660,6 +669,29 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
     setVisibleCount(PAGE_SIZE);
   };
 
+  // [1.0.108] Surah-topics mode: pick a section, see its ayahs (tap an
+  // ayah to go to it — the shared results list below renders them).
+  const handleSelectSection = (surah: number, section: SurahSection) => {
+    setSelectedSection({ surah, section });
+    const out: SearchResult[] = [];
+    for (let a = section.start; a <= section.end; a++) {
+      const r = ayahRefToResult(surah, a);
+      if (r) out.push(r);
+    }
+    setResults(out);
+    setSearched(true);
+    setVisibleCount(PAGE_SIZE);
+  };
+
+  // [1.0.108] A topic tapped from a surah without a section outline:
+  // switch to the topic view and show that topic's ayahs.
+  const handleSelectTopicFromSurah = (topic: QuranTopic) => {
+    setSelectedSurahTopics(null);
+    setSelectedSection(null);
+    setMode("topic");
+    handleSelectTopic(topic);
+  };
+
   const handleSelectRhyme = (ending: string) => {
     setSelectedRhyme(ending);
     setResults(searchByRhyme(ending));
@@ -675,10 +707,39 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
 
   const rhymeGroups = useMemo(() => (mode === "rhyme" ? getRhymeGroups() : []), [mode]);
   const filteredRhymes = useMemo(() => {
-    const q = normalizeArabic(query.trim(), false);
+    const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
     if (!q) return rhymeGroups;
     return rhymeGroups.filter((g) => g.ending.includes(q));
   }, [rhymeGroups, query]);
+
+  // [1.0.108] Surah-topics mode: surahs filtered by name or number, and
+  // the topics covering one surah (fallback for surahs with no outline).
+  const surahTopicsList = useMemo(() => {
+    if (mode !== "surah-topics" || selectedSurahTopics) return [];
+    const rawQ = query.trim();
+    if (!rawQ) return SURAHS;
+    const numQ = rawQ
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace(/[^\d]/g, "");
+    const q = normalizeArabic(cleanSearchQuery(rawQ), false);
+    return SURAHS.filter((s) => {
+      if (q && normalizeArabic(s.name, false).includes(q)) return true;
+      if (numQ && String(s.number).includes(numQ)) return true;
+      return false;
+    });
+  }, [mode, query, selectedSurahTopics]);
+
+  const surahFallbackTopics = useMemo(() => {
+    if (mode !== "surah-topics" || selectedSurahTopics === null) return [];
+    const sn = selectedSurahTopics;
+    const withCount = TOPICS.map((t) => {
+      let n = 0;
+      for (const ref of getTopicAyahRefs(t)) if (ref.surah === sn) n++;
+      return { topic: t, count: n };
+    }).filter((x) => x.count > 0);
+    withCount.sort((a, b) => b.count - a.count);
+    return withCount;
+  }, [mode, selectedSurahTopics]);
 
   const makkiSurahs = useMemo(
     () => SURAHS.filter((s) => makkiFilter === "all" || s.revelationType === makkiFilter),
@@ -783,7 +844,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="search"
-                placeholder={tab === "quran" ? (MODE_PLACEHOLDERS74[mode] ?? "اكتب كلمة أو عبارة للبحث في القرآن...") : "ابحث في الأذكار والأدعية..."}
+                placeholder={tab === "quran" ? (MODE_PLACEHOLDERS74[mode] ?? "اكتب كلمة أو عبارة أو الصق آية كاملة للبحث في القرآن...") : "ابحث في الأذكار والأدعية..."}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full bg-card border border-border rounded-xl pr-10 pl-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground font-arabic"
@@ -841,11 +902,12 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           </div>
         )}
 
-        {/* Summary card: how many times the word occurs, and where */}
+        {/* Summary card: how many times the word/phrase occurs, and where.
+            [1.0.108] The label adapts: one word = «كلمة», several = «عبارة». */}
         {searched && !loading && !error && tab === "quran" && mode === "text" && detailed && detailed.totalOccurrences > 0 && (
           <div className="mb-5 bg-primary/5 border border-primary/20 rounded-2xl px-5 py-4 text-center">
             <div className="text-sm text-muted-foreground mb-1">
-              كلمة «<span className="text-primary font-arabic">{detailed.query}</span>» ذُكرت
+              {cleanSearchQuery(detailed.query).split(/\s+/).filter(Boolean).length > 1 ? "عبارة" : "كلمة"} «<span className="text-primary font-arabic">{detailed.query}</span>» ذُكرت
             </div>
             <div className="flex items-center justify-center gap-2">
               <Hash className="w-5 h-5 text-primary" />
@@ -886,7 +948,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
         {tab === "quran" && mode === "topic" && !selectedTopic && (
           <>
             <div data-testid="topics-coverage-note" className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 rounded-xl px-4 py-3 text-sm text-center">
-              {TOPIC_COVERAGE_NOTE} — المصدر: Quranpedia.net
+              {TOPIC_COVERAGE_NOTE}
             </div>
             <div className="mb-3 text-sm text-muted-foreground text-center">
               {query.trim()
@@ -910,6 +972,11 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
                   </div>
                   {getTopicParentName(t) && (
                     <div className="text-xs text-muted-foreground mt-1">ضمن: {getTopicParentName(t)}</div>
+                  )}
+                  {/* [1.0.108] QUL topics (the 40-114 completion layer) show
+                      their source; Quranpedia topics keep the old look. */}
+                  {t.source && t.source !== "quranpedia" && (
+                    <div className="text-xs text-muted-foreground mt-1">المصدر: {getTopicSourceLabel(t)}</div>
                   )}
                 </button>
               ))}
@@ -949,6 +1016,138 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
             <div className="text-sm text-muted-foreground text-center">
               {toArabicNum(results.length)} آية في هذا الموضوع
               {getTopicParentName(selectedTopic) ? ` — ضمن: ${getTopicParentName(selectedTopic)}` : ""}
+              {selectedTopic.source && selectedTopic.source !== "quranpedia" ? ` — المصدر: ${getTopicSourceLabel(selectedTopic)}` : ""}
+            </div>
+          </div>
+        )}
+
+        {/* [1.0.108] Surah topics (مواضيع السور): every surah split into
+            its topics, with the ayah range each covers — 741 sections in
+            111 surahs. Surahs 1, 42, 44 have no outline in the source, so
+            their QUL topics are shown instead (never an invented outline). */}
+        {tab === "quran" && mode === "surah-topics" && selectedSurahTopics === null && (
+          <>
+            <div data-testid="surah-topics-coverage-note" className="mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300 rounded-xl px-4 py-3 text-sm text-center">
+              مواضيع السور — {toArabicNum(SURAHS_WITH_SECTIONS_COUNT)} سورة لها تقسيم مواضيع ({toArabicNum(TOTAL_SURAH_SECTIONS)} موضوعاً) • السور {SURAHS_WITHOUT_SECTIONS.map(toArabicNum).join(" و")} بلا تقسيم مفصّل في المصدر • المصدر: مكتبة القرآن العالمية (QUL)
+            </div>
+            <div className="mb-3 text-sm text-muted-foreground text-center">
+              {query.trim()
+                ? `وُجدت ${toArabicNum(surahTopicsList.length)} سورة لـ «${query.trim()}»`
+                : `${toArabicNum(surahTopicsList.length)} سورة — اختر سورة لعرض مواضيعها`}
+            </div>
+            <div className="space-y-2 mb-5">
+              {surahTopicsList.map((s) => {
+                const sections = SURAH_SECTIONS[s.number] ?? [];
+                return (
+                  <button
+                    key={s.number}
+                    data-testid="surah-topic-row"
+                    data-surah={s.number}
+                    onClick={() => { setSelectedSurahTopics(s.number); setSelectedSection(null); setResults([]); setSearched(false); }}
+                    className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-arabic text-base text-foreground">
+                        {toArabicNum(s.number)} — سورة {s.name}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                        {sections.length > 0
+                          ? `${toArabicNum(sections.length)} موضوعاً`
+                          : "لا يوجد تقسيم مفصّل"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">{toArabicNum(s.numberOfAyahs)} آية</div>
+                  </button>
+                );
+              })}
+            </div>
+            {surahTopicsList.length === 0 && (
+              <div className="text-center py-8 text-sm text-muted-foreground">لا توجد سور مطابقة — جرّب كلمة أخرى</div>
+            )}
+          </>
+        )}
+
+        {/* A surah's sections (or its QUL topics when it has no outline) */}
+        {tab === "quran" && mode === "surah-topics" && selectedSurahTopics !== null && !selectedSection && (
+          <div className="mb-4">
+            <button
+              onClick={() => { setSelectedSurahTopics(null); setResults([]); setSearched(false); }}
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline mb-3"
+            >
+              <ArrowRight className="w-4 h-4" />
+              كل السور
+            </button>
+            <div className="text-center mb-1">
+              <span className="font-arabic text-lg text-primary">
+                مواضيع سورة {SURAHS.find((s) => s.number === selectedSurahTopics)?.name}
+              </span>
+            </div>
+            <div className="text-sm text-muted-foreground text-center mb-4">
+              {getSurahSections(selectedSurahTopics).length > 0
+                ? `${toArabicNum(getSurahSections(selectedSurahTopics).length)} موضوعاً — اضغط على موضوع لعرض آياته`
+                : "لا يوجد تقسيم مواضيع مفصّل لهذه السورة في المصدر — هذه مواضيع السورة من مكتبة القرآن العالمية:"}
+            </div>
+            {getSurahSections(selectedSurahTopics).length > 0 ? (
+              <div className="space-y-2 mb-5">
+                {getSurahSections(selectedSurahTopics).map((sec, idx) => (
+                  <button
+                    key={`${sec.start}-${sec.end}-${idx}`}
+                    data-testid="surah-section-row"
+                    data-section-start={sec.start}
+                    data-section-end={sec.end}
+                    onClick={() => handleSelectSection(selectedSurahTopics, sec)}
+                    className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-arabic text-base text-foreground">{sec.title}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                        {toArabicNum(sec.end - sec.start + 1)} آية
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      الآيات {toArabicNum(sec.start)}–{toArabicNum(sec.end)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2 mb-5">
+                {surahFallbackTopics.map(({ topic, count }) => (
+                  <button
+                    key={topic.id}
+                    data-testid="topic-row"
+                    data-topic-id={topic.id}
+                    onClick={() => handleSelectTopicFromSurah(topic)}
+                    className="w-full bg-card border border-border rounded-2xl px-4 py-3 hover:border-primary/40 transition-colors text-right"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-arabic text-base text-foreground">{topic.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary flex-shrink-0">
+                        {toArabicNum(count)} آية في هذه السورة
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* A section's ayahs */}
+        {tab === "quran" && mode === "surah-topics" && selectedSection && (
+          <div className="mb-4">
+            <button
+              onClick={() => { setSelectedSection(null); setResults([]); setSearched(false); }}
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline mb-3"
+            >
+              <ArrowRight className="w-4 h-4" />
+              مواضيع سورة {SURAHS.find((s) => s.number === selectedSection.surah)?.name}
+            </button>
+            <div className="text-center mb-1">
+              <span className="font-arabic text-lg text-primary">{selectedSection.section.title}</span>
+            </div>
+            <div className="text-sm text-muted-foreground text-center">
+              الآيات {toArabicNum(selectedSection.section.start)}–{toArabicNum(selectedSection.section.end)} • {toArabicNum(results.length)} آية
             </div>
           </div>
         )}
