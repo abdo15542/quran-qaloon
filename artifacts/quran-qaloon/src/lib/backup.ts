@@ -50,8 +50,8 @@ export async function exportBackup(): Promise<"shared" | "downloaded" | "cancell
         directory: Directory.Cache,
       });
       await Share.share({
-        title: "نسخة احتياطية — تسميع القرآن",
-        text: "نسخة احتياطية من بيانات تطبيق تسميع القرآن",
+        title: "نسخة احتياطية — ترتيل ليبيا",
+        text: "نسخة احتياطية من بيانات تطبيق ترتيل ليبيا",
         files: [uri],
         dialogTitle: "حفظ النسخة الاحتياطية",
       });

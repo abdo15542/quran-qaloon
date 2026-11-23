@@ -112,7 +112,7 @@ async function drawAyahCanvas(opts: ShareAyahOptions): Promise<HTMLCanvasElement
   ctx.font = '600 34px system-ui, sans-serif';
   ctx.textAlign = "center";
   ctx.direction = "rtl";
-  ctx.fillText("تسميع القرآن — قالون عن نافع", W / 2, topPad);
+  ctx.fillText("ترتيل ليبيا", W / 2, topPad);
 
   // Ayah text.
   ctx.fillStyle = "#FFFFFF";

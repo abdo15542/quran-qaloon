@@ -154,8 +154,8 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
               <BookOpen className="w-5 h-5" />
             </span>
             <div>
-              <div className="font-bold text-lg text-foreground leading-tight">تسميع القرآن</div>
-              <div className="text-[11px] text-muted-foreground leading-tight">قالون عن نافع</div>
+              <div className="font-bold text-lg text-foreground leading-tight">ترتيل ليبيا</div>
+              <div className="text-[11px] text-muted-foreground leading-tight">القرآن الكريم</div>
             </div>
           </div>
           <div className="flex items-center gap-1">
