@@ -512,7 +512,10 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   // query runs — one word, a phrase, or a whole ayah — with the same
   // counts and locations. The search itself is offline; only the
   // speech-to-text step runs through the phone's speech service.
-  const { state: voiceState, start: startVoice, stop: stopVoice, reset: resetVoice } = useSpeechRecognition();
+  // [1.0.110 auto-capture] الالتقاط التلقائي: إن انقطعت الجلسة قبل
+  // نتيجة نهائية تُعاد بنفسها حتى يلتقط كلامه كاملاً — لا يتوقف إلا
+  // بضغطته أو بعد نتيجة نهائية أو بعد جلسات ميتة متتالية.
+  const { state: voiceState, start: startVoice, stop: stopVoice, reset: resetVoice } = useSpeechRecognition({ autoRestart: true });
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const prevVoiceListeningRef = useRef(false);
   const prevVoiceTranscriptRef = useRef("");
@@ -993,12 +996,15 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
               </div>
             </div>
           )}
-          {/* [1.0.109] Listening status — interim transcript while speaking. */}
+          {/* [1.0.109] Listening status — interim transcript while speaking.
+              [1.0.110] تبقى «أستمع…» ظاهرة أثناء إعادة التشغيل التلقائي
+              (isListening لا تُقلب بين الجلسات)، مع تذكير أن الضغطة
+              توقف وتبحث فوراً عن ما التُقط حتى الآن. */}
           {voiceState.isListening && (
             <div data-testid="voice-listening" className="mt-2 bg-primary/5 border border-primary/20 rounded-xl px-4 py-2.5 text-sm text-center">
               <span className="inline-flex items-center gap-1.5 text-primary font-arabic">
                 <Mic className="w-4 h-4 animate-pulse" />
-                أستمع… تكلّم الآن
+                أستمع… تكلّم الآن — اضغط الميكروفون للإيقاف والبحث فوراً
               </span>
               {voiceState.interimTranscript && (
                 <span className="block mt-1 text-muted-foreground font-arabic">«{voiceState.interimTranscript}»</span>
@@ -1010,13 +1016,24 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
           {voiceError && !voiceState.isListening && (
             <div data-testid="voice-error" className="mt-2 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl px-4 py-3 text-sm text-center">
               <div className="mb-2">{voiceError}</div>
-              <button
-                type="button"
-                onClick={() => setVoiceError(null)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 hover:bg-destructive/20 rounded-lg text-xs transition-colors"
-              >
-                إغلاق
-              </button>
+              <div className="flex gap-2 justify-center">
+                {/* [1.0.110] بعد جلسات ميتة متتالية: إعادة محاولة من هنا. */}
+                <button
+                  type="button"
+                  data-testid="voice-error-retry"
+                  onClick={() => { setVoiceError(null); startListening(); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-xs transition-colors"
+                >
+                  إعادة المحاولة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVoiceError(null)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 hover:bg-destructive/20 rounded-lg text-xs transition-colors"
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
           )}
           {/* [1.0.109] Honest offline note: the search itself is fully

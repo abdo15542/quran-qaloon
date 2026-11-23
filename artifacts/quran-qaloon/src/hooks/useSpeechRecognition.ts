@@ -16,6 +16,18 @@ export interface SpeechRecognitionState {
 }
 
 const LANG = "ar-SA";
+// [1.0.110] ثوابت الالتقاط التلقائي (بحث صوتي فقط).
+const AUTO_ACTIVITY_WATCHDOG_MS = 3000; // بدل 6000 — كشف أسرع لجلسة صامتة
+const AUTO_EMPTY_SESSIONS_TO_FINISH = 2; // صمتان متتاليان بعد نص = انتهى الكلام
+const AUTO_DEAD_SESSIONS_TO_FAIL = 3; // 3 جلسات ميتة بلا أي نص = معرّف أصمّ
+const MAX_AUTO_SESSIONS = 12; // سقف الجلسات في تشغيل واحد
+const AUTO_STOPPED_GRACE_MS = 700; // مهلة وصول النتيجة النهائية بعد 'stopped'
+const AUTO_NO_SPEECH_ERROR = "لم أسمع شيئاً — تحدّث بصوت أوضح ثم أعد المحاولة.";
+
+/** ضمّ نص جلسة إلى النص المجمَّع (مسافة واحدة، بلا فراغات زائدة). */
+function joinAutoText(a: string, b: string): string {
+  return `${a} ${b}`.replace(/\s+/g, " ").trim();
+}
 const MIC_PERMISSION_ERROR =
   "لم يُمنح إذن الميكروفون. يرجى السماح بالوصول إلى الميكروفون.";
 const UNAVAILABLE_ERROR = "التعرف على الصوت غير متوفر على هذا الجهاز.";
@@ -89,7 +101,10 @@ function isWebSupported(): boolean {
  * TajweedChecker uses only { state, start, stop, reset } and never sees
  * which engine is active.
  */
-export function useSpeechRecognition() {
+export function useSpeechRecognition(options?: { autoRestart?: boolean }) {
+  // [1.0.110] الالتقاط التلقائي: opt-in للبحث الصوتي فقط. الافتراضي
+  // إيقاف فيبقى فحص التجويد (TajweedChecker) كما هو تماماً.
+  const autoRestart = options?.autoRestart ?? false;
   const isNative = Capacitor.isNativePlatform();
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>("");
@@ -122,6 +137,31 @@ export function useSpeechRecognition() {
   // ينهي الجلسة الميتة فتعيد الصفحة تشغيلها تلقائيًا. الصمت الطويل
   // وحده لا يضر: إعادة التشغيل لا تفقد شيئًا.
   const sessionWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // [1.0.110] حالة الالتقاط التلقائي (بحث صوتي فقط):
+  // معرّف Google ينهي كل جلسة عند أول توقف في الكلام (~ثانية)،
+  // والأخطاء (لا تطابق/مهلة كلام/شبكة) لا تُطلق 'stopped' أصلاً —
+  // فكانت الجلسة تنتهي بنص جزئي أو بلا نص فيُبحث عنه أو لا يُبحث
+  // عن شيء («بعض يبحث ومرات يفصل»). في هذا الوضع تُعاد الجلسة
+  // بنفسها بعد كل نهاية قبل نتيجة نهائية، ويُجمَع النص عبر
+  // الجلسات حتى يصمت المستخدم أو يضغط الإيقاف.
+  const autoRestartRef = useRef(autoRestart);
+  const runActiveRef = useRef(false);
+  const userStoppedRef = useRef(false);
+  // نص الجلسات المنتهية في هذا التشغيل (يُبحث عنه عند النهاية).
+  const accumulatedRef = useRef("");
+  // جلسات متتالية انتهت بلا نص جديد (صمت المستخدم أو معرّف أصمّ).
+  const deadStreakRef = useRef(0);
+  // عدد الجلسات في هذا التشغيل (سقف أمان ضد حلقة لا نهائية).
+  const sessionCountRef = useRef(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stoppedGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // أحدث نتيجة جزئية في جلسة الويب الحالية (تُحفَظ إن انتهت الجلسة
+  // بلا نتيجة نهائية — وإلا ضاع أول الكلام).
+  const webSessionInterimRef = useRef("");
+  // مرجع لقرار نهاية الجلسة في وضع الالتقاط التلقائي — يُسند بعد
+  // تعريفه أدناه؛ معالجات الأحداث (المراقبان والمستمع الأصلي)
+  // تستدعيه عبر المرجع فلا يهم ترتيب التعريف.
+  const handleAutoSessionEndRef = useRef<(sessionText: string) => void>(() => {});
 
   const [state, setState] = useState<SpeechRecognitionState>({
     isListening: false,
@@ -165,6 +205,47 @@ export function useSpeechRecognition() {
     }
   }, []);
 
+  // [1.0.110] إلغاء مؤقتات الالتقاط التلقائي المعلّقة (إعادة بدء
+  // بعد بدء فاشل، ومهلة النتيجة النهائية بعد 'stopped').
+  const clearAutoTimers = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    if (stoppedGraceTimerRef.current) {
+      clearTimeout(stoppedGraceTimerRef.current);
+      stoppedGraceTimerRef.current = null;
+    }
+  }, []);
+
+  // [1.0.110] إنهاء تشغيل الالتقاط التلقائي: يُفكَّك المعرّف الأصلي
+  // إن كان حيًا (وإلا بقيت أحداثه المتأخرة تصل بعد النهاية)، ويُسلَّم
+  // النص المجمَّع — أو رسالة صادقة إن لم يُلتقط شيء.
+  const finishAutoRun = useCallback(
+    (finalText: string, error: string | null) => {
+      clearAutoTimers();
+      clearStopSafetyTimer();
+      clearSessionWatchdog();
+      runActiveRef.current = false;
+      sessionActiveRef.current = false;
+      if (isNative) {
+        stopIssuedRef.current = true;
+        startAttemptedRef.current = false;
+        void SpeechRecognition.stop().catch(() => undefined);
+        void SpeechRecognition.removeAllListeners().catch(() => undefined);
+      }
+      finalTranscriptRef.current = finalText;
+      setState((s) => ({
+        ...s,
+        isListening: false,
+        interimTranscript: "",
+        transcript: finalText,
+        error,
+      }));
+    },
+    [clearAutoTimers, clearStopSafetyTimer, clearSessionWatchdog, isNative]
+  );
+
   // [1.0.100] تفكيك جلسة زومبي مرة واحدة فقط: إن كان start() قد
   // استُدعي ولم يصل 'started' ولا 'stopped' ولا رفض، ولم يُصدر
   // stop() لهذه المحاولة بعد، أصدره مرة واحدة. بلا هذا يبقى
@@ -180,13 +261,30 @@ export function useSpeechRecognition() {
 
   const finalizeNativeSession = useCallback(() => {
     if (finalizedRef.current) return;
+    // [1.0.110] تشغيل منتهٍ أصلاً عبر finishAutoRun (رسالة صادقة
+    // مثلاً) — لا تُبدَّل حالته النهائية بإنهاء متأخر.
+    if (autoRestartRef.current && !runActiveRef.current) return;
+    // [1.0.110] أمان: في وضع الالتقاط التلقائي لا تُنهِ التشغيل من
+    // مراقب أو مؤقت دون المرور بقرار نهاية الجلسة — إلا إن ضغط
+    // المستخدم الإيقاف (حينها يُنهى التشغيل بالنص المجمَّع).
+    if (autoRestartRef.current && runActiveRef.current && !userStoppedRef.current) {
+      handleAutoSessionEndRef.current(lastMatchesRef.current.trim());
+      return;
+    }
     finalizedRef.current = true;
     stopZombieOnce();
     sessionActiveRef.current = false;
     clearStopSafetyTimer();
     clearSessionWatchdog();
-    const finalText = lastMatchesRef.current.trim();
+    clearAutoTimers();
+    const sessionText = lastMatchesRef.current.trim();
+    // [1.0.110] عند إيقاف المستخدم يُبحث عن النص المجمَّع كاملاً،
+    // لا عن نص الجلسة الأخيرة وحدها.
+    const finalText = autoRestartRef.current
+      ? joinAutoText(accumulatedRef.current, sessionText)
+      : sessionText;
     finalTranscriptRef.current = finalText;
+    runActiveRef.current = false;
     setState((s) => ({
       ...s,
       isListening: false,
@@ -197,7 +295,7 @@ export function useSpeechRecognition() {
       // فقط لمشاكل حقيقية (إذن الميكروفون، الشبكة).
       error: null,
     }));
-  }, [clearStopSafetyTimer, stopZombieOnce]);
+  }, [clearStopSafetyTimer, stopZombieOnce, clearSessionWatchdog, clearAutoTimers]);
 
   const cleanupNativeListeners = useCallback(() => {
     clearStopSafetyTimer();
@@ -212,6 +310,13 @@ export function useSpeechRecognition() {
     sessionWatchdogRef.current = setTimeout(() => {
       if (!sessionActiveRef.current && !finalizedRef.current) {
         neverStartedStreakRef.current += 1;
+        // [1.0.110] بدء لم يصل 'started' أبدًا = جلسة ميتة: في وضع
+        // الالتقاط التلقائي تُفكَّك وتُعاد (أو تُنهى بصراحة بعد الحد)،
+        // لا تُنهى الجلسة بصمت كما كان.
+        if (autoRestartRef.current && runActiveRef.current && !userStoppedRef.current) {
+          handleAutoSessionEndRef.current("");
+          return;
+        }
         finalizeNativeSession();
       }
     }, 4000);
@@ -220,27 +325,58 @@ export function useSpeechRecognition() {
   const armActivityWatchdog = useCallback(() => {
     clearSessionWatchdog();
     sessionWatchdogRef.current = setTimeout(() => {
+      // [1.0.110] في وضع الالتقاط التلقائي تُكتشف الجلسة الصامتة
+      // أسرع (3ث بدل 6ث) — والقرار (تجميع/إعادة/إنهاء) لقرار نهاية
+      // الجلسة، لا إنهاءً مباشراً: نص الجلسة (آخر نتيجة جزئية) هو
+      // مساهمتها حتى لو توقفت بعده.
+      if (autoRestartRef.current && runActiveRef.current && !userStoppedRef.current) {
+        handleAutoSessionEndRef.current(lastMatchesRef.current.trim());
+        return;
+      }
       if (sessionActiveRef.current && !finalizedRef.current) {
         finalizeNativeSession();
       }
-    }, 6000);
+    }, autoRestartRef.current ? AUTO_ACTIVITY_WATCHDOG_MS : 6000);
   }, [clearSessionWatchdog, finalizeNativeSession]);
 
-  const startNative = useCallback(async () => {
+  const startNative = useCallback(async (isRestart = false) => {
     // End any previous session cleanly before starting a new one.
     cleanupNativeListeners();
     finalizedRef.current = false;
     lastMatchesRef.current = "";
     finalTranscriptRef.current = "";
+    // [1.0.110] تشغيل جديد: يُصفَّر النص المجمَّع وعدّاد الموت؛ أما
+    // إعادة بدء تلقائية فيُحفَظ فيها المجمَّع (عدد الجلسات يزيده
+    // restartAutoSession قبل الاستدعاء).
+    if (isRestart) {
+      // جلسة جديدة في التشغيل نفسه: يُحفَظ النص المجمَّع وعدّاد
+      // الموت؛ تُصفَّر متتبعات الجلسة فقط (أعلاه).
+    } else {
+      accumulatedRef.current = "";
+      deadStreakRef.current = 0;
+      sessionCountRef.current = 1;
+      neverStartedStreakRef.current = 0;
+      userStoppedRef.current = false;
+      runActiveRef.current = true;
+    }
 
     try {
       const { available } = await SpeechRecognition.available();
       if (!available) {
-        setState((s) => ({ ...s, error: UNAVAILABLE_ERROR, isSupported: false }));
+        // [1.0.110] عطل حقيقي (لا خدمة كلام) — لا إعادة تلقائية.
+        if (autoRestartRef.current && runActiveRef.current) {
+          finishAutoRun("", UNAVAILABLE_ERROR);
+        } else {
+          setState((s) => ({ ...s, error: UNAVAILABLE_ERROR, isSupported: false }));
+        }
         return;
       }
     } catch {
-      setState((s) => ({ ...s, error: UNAVAILABLE_ERROR }));
+      if (autoRestartRef.current && runActiveRef.current) {
+        finishAutoRun("", UNAVAILABLE_ERROR);
+      } else {
+        setState((s) => ({ ...s, error: UNAVAILABLE_ERROR }));
+      }
       return;
     }
 
@@ -249,12 +385,21 @@ export function useSpeechRecognition() {
       if (status.speechRecognition !== "granted") {
         const next = await SpeechRecognition.requestPermissions();
         if (next.speechRecognition !== "granted") {
-          setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+          // [1.0.110] رفض الإذن عطل حقيقي — لا إعادة تلقائية.
+          if (autoRestartRef.current && runActiveRef.current) {
+            finishAutoRun("", MIC_PERMISSION_ERROR);
+          } else {
+            setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+          }
           return;
         }
       }
     } catch {
-      setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+      if (autoRestartRef.current && runActiveRef.current) {
+        finishAutoRun("", MIC_PERMISSION_ERROR);
+      } else {
+        setState((s) => ({ ...s, error: MIC_PERMISSION_ERROR }));
+      }
       return;
     }
 
@@ -271,12 +416,21 @@ export function useSpeechRecognition() {
       if (!text) return;
       lastMatchesRef.current = text;
       armActivityWatchdog();
-      setState((s) => ({ ...s, interimTranscript: text }));
+      // [1.0.110] أثناء الالتقاط التلقائي يُعرض النص المجمَّع كاملاً
+      // (جلسات سابقة + هذه الجلسة) ليرى المستخدم ما التُقط حتى الآن.
+      setState((s) => ({
+        ...s,
+        interimTranscript: autoRestartRef.current
+          ? joinAutoText(accumulatedRef.current, text)
+          : text,
+      }));
     });
 
     await SpeechRecognition.addListener(
       "listeningState",
       (data: { status: "started" | "stopped" }) => {
+        // [1.0.110] حدث متأخر من تشغيل منتهٍ — يُتجاهل.
+        if (autoRestartRef.current && !runActiveRef.current) return;
         if (data.status === "started") {
           sessionActiveRef.current = true;
           // [1.0.100] بدأت فعلًا — ليست زومبي، ويُصفَّر عدّاد الفشل.
@@ -287,7 +441,19 @@ export function useSpeechRecognition() {
         } else {
           // توقفت من تلقاء نفسها — لا حاجة لتفكيك زومبي.
           startAttemptedRef.current = false;
-          finalizeNativeSession();
+          if (autoRestartRef.current && runActiveRef.current && !userStoppedRef.current) {
+            // [1.0.110] مهلة وصول النتيجة النهائية: onResults في
+            // الإضافة يصل كحدث partialResults بعد 'stopped' — فلو
+            // قُررت نهاية الجلسة فوراً لضاع آخر الكلام ولُخّص البحث
+            // على نص قديم. القرار بعد 700ms بما وصل حتى ذلك الحين.
+            clearAutoTimers();
+            stoppedGraceTimerRef.current = setTimeout(() => {
+              stoppedGraceTimerRef.current = null;
+              handleAutoSessionEndRef.current(lastMatchesRef.current.trim());
+            }, AUTO_STOPPED_GRACE_MS);
+          } else {
+            finalizeNativeSession();
+          }
         }
       }
     );
@@ -314,6 +480,19 @@ export function useSpeechRecognition() {
       // رفض start() نفسه — وصل الرفض، فليست محاولة زومبي معلّقة.
       startAttemptedRef.current = false;
       clearSessionWatchdog();
+      // [1.0.110] بدء فاشل في وضع الالتقاط التلقائي = جلسة ميتة:
+      // فكّك المعرّف ومرّر القرار (إعادة أو إنهاء صادق) بعد مهلة
+      // قصيرة، ولا تُظهر خطأً فورياً لمشكلة قد تُحل بإعادة المحاولة.
+      if (autoRestartRef.current && runActiveRef.current && !userStoppedRef.current) {
+        stopIssuedRef.current = true;
+        lastTeardownAtRef.current = Date.now();
+        void SpeechRecognition.stop().catch(() => undefined);
+        restartTimerRef.current = setTimeout(() => {
+          restartTimerRef.current = null;
+          handleAutoSessionEndRef.current("");
+        }, 300);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "";
       if (!finalizedRef.current) {
         setState((s) => ({
@@ -323,13 +502,18 @@ export function useSpeechRecognition() {
         }));
       }
     }
-  }, [cleanupNativeListeners, finalizeNativeSession, armStartWatchdog, armActivityWatchdog, clearSessionWatchdog]);
+  }, [cleanupNativeListeners, finalizeNativeSession, armStartWatchdog, armActivityWatchdog, clearSessionWatchdog, finishAutoRun, clearAutoTimers]);
 
   const stopNative = useCallback(() => {
     // Ask the recognizer to stop; its onResults + listeningState('stopped')
     // callbacks deliver the final text. The safety timer guarantees the UI
     // never stays stuck listening if a native callback is lost (e.g. the
     // no-match error path, which fires no 'stopped' event).
+    // [1.0.110] إيقاف صريح من المستخدم: يلغي أي إعادة تلقائية معلّقة
+    // (مهلة نتيجة نهائية أو إعادة بعد بدء فاشل) ويُنهي التشغيل بالنص
+    // المجمَّع عبر finalize — لا إعادة بعده.
+    userStoppedRef.current = true;
+    clearAutoTimers();
     sessionActiveRef.current = false;
     // [1.0.100] هذا stop() صريح لهذه المحاولة — لا يصدره التفكيك
     // مرة أخرى عند finalize (مؤقت الأمان)، فيبقى stop واحدًا.
@@ -341,11 +525,18 @@ export function useSpeechRecognition() {
     stopSafetyTimerRef.current = setTimeout(() => {
       finalizeNativeSession();
     }, 1500);
-  }, [clearStopSafetyTimer, clearSessionWatchdog, finalizeNativeSession]);
+  }, [clearStopSafetyTimer, clearSessionWatchdog, finalizeNativeSession, clearAutoTimers]);
 
   const resetNative = useCallback(() => {
     clearStopSafetyTimer();
     clearSessionWatchdog();
+    clearAutoTimers();
+    runActiveRef.current = false;
+    userStoppedRef.current = false;
+    accumulatedRef.current = "";
+    deadStreakRef.current = 0;
+    sessionCountRef.current = 0;
+    neverStartedStreakRef.current = 0;
     finalizedRef.current = false;
     lastMatchesRef.current = "";
     finalTranscriptRef.current = "";
@@ -371,7 +562,7 @@ export function useSpeechRecognition() {
       interimTranscript: "",
       error: null,
     }));
-  }, [cleanupNativeListeners, clearStopSafetyTimer, clearSessionWatchdog, stopZombieOnce]);
+  }, [cleanupNativeListeners, clearStopSafetyTimer, clearSessionWatchdog, stopZombieOnce, clearAutoTimers]);
 
   // Native listeners must not leak across sessions or unmounts.
   useEffect(() => {
@@ -379,6 +570,9 @@ export function useSpeechRecognition() {
       if (Capacitor.isNativePlatform()) {
         if (stopSafetyTimerRef.current) clearTimeout(stopSafetyTimerRef.current);
         if (sessionWatchdogRef.current) clearTimeout(sessionWatchdogRef.current);
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        if (stoppedGraceTimerRef.current) clearTimeout(stoppedGraceTimerRef.current);
+        runActiveRef.current = false;
         sessionActiveRef.current = false;
         void SpeechRecognition.removeAllListeners().catch(() => undefined);
         void SpeechRecognition.stop().catch(() => undefined);
@@ -390,7 +584,7 @@ export function useSpeechRecognition() {
     };
   }, []);
 
-  const startWeb = useCallback(() => {
+  const startWeb = useCallback((isRestart = false) => {
     const SpeechRecognitionAPI = getWebSpeechRecognition();
 
     if (!SpeechRecognitionAPI) {
@@ -405,7 +599,19 @@ export function useSpeechRecognition() {
       recognitionRef.current.abort();
     }
 
+    // [1.0.110] نتائج هذه الجلسة وحدها (تُجمَع في accumulatedRef عند
+    // نهايتها)؛ والتشغيل الجديد يُصفَّر حالته، أما إعادة البدء
+    // التلقائية فتُحفَظ فيها النص المجمَّع.
     finalTranscriptRef.current = "";
+    webSessionInterimRef.current = "";
+    if (!isRestart) {
+      accumulatedRef.current = "";
+      deadStreakRef.current = 0;
+      sessionCountRef.current = 1;
+      userStoppedRef.current = false;
+      runActiveRef.current = true;
+    }
+
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = LANG;
     recognition.continuous = true;
@@ -446,14 +652,31 @@ export function useSpeechRecognition() {
       }
 
       const finalSoFar = finalTranscriptRef.current;
+      // [1.0.110] أحدث جزئي في هذه الجلسة — مساهمتها إن انتهت بلا
+      // نتيجة نهائية (وإلا ضاع أول الكلام عند التوقف القصير).
+      webSessionInterimRef.current = interim;
       setState((s) => ({
         ...s,
         transcript: finalSoFar,
-        interimTranscript: interim,
+        // [1.0.110] أثناء الالتقاط التلقائي يُعرض النص المجمَّع كاملاً
+        // (جلسات سابقة + نهائيات هذه الجلسة + الجزئي الحالي).
+        interimTranscript: autoRestartRef.current
+          ? joinAutoText(joinAutoText(accumulatedRef.current, finalSoFar), interim)
+          : interim,
       }));
     };
 
     recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
+      // [1.0.110] في وضع الالتقاط التلقائي: رفض الإذن عطل حقيقي
+      // يُنهى فوراً برسالة صادقة؛ أما 'no-speech' وغيرها فتُترك
+      // لقرار onend — جلسة ميتة تُعاد تلقائياً أو تُنهى بصراحة بعد
+      // الحد، لا خطأ فورياً ولا توقف صامت.
+      if (autoRestartRef.current && runActiveRef.current) {
+        if (event.error === "not-allowed") {
+          finishAutoRun("", MIC_PERMISSION_ERROR);
+        }
+        return;
+      }
       if (event.error === "no-speech") {
         // [1.0.98] صمت — ليس خطأً: تُعيد الصفحة الاستماع تلقائيًا.
         setState((s) => ({ ...s, isListening: false, error: null }));
@@ -472,6 +695,21 @@ export function useSpeechRecognition() {
     };
 
     recognition.onend = () => {
+      // [1.0.110] في وضع الالتقاط التلقائي: نهاية الجلسة ليست نهاية
+      // التشغيل — يُجمَع نصها (نهائياتها، أو جزئيها إن لم تصل نهائية)
+      // ويُقرَّر: إعادة تلقائية، أو إنهاء بالبحث، أو إنهاء صادق بعد
+      // الحد. إيقاف المستخدم يُنهي بالنص المجمَّع كاملاً (نهائيات
+      // فقط — الجزئي وحده لا يُبحث، كما في 1.0.109).
+      if (autoRestartRef.current) {
+        if (!runActiveRef.current) return;
+        if (userStoppedRef.current) {
+          finishAutoRun(joinAutoText(accumulatedRef.current, finalTranscriptRef.current.trim()), null);
+          return;
+        }
+        const sessionText = finalTranscriptRef.current.trim() || webSessionInterimRef.current.trim();
+        handleAutoSessionEndRef.current(sessionText);
+        return;
+      }
       setState((s) => ({
         ...s,
         isListening: false,
@@ -492,9 +730,22 @@ export function useSpeechRecognition() {
   }, []);
 
   const stopWeb = useCallback(() => {
+    // [1.0.110] إيقاف صريح من المستخدم.
+    userStoppedRef.current = true;
+    clearAutoTimers();
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
+    }
+    if (autoRestartRef.current && runActiveRef.current) {
+      // النهاية عبر onend (بنص الجلسة + المجمَّع) — لا تُقلب الحالة
+      // هنا وإلا بحثت الصفحة عن نص ناقص قبل وصوله. مؤقت أمان إن
+      // لم يصل onend أبداً (لا يحدث في Chrome، لكن لا يُترك معلّقاً).
+      clearStopSafetyTimer();
+      stopSafetyTimerRef.current = setTimeout(() => {
+        finishAutoRun(joinAutoText(accumulatedRef.current, finalTranscriptRef.current.trim()), null);
+      }, 1500);
+      return;
     }
     setState((s) => ({
       ...s,
@@ -502,9 +753,16 @@ export function useSpeechRecognition() {
       interimTranscript: "",
       transcript: finalTranscriptRef.current.trim(),
     }));
-  }, []);
+  }, [clearAutoTimers, clearStopSafetyTimer, finishAutoRun]);
 
   const resetWeb = useCallback(() => {
+    clearAutoTimers();
+    runActiveRef.current = false;
+    userStoppedRef.current = false;
+    accumulatedRef.current = "";
+    deadStreakRef.current = 0;
+    sessionCountRef.current = 0;
+    webSessionInterimRef.current = "";
     if (recognitionRef.current) {
       recognitionRef.current.abort();
       recognitionRef.current = null;
@@ -517,7 +775,63 @@ export function useSpeechRecognition() {
       interimTranscript: "",
       error: null,
     }));
-  }, []);
+  }, [clearAutoTimers]);
+
+  // [1.0.110] إعادة بدء جلسة في التشغيل نفسه (بعد تفكيك الميتة):
+  // تُحفَظ النص المجمَّع وعدّاد الموت؛ وسقف الجلسات ينهي التشغيل
+  // بالنص المجمَّع (أو برسالة صادقة إن لم يُلتقط شيء) بدل حلقة
+  // لا نهائية.
+  const restartAutoSession = useCallback(() => {
+    clearAutoTimers();
+    clearSessionWatchdog();
+    if (sessionCountRef.current >= MAX_AUTO_SESSIONS) {
+      const acc = accumulatedRef.current.trim();
+      finishAutoRun(acc, acc ? null : AUTO_NO_SPEECH_ERROR);
+      return;
+    }
+    sessionCountRef.current += 1;
+    stopZombieOnce();
+    if (isNative) void startNative(true);
+    else startWeb(true);
+  }, [clearAutoTimers, clearSessionWatchdog, finishAutoRun, isNative, startNative, startWeb]);
+
+  // [1.0.110] قرار نهاية جلسة في وضع الالتقاط التلقائي — قلب الإصلاح:
+  // - الجلسة جاءت بنص جديد → يُجمَّع، يُصفَّر عدّاد الموت، تُعاد الجلسة
+  //   (توقف قصير وسط العبارة لا ينهي الالتقاط).
+  // - الجلسة بلا نص جديد → موت متتالٍ: صمتان بعد نص = انتهى الكلام
+  //   فيُبحث عن المجمَّع؛ 3 موتات بلا أي نص = معرّف أصمّ فيُنهى
+  //   برسالة صادقة + زر إعادة محاولة (من الصفحة).
+  // لا يُستدعى إلا من معالجات الأحداث (بعد اكتمال التشغيل)، فلا
+  // إيقاف يدوي هنا: ضغطة المستخدم تُنهي عبر finalize/onend.
+  const handleAutoSessionEnd = useCallback(
+    (sessionText: string) => {
+      if (!runActiveRef.current) return;
+      if (userStoppedRef.current) return;
+      clearAutoTimers();
+      clearSessionWatchdog();
+      const text = sessionText.trim();
+      if (text) {
+        accumulatedRef.current = joinAutoText(accumulatedRef.current, text);
+        deadStreakRef.current = 0;
+        restartAutoSession();
+        return;
+      }
+      deadStreakRef.current += 1;
+      const acc = accumulatedRef.current.trim();
+      if (acc && deadStreakRef.current >= AUTO_EMPTY_SESSIONS_TO_FINISH) {
+        finishAutoRun(acc, null);
+        return;
+      }
+      if (!acc && deadStreakRef.current >= AUTO_DEAD_SESSIONS_TO_FAIL) {
+        finishAutoRun("", AUTO_NO_SPEECH_ERROR);
+        return;
+      }
+      restartAutoSession();
+    },
+    [restartAutoSession, finishAutoRun]
+  );
+  // يُسند المرجع بعد التعريف — معالجات الأحداث تستدعيه عبره.
+  handleAutoSessionEndRef.current = handleAutoSessionEnd;
 
   const start = useCallback(() => {
     if (isNative) void startNative();
