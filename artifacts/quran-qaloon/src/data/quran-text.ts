@@ -272,7 +272,7 @@ function hamzaVowelStrength(c: string): number {
 // alif is a flourish. That table must run on the TEXT side only — queries
 // are typed in modern spelling, so pass applyDaggerFixes=false for them
 // (a query word like «عليا» must stay «عليا», not become «علي»).
-export function normalizeArabic(s: string, applyDaggerFixes = true): string {
+export function normalizeArabic(s: string, applyDaggerFixes = true, keepMadda = false): string {
   let out = s
     // QAC quirk: shadda (U+0651) is written BEFORE the vowel it doubles
     // in 22,420 QAC lines. Canonicalise to vowel-then-shadda so both
@@ -338,7 +338,17 @@ export function normalizeArabic(s: string, applyDaggerFixes = true): string {
     // text keeps it as a separate token) are non-letter Quranic marks:
     // strip them too, so a QAC form and its bundled form normalise the
     // same way. Both are marks only — no Arabic letter is ever removed.
-    .replace(/[\u064B-\u0655\u065C\u0640\u06D6-\u06DC\u06DF-\u06ED\u08F0-\u08F2]/g, "")
+    .replace(
+      keepMadda
+        // Same strip set, except maddah (U+0653) is KEPT: with keepMadda
+        // the output distinguishes «الٓمٓ» (the disjointed letters) from
+        // «أَلَمْ» (the interrogative) — see MUQATTAAT_STRICT below.
+        // Never use keepMadda for ordinary matching: on ordinary words
+        // maddah is only a length mark (جَآءَ = جاء) and must be ignored.
+        ? /[\u064B-\u0652\u0654\u0655\u065C\u0640\u06D6-\u06DC\u06DF-\u06ED\u08F0-\u08F2]/g
+        : /[\u064B-\u0655\u065C\u0640\u06D6-\u06DC\u06DF-\u06ED\u08F0-\u08F2]/g,
+      ""
+    )
     .replace(/\u0670/g, "\u0627")
     .replace(/[\u0622\u0623\u0625\u0671]/g, "\u0627")
     .replace(/\u0621\u0627/g, "\u0627")
@@ -363,12 +373,16 @@ const CLITIC_LETTERS = new Set(["و", "ف", "ب", "ك", "ل", "ت", "أ", "س"])
 // The word matches when, after stripping up to two leading clitic
 // letters, it equals the query word — or the query word + «م» (the
 // vocative ending in «اللهم») — or the query's elided form (a query
-// starting with «ال» written without its alef, e.g. «لله» for «الله»).
+// starting with «ال» written without its alef, e.g. «لله» for «الله»),
+// which is only generated when it stays at least 3 letters long: a
+// 2-letter elided form is a different word, not the article — «لم»
+// for «الم» is the negation particle, not the disjointed letters
+// «الٓمٓ»; «لن»/«لو»/«لا» likewise (1.0.112).
 // Requiring a whole-word match (not a substring) keeps «الله» from
 // matching the unrelated words «اللهو» (amusement) and «اللهب» (flame).
 export function matchWord(word: string, queryWord: string): boolean {
   const forms = [queryWord];
-  if (queryWord.startsWith("ال")) forms.push("ل" + queryWord.slice(2));
+  if (queryWord.startsWith("ال") && queryWord.length >= 4) forms.push("ل" + queryWord.slice(2));
   for (let p = 0; p <= 2 && p <= word.length; p++) {
     if (p > 0 && !CLITIC_LETTERS.has(word[p - 1])) break;
     const stem = word.slice(p);
@@ -474,6 +488,55 @@ function getNormalizedWords(qirahId?: string): string[][][] {
   return cached;
 }
 
+// The disjointed letters (al-huruf al-muqatta'at) — plain query form ->
+// strict form (maddah U+0653 kept, via normalizeArabic keepMadda).
+// Derived from the bundled text: the opening token of each muqatta'at
+// surah (ayah 1, after the Basmala; 42:2 for عسق):
+//   الم 2/3/29/30/31/32, المص 7, الر 10/11/12/14/15, المر 13,
+//   كهيعص 19, طه 20, طسم 26/28, طس 27, يس 36, ص 38,
+//   حم 40/41/42/43/44/45/46, عسق 42:2, ق 50, ن 68.
+// A plain single-word search for one of these must match ONLY the
+// opening spelling: after stripping, «الٓمٓ» and the interrogative
+// «أَلَمْ» both normalise to «الم» (84 tokens), but the user asking
+// for «الم» means the disjointed letters (6 openings). The strict
+// form separates them — «الٓمٓ» keeps its maddahs, «أَلَمْ» has none.
+// «طه» carries no maddah in the text, so its strict form is itself;
+// it still needs the table entry, so the plain «طه» does not also
+// match any other token that happens to normalise to «طه».
+// Only single-word queries use this table (see searchQuranDetailed /
+// highlightSegments): inside a phrase the context disambiguates, e.g.
+// «ألم أقل لكم» is the phrase of 2:33 and must still find it.
+const MUQATTAAT_STRICT: Record<string, string> = {
+  "الم": "الٓمٓ",
+  "المص": "الٓمٓصٓ",
+  "الر": "الٓر",
+  "المر": "الٓمٓر",
+  "كهيعص": "كٓهيعٓصٓ",
+  "طه": "طه",
+  "طسم": "طسٓمٓ",
+  "طس": "طسٓ",
+  "يس": "يسٓ",
+  "ص": "صٓ",
+  "حم": "حمٓ",
+  "عسق": "عٓسٓقٓ",
+  "ق": "قٓ",
+  "ن": "نٓ",
+};
+
+// Strict (maddah-kept) words, cached like getNormalizedWords — built
+// lazily, only when a muqatta'at query is searched.
+const strictWordsByQirah = new Map<string, string[][][]>();
+function getStrictWords(qirahId?: string): string[][][] {
+  const key = qirahId ?? "hafs";
+  let cached = strictWordsByQirah.get(key);
+  if (!cached) {
+    const table = getTextTable(qirahId);
+    cached = table.map((texts) => texts.map((t) => normalizeArabic(t, true, true).split(/\s+/)));
+    strictWordsByQirah.set(key, cached);
+  }
+  return cached;
+}
+
 // Characters that appear in copied/pasted Quran text but are never
 // searchable words in the bundled ayah text: ornate ayah brackets ﴿ ﴾
 // (U+FD3E/U+FD3F), end-of-ayah sign ۝ (U+06DD), hizb marker ۞ (U+06DE),
@@ -503,6 +566,10 @@ export function searchQuranDetailed(query: string, qirahId?: string): QuranSearc
   const hits: QuranSearchHitDetailed[] = [];
   let total = 0;
   const surahsSeen = new Set<number>();
+  // A muqatta'at query («الم» …) matches only the opening spelling
+  // (strict form, maddah kept) — see MUQATTAAT_STRICT.
+  const strictTarget = queryWords.length === 1 ? MUQATTAAT_STRICT[queryWords[0]] : undefined;
+  const strictWords = strictTarget !== undefined ? getStrictWords(qirahId) : null;
   for (let s = 0; s < table.length; s++) {
     const texts = table[s];
     const wordsByAyah = normWords[s];
@@ -510,7 +577,11 @@ export function searchQuranDetailed(query: string, qirahId?: string): QuranSearc
       const words = wordsByAyah[i];
       let occ = 0;
       if (queryWords.length === 1) {
-        for (const w of words) if (matchWord(w, queryWords[0])) occ++;
+        if (strictTarget !== undefined && strictWords) {
+          for (const w of strictWords[s][i]) if (w === strictTarget) occ++;
+        } else {
+          for (const w of words) if (matchWord(w, queryWords[0])) occ++;
+        }
       } else {
         // Merge-aware alignment (see findPhraseMatches): the text may
         // write two query words as one token («ياايها») or split one
@@ -535,8 +606,14 @@ export interface HighlightSegment {
 // Split an ayah's original (diacritic) text into segments, marking the
 // words that match the query — using the same word matching as
 // searchQuranDetailed, so the highlight always agrees with the count.
-// Normalisation never adds or removes spaces, so the n-th word of the
-// original text aligns with the n-th word of the normalised text.
+// Normalisation never adds or removes spaces, BUT it can delete a whole
+// token: a lone Quranic pause mark (ۖ ۗ ۚ ۙ ۘ ۛ ۜ ۩) normalises to ""
+// and drops out of the normalised word list, while it stays a word in
+// the original text — so the n-th normalised word is NOT always the
+// n-th original word (1.0.112: in 2:33 the ۖ before «أَلَمْ» shifted the
+// highlight onto the preceding «قَالَ»). The walk below therefore skips
+// original words that normalise to nothing, so each highlighted word is
+// the word that actually matched.
 export function highlightSegments(text: string, query: string): HighlightSegment[] {
   const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
@@ -544,7 +621,13 @@ export function highlightSegments(text: string, query: string): HighlightSegment
   const normWords = normalizeArabic(text).split(/\s+/);
   const matched = new Array<boolean>(normWords.length).fill(false);
   if (queryWords.length === 1) {
-    for (let i = 0; i < normWords.length; i++) matched[i] = matchWord(normWords[i], queryWords[0]);
+    const strictTarget = MUQATTAAT_STRICT[queryWords[0]];
+    if (strictTarget !== undefined) {
+      const strictWords = normalizeArabic(text, true, true).split(/\s+/);
+      for (let i = 0; i < strictWords.length; i++) matched[i] = strictWords[i] === strictTarget;
+    } else {
+      for (let i = 0; i < normWords.length; i++) matched[i] = matchWord(normWords[i], queryWords[0]);
+    }
   } else {
     // Same merge-aware alignment as searchQuranDetailed, so the highlight
     // always agrees with the count.
@@ -554,12 +637,15 @@ export function highlightSegments(text: string, query: string): HighlightSegment
   }
   const parts = text.split(/(\s+)/);
   const segments: HighlightSegment[] = [];
-  let wi = 0;
+  let ni = 0; // index into normWords (and matched[])
   for (const part of parts) {
     if (part === "") continue;
     if (/^\s+$/.test(part)) { segments.push({ text: part, matched: false }); continue; }
-    segments.push({ text: part, matched: matched[wi] ?? false });
-    wi++;
+    // A word that normalises to nothing (a lone pause mark) has no slot
+    // in normWords: never highlighted, and it does not shift later words.
+    if (normalizeArabic(part) === "") { segments.push({ text: part, matched: false }); continue; }
+    segments.push({ text: part, matched: matched[ni] ?? false });
+    ni++;
   }
   return segments;
 }
