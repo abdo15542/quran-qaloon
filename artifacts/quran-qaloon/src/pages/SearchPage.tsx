@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout, ListTree } from "lucide-react";
+import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout, ListTree, Mic } from "lucide-react";
 import { SURAHS, QIRAAT, getGlobalAyahNumber, type RevelationType } from "@/data/surahs";
 import { getJuzNumber } from "@/data/juz";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
@@ -12,6 +12,13 @@ import { SURAH_SECTIONS, TOTAL_SURAH_SECTIONS, SURAHS_WITH_SECTIONS_COUNT, SURAH
 import { REVELATION_ORDER } from "@/data/revelation-order";
 import TafsirSheet from "@/components/TafsirSheet";
 import RootSearch from "@/components/RootSearch";
+// [1.0.109 voice search] Reuses the Tajweed mic-check hook (native
+// SpeechRecognizer via @capacitor-community/speech-recognition on
+// Android, Web Speech API on the web) — no new recognition layer.
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+// [1.0.109] One-tap shortcut to the system voice-input settings, where
+// the Arabic offline speech pack is downloaded (native only).
+import { openVoiceInputSettings, isVoiceSettingsAvailable } from "@/lib/voice-settings";
 
 interface SearchResult {
   number: number;
@@ -498,6 +505,70 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
   const lastQueryRef = useRef<string>("");
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
+  // ---- [1.0.109 voice search] ----
+  // The same hook the Tajweed mic check uses (TajweedChecker pattern:
+  // act when listening flips true→false with a fresh final transcript).
+  // The recognised text goes through the exact same search the typed
+  // query runs — one word, a phrase, or a whole ayah — with the same
+  // counts and locations. The search itself is offline; only the
+  // speech-to-text step runs through the phone's speech service.
+  const { state: voiceState, start: startVoice, stop: stopVoice, reset: resetVoice } = useSpeechRecognition();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const prevVoiceListeningRef = useRef(false);
+  const prevVoiceTranscriptRef = useRef("");
+  // [1.0.109] One-time offline-pack prompt (native only): the Arabic
+  // offline pack is system data the app cannot bundle or download, so
+  // at first voice use the app offers to open the system screen where
+  // the user downloads it once. Remembered in localStorage; never
+  // asked again, and listening is never blocked behind it.
+  const VOICE_PACK_PROMPT_KEY = "quran_voice_offline_prompted";
+  const [showVoicePackPrompt, setShowVoicePackPrompt] = useState(false);
+
+  const startListening = useCallback(() => {
+    setVoiceError(null);
+    resetVoice();
+    // Same 300ms reset→start gap TajweedChecker uses, so a previous
+    // session is fully torn down before the next start.
+    setTimeout(() => startVoice(), 300);
+  }, [resetVoice, startVoice]);
+
+  const handleVoiceToggle = useCallback(() => {
+    if (voiceState.isListening) {
+      stopVoice();
+      return;
+    }
+    if (isVoiceSettingsAvailable() && !localStorage.getItem(VOICE_PACK_PROMPT_KEY)) {
+      setShowVoicePackPrompt(true);
+      return;
+    }
+    startListening();
+  }, [voiceState.isListening, stopVoice, startListening]);
+
+  // First-use prompt actions: open the system screen, or skip and listen.
+  const handleVoicePackOpenSettings = useCallback(async () => {
+    localStorage.setItem(VOICE_PACK_PROMPT_KEY, "1");
+    setShowVoicePackPrompt(false);
+    const r = await openVoiceInputSettings();
+    if (!r.ok) {
+      setVoiceError("لم أستطع فتح إعدادات الكلام في هذا الهاتف — افتح الإعدادات ثم ابحث عن «التعرّف دون اتصال» ونزّل العربية.");
+    }
+  }, []);
+
+  const handleVoicePackListenNow = useCallback(() => {
+    localStorage.setItem(VOICE_PACK_PROMPT_KEY, "1");
+    setShowVoicePackPrompt(false);
+    startListening();
+  }, [startListening]);
+
+  // Persistent one-tap shortcut (native only) under the offline note.
+  const handleVoicePackInstallLink = useCallback(async () => {
+    const r = await openVoiceInputSettings();
+    if (!r.ok) {
+      setVoiceError("لم أستطع فتح إعدادات الكلام في هذا الهاتف — افتح الإعدادات ثم ابحث عن «التعرّف دون اتصال» ونزّل العربية.");
+    }
+  }, []);
+  // ---- [/1.0.109 voice search] ----
+
   const doSearch = useCallback(async (q: string, currentTab: SearchTab) => {
     const trimmed = q.trim();
     if (!trimmed) return;
@@ -543,6 +614,24 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
     setResults(mapped);
     setLoading(false);
   }, [detailed, athkarResults.length]);
+
+  // [1.0.109 voice search] When a voice session ends with a fresh final
+  // transcript, put it in the search box and run the same search the
+  // typed query runs (TajweedChecker pattern: act on the true→false
+  // listening flip with a changed transcript). Placed after doSearch —
+  // the effect's dependency array reads it.
+  useEffect(() => {
+    const justStopped = prevVoiceListeningRef.current && !voiceState.isListening;
+    const transcript = voiceState.transcript.trim();
+    const changed = transcript !== prevVoiceTranscriptRef.current;
+    if (justStopped && transcript.length > 0 && changed) {
+      prevVoiceTranscriptRef.current = transcript;
+      setQuery(transcript);
+      void doSearch(transcript, tab);
+    }
+    prevVoiceListeningRef.current = voiceState.isListening;
+    if (voiceState.error) setVoiceError(voiceState.error);
+  }, [voiceState.isListening, voiceState.transcript, voiceState.error, tab, doSearch]);
 
   // Live search as the user types (debounced), so results appear while
   // typing without a search on every keystroke — in both tabs (the
@@ -851,6 +940,22 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
                 dir="rtl"
               />
             </div>
+            {/* [1.0.109 voice search] Mic button beside the search box:
+                tap to listen (ar-SA), tap again to stop; the recognised
+                text runs the same search as a typed query. */}
+            <button
+              type="button"
+              data-testid="voice-search-btn"
+              aria-label={voiceState.isListening ? "إيقاف الاستماع" : "بحث صوتي"}
+              onClick={handleVoiceToggle}
+              className={`px-4 py-3 rounded-xl transition-colors flex items-center justify-center ${
+                voiceState.isListening
+                  ? "bg-destructive text-destructive-foreground animate-pulse"
+                  : "bg-card border border-border text-primary hover:border-primary/50"
+              }`}
+            >
+              <Mic className="w-5 h-5" />
+            </button>
             <button
               type="submit"
               disabled={!query.trim() || loading}
@@ -859,6 +964,83 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "بحث"}
             </button>
           </div>
+          {/* [1.0.109] First-use offline-pack prompt (native only): the
+              Arabic offline pack is system data the app cannot bundle or
+              download — one tap opens the system screen to download it
+              once; «استمع الآن» skips and listens right away. Asked once. */}
+          {showVoicePackPrompt && !voiceState.isListening && (
+            <div data-testid="voice-pack-prompt" className="mt-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-3 text-sm text-center">
+              <div className="text-amber-800 dark:text-amber-300 mb-2">
+                للبحث الصوتي دون إنترنت: نزّل حزمة العربية مرة واحدة من إعدادات الكلام في النظام — أو استمع الآن وسيعمل البحث الصوتي متى توفرت الخدمة.
+              </div>
+              <div className="flex gap-2 justify-center">
+                <button
+                  type="button"
+                  data-testid="voice-pack-open-settings"
+                  onClick={handleVoicePackOpenSettings}
+                  className="px-3.5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-arabic hover:bg-primary/90 transition-colors"
+                >
+                  فتح إعدادات الكلام
+                </button>
+                <button
+                  type="button"
+                  data-testid="voice-pack-listen-now"
+                  onClick={handleVoicePackListenNow}
+                  className="px-3.5 py-2 bg-card border border-border rounded-lg text-sm font-arabic text-primary hover:border-primary/50 transition-colors"
+                >
+                  استمع الآن
+                </button>
+              </div>
+            </div>
+          )}
+          {/* [1.0.109] Listening status — interim transcript while speaking. */}
+          {voiceState.isListening && (
+            <div data-testid="voice-listening" className="mt-2 bg-primary/5 border border-primary/20 rounded-xl px-4 py-2.5 text-sm text-center">
+              <span className="inline-flex items-center gap-1.5 text-primary font-arabic">
+                <Mic className="w-4 h-4 animate-pulse" />
+                أستمع… تكلّم الآن
+              </span>
+              {voiceState.interimTranscript && (
+                <span className="block mt-1 text-muted-foreground font-arabic">«{voiceState.interimTranscript}»</span>
+              )}
+            </div>
+          )}
+          {/* [1.0.109] Voice failure is shown in the page itself, never
+              silent: no speech service, no mic permission, no speech. */}
+          {voiceError && !voiceState.isListening && (
+            <div data-testid="voice-error" className="mt-2 bg-destructive/10 border border-destructive/20 text-destructive rounded-xl px-4 py-3 text-sm text-center">
+              <div className="mb-2">{voiceError}</div>
+              <button
+                type="button"
+                onClick={() => setVoiceError(null)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 hover:bg-destructive/20 rounded-lg text-xs transition-colors"
+              >
+                إغلاق
+              </button>
+            </div>
+          )}
+          {/* [1.0.109] Honest offline note: the search itself is fully
+              offline; only speech-to-text goes through the phone's speech
+              service and may need internet unless the Arabic offline pack
+              is installed on the device. */}
+          <div data-testid="voice-offline-note" className="mt-2 text-xs text-muted-foreground text-center">
+            البحث الصوتي: تحويل الصوت إلى نص يتم بخدمة الكلام في الهاتف، وقد يحتاج إنترنت إن لم تكن حزمة العربية دون اتصال مثبّتة — أما البحث نفسه فيعمل دون إنترنت دائماً.
+          </div>
+          {/* [1.0.109] Persistent one-tap shortcut to the system screen
+              (native only) — download the Arabic pack once, then voice
+              search works fully offline. */}
+          {isVoiceSettingsAvailable() && (
+            <div className="mt-1.5 text-center">
+              <button
+                type="button"
+                data-testid="voice-pack-install-link"
+                onClick={handleVoicePackInstallLink}
+                className="text-xs text-primary hover:underline font-arabic"
+              >
+                تثبيت حزمة العربية للبحث دون إنترنت
+              </button>
+            </div>
+          )}
         </form>
         )}
 
