@@ -379,6 +379,63 @@ export function matchWord(word: string, queryWord: string): boolean {
   return false;
 }
 
+// Phrase alignment (1.0.111): the Uthmani text sometimes writes two modern
+// words as ONE token («يَٰٓأَيُّهَا» = «يا أيها»، «يَٰمُوسَىٰ» = «يا موسى»),
+// so a word-by-word slide misses any longer phrase that starts with one:
+// «يا أيها الذين آمنوا» scored 0 in 1.0.109/1.0.110 — the slide needs four
+// separate tokens «يا» «ايها» «الذين» «امنوا» while the text has three,
+// «ياايها» «الذين» «امنوا»; and the joined whole-phrase form
+// «ياايهاالذينامنوا» matches no single token either. findPhraseMatches
+// aligns the query words to the ayah tokens allowing, at each step,
+// 1 token ↔ 1..m consecutive query words, or 2 tokens ↔ 1 query word
+// (each step via matchWord, so clitic prefixes still apply). A token is
+// always consumed whole, so a query word can never match half a token.
+// Returns non-overlapping (start, end) token spans, shortest consumption
+// first — the same counting semantics as the old slide. (The old joined
+// whole-phrase form is a special case of the 1-token ↔ m-words step, so
+// «يا أيها» still finds its 142 ayahs.)
+export function findPhraseMatches(
+  words: string[],
+  queryWords: string[]
+): Array<{ start: number; end: number }> {
+  const matches: Array<{ start: number; end: number }> = [];
+  if (!queryWords.length || !words.length) return matches;
+  const n = words.length;
+  const m = queryWords.length;
+  const memo = new Map<string, number[]>();
+  const can = (i: number, k: number): number[] => {
+    if (k >= m) return [i];
+    if (i >= n) return [];
+    const key = i + ":" + k;
+    const hit = memo.get(key);
+    if (hit) return hit;
+    const ends: number[] = [];
+    for (let take = 1; take <= m - k; take++) {
+      if (matchWord(words[i], queryWords.slice(k, k + take).join(""))) {
+        ends.push(...can(i + 1, k + take));
+      }
+    }
+    if (i + 1 < n && matchWord(words[i] + words[i + 1], queryWords[k])) {
+      ends.push(...can(i + 2, k + 1));
+    }
+    const uniq = [...new Set(ends)];
+    memo.set(key, uniq);
+    return uniq;
+  };
+  let j = 0;
+  while (j < n) {
+    const ends = can(j, 0);
+    if (ends.length) {
+      const end = Math.min(...ends);
+      matches.push({ start: j, end });
+      j = end;
+    } else {
+      j++;
+    }
+  }
+  return matches;
+}
+
 export interface QuranSearchHit {
   number: number;
   numberInSurah: number;
@@ -441,10 +498,6 @@ export function searchQuranDetailed(query: string, qirahId?: string): QuranSearc
   const queryWords = q.split(/\s+/).filter(Boolean);
   const empty: QuranSearchDetailed = { query: query.trim(), totalOccurrences: 0, ayahCount: 0, surahCount: 0, hits: [] };
   if (!queryWords.length) return empty;
-  // Some phrases are written as ONE word in the Uthmani text («يَٰٓأَيُّهَا»
-  // = «يا أيها»، «يَٰمُوسَىٰ» = «يا موسى»): a multi-word query also tries
-  // its words joined, as a single token, so «يا أيها» finds its 142 ayahs.
-  const joinedQuery = queryWords.length > 1 ? queryWords.join("") : null;
   const table = getTextTable(qirahId);
   const normWords = getNormalizedWords(qirahId);
   const hits: QuranSearchHitDetailed[] = [];
@@ -459,16 +512,10 @@ export function searchQuranDetailed(query: string, qirahId?: string): QuranSearc
       if (queryWords.length === 1) {
         for (const w of words) if (matchWord(w, queryWords[0])) occ++;
       } else {
-        for (let j = 0; j + queryWords.length <= words.length; j++) {
-          let ok = true;
-          for (let k = 0; k < queryWords.length; k++) {
-            if (!matchWord(words[j + k], queryWords[k])) { ok = false; break; }
-          }
-          if (ok) { occ++; j += queryWords.length - 1; }
-        }
-        if (joinedQuery) {
-          for (const w of words) if (matchWord(w, joinedQuery)) occ++;
-        }
+        // Merge-aware alignment (see findPhraseMatches): the text may
+        // write two query words as one token («ياايها») or split one
+        // query word over two tokens.
+        occ += findPhraseMatches(words, queryWords).length;
       }
       if (occ > 0) {
         total += occ;
@@ -494,28 +541,15 @@ export function highlightSegments(text: string, query: string): HighlightSegment
   const q = normalizeArabic(cleanSearchQuery(query.trim()), false);
   const queryWords = q.split(/\s+/).filter(Boolean);
   if (!queryWords.length) return [{ text, matched: false }];
-  const joinedQuery = queryWords.length > 1 ? queryWords.join("") : null;
   const normWords = normalizeArabic(text).split(/\s+/);
   const matched = new Array<boolean>(normWords.length).fill(false);
   if (queryWords.length === 1) {
     for (let i = 0; i < normWords.length; i++) matched[i] = matchWord(normWords[i], queryWords[0]);
   } else {
-    for (let j = 0; j + queryWords.length <= normWords.length; j++) {
-      let ok = true;
-      for (let k = 0; k < queryWords.length; k++) {
-        if (!matchWord(normWords[j + k], queryWords[k])) { ok = false; break; }
-      }
-      if (ok) {
-        for (let k = 0; k < queryWords.length; k++) matched[j + k] = true;
-        j += queryWords.length - 1;
-      }
-    }
-    // Joined single-token form (see searchQuranDetailed): «يا أيها» is one
-    // word in the text, so highlight that word too.
-    if (joinedQuery) {
-      for (let i = 0; i < normWords.length; i++) {
-        if (matchWord(normWords[i], joinedQuery)) matched[i] = true;
-      }
+    // Same merge-aware alignment as searchQuranDetailed, so the highlight
+    // always agrees with the count.
+    for (const m of findPhraseMatches(normWords, queryWords)) {
+      for (let i = m.start; i < m.end; i++) matched[i] = true;
     }
   }
   const parts = text.split(/(\s+)/);
