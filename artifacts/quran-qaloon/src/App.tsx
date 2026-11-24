@@ -25,6 +25,12 @@ import AsmaAlHusnaPage from "@/pages/AsmaAlHusnaPage";
 import HifzPage from "@/pages/HifzPage";
 import ReadingsPage from "@/pages/ReadingsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
+import MutashabihatPage from "@/pages/MutashabihatPage";
+import TopicMapPage from "@/pages/TopicMapPage";
+import HifzTrainerPage from "@/pages/HifzTrainerPage";
+import CompareTafsirPage from "@/pages/CompareTafsirPage";
+import ProphetStoriesPage from "@/pages/ProphetStoriesPage";
+import DeepStatsPage from "@/pages/DeepStatsPage";
 import NotFound from "@/pages/not-found";
 import BottomNav from "@/components/BottomNav";
 import { refreshLocationIfStale, ensurePrayerRemindersScheduled } from "@/data/prayer-times";
@@ -164,6 +170,21 @@ function AppRoutes() {
             }}
           </Route>
           <Route path="/analytics" component={() => <AnalyticsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          {/* [1.0.114] المميزات الأعمق الست */}
+          <Route path="/mutashabihat" component={() => <MutashabihatPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/topic-map" component={() => <TopicMapPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/hifz-trainer" component={() => <HifzTrainerPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/compare-tafsir" component={() => <CompareTafsirPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/compare-tafsir/:surah/:ayah">
+            {(params) => {
+              const s = parseInt(params.surah, 10);
+              const a = parseInt(params.ayah, 10);
+              if (isNaN(s) || s < 1 || s > 114 || isNaN(a) || a < 1) return <NotFound />;
+              return <CompareTafsirPage surahNumber={s} ayahNumber={a} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
+            }}
+          </Route>
+          <Route path="/prophets" component={() => <ProphetStoriesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/deep-stats" component={() => <DeepStatsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route component={NotFound} />
         </Switch>
       </div>

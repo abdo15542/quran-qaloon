@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart, Share2 } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
@@ -170,6 +171,13 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
               <p className="text-sm text-muted-foreground text-center py-8">لا يوجد تفسير لهذه الآية</p>
             )}
           </div>
+
+          {/* [1.0.114] مقارنة التفسيرين جنبًا إلى جنب */}
+          <Link href={`/compare-tafsir/${surahNumber}/${currentAyah}`}>
+            <button className="w-full py-2.5 rounded-full bg-card border border-border text-sm font-arabic hover:border-primary/60 transition-colors">
+              قارن بين التفسيرين جنبًا إلى جنب
+            </button>
+          </Link>
 
           {/* [1.0.74] سبب النزول (الواحدي) — يظهر فقط للآيات المشمولة (٥٦٤ آية) */}
           <AsbabSection surahNumber={surahNumber} ayahNumber={currentAyah} />

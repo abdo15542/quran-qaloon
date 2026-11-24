@@ -1573,7 +1573,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">ترتيل ليبيا</div>
             <div className="text-sm text-muted-foreground mt-1">
-              الإصدار 1.0.113
+              الإصدار 1.0.114
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية حفص، تفسير ومعاني

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine, Copy, Share2, Eye, Languages, ScrollText, Hash } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -461,6 +461,61 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-[15px] font-bold text-foreground">تحليلات القراءة</span>
               </div>
               <div className="text-xs text-muted-foreground">الوتيرة والسلاسل وأضعف السور وتوقع إتمام الختمة</div>
+            </div>
+          </Link>
+          {/* [1.0.114] المميزات الأعمق — ست بطاقات جديدة؛ الشبكة الآن 16 بطاقة (8 صفوف × عمودين) */}
+          <Link href="/mutashabihat">
+            <div className="rounded-3xl border border-rose-500/25 bg-rose-500/[0.08] dark:bg-rose-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 shadow-sm"><Copy className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">المتشابهات</span>
+              </div>
+              <div className="text-xs text-muted-foreground">آيات متشابهة جنبًا إلى جنب والكلمة المختلفة مظللة + اختبار «من أي سورة؟»</div>
+            </div>
+          </Link>
+          <Link href="/topic-map">
+            <div className="rounded-3xl border border-violet-500/25 bg-violet-500/[0.08] dark:bg-violet-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 shadow-sm"><Share2 className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">خريطة مواضيع القرآن</span>
+              </div>
+              <div className="text-xs text-muted-foreground">تصفح مواضيع القرآن وآيات كل موضوع والمواضيع القريبة منها</div>
+            </div>
+          </Link>
+          <Link href="/hifz-trainer">
+            <div className="rounded-3xl border border-amber-500/25 bg-amber-500/[0.08] dark:bg-amber-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm"><Eye className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">مدرّب الحفظ</span>
+              </div>
+              <div className="text-xs text-muted-foreground">تلميح الكلمة الأولى وإعادة ترتيب الكلمات — باللمس فقط، بلا مايك</div>
+            </div>
+          </Link>
+          <Link href="/compare-tafsir">
+            <div className="rounded-3xl border border-cyan-500/25 bg-cyan-500/[0.08] dark:bg-cyan-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center shrink-0 shadow-sm"><Languages className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">التفسير المقارن</span>
+              </div>
+              <div className="text-xs text-muted-foreground">تفسير الميسر والجلالين جنبًا إلى جنب لنفس الآية</div>
+            </div>
+          </Link>
+          <Link href="/prophets">
+            <div className="rounded-3xl border border-orange-500/25 bg-orange-500/[0.08] dark:bg-orange-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-orange-600 dark:text-orange-400 flex items-center justify-center shrink-0 shadow-sm"><ScrollText className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">قصص الأنبياء</span>
+              </div>
+              <div className="text-xs text-muted-foreground">قصة كل نبي من الآيات التي ذكرته، مرتبة بترتيب المصحف</div>
+            </div>
+          </Link>
+          <Link href="/deep-stats">
+            <div className="rounded-3xl border border-fuchsia-500/25 bg-fuchsia-500/[0.08] dark:bg-fuchsia-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-fuchsia-600 dark:text-fuchsia-400 flex items-center justify-center shrink-0 shadow-sm"><Hash className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">إحصائيات القرآن العميقة</span>
+              </div>
+              <div className="text-xs text-muted-foreground">أكثر الكلمات تكرارًا والكلمات النادرة وإحصاء كل سورة</div>
             </div>
           </Link>
         </div>
