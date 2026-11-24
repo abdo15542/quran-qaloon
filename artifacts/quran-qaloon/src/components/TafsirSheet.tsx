@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { X, ChevronRight, ChevronLeft, Volume2, BookOpen, Heart, Share2 } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, BookOpen, Heart, Share2 } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getTafsir, TAFSIR_EDITION_NAME } from "@/data/tafsir-muyassar";
@@ -18,14 +18,12 @@ interface TafsirSheetProps {
   surahNumber: number;
   ayahNumber: number;
   onClose: () => void;
-  /** Play this ayah's audio (SurahPlayer only). */
-  onPlayAyah?: (ayahNumber: number) => void;
 }
 
 // Full-screen sheet showing one ayah and its tafsir (Tafsir al-Muyassar,
 // bundled offline). Prev/next move to the neighbouring ayahs in the same
 // surah, so the user can read the tafsir ayah by ayah without closing.
-export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAyah }: TafsirSheetProps) {
+export default function TafsirSheet({ surahNumber, ayahNumber, onClose }: TafsirSheetProps) {
   const [currentAyah, setCurrentAyah] = useState(ayahNumber);
   const { isFavourite, toggleFavourite } = useFavourites();
   // Tafsir edition: Muyassar (default) or Jalalayn — persisted, so the
@@ -195,15 +193,6 @@ export default function TafsirSheet({ surahNumber, ayahNumber, onClose, onPlayAy
             <ChevronRight className="w-3.5 h-3.5" />
             الآية السابقة
           </button>
-          {onPlayAyah && (
-            <button
-              onClick={() => onPlayAyah(currentAyah)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs whitespace-nowrap hover:bg-primary/90 transition-colors"
-            >
-              <Volume2 className="w-3.5 h-3.5" />
-              استمع للآية
-            </button>
-          )}
           <button
             onClick={() => toggleFavourite(surahNumber, currentAyah)}
             className={`p-2 rounded-lg border transition-colors ${

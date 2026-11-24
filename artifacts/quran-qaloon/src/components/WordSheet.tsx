@@ -2,7 +2,7 @@
 // ومصدرها ونوعها ومعناها في غريب القرآن، وكل آية فيها نفس الجذر.
 // Bottom sheet like TajweedRuleSheet (z-[115], above the bottom nav).
 import { useEffect, useMemo } from "react";
-import { X, BookOpen, Hash, Type, Tag, ListOrdered, BookCopy, Heart, Share2, Copy, Check, RotateCcw } from "lucide-react";
+import { X, BookOpen, Hash, Type, Tag, ListOrdered, Heart, Share2, Copy, Check, RotateCcw } from "lucide-react";
 import { getWordInfo, searchByRoot, surahName } from "@/lib/word-root";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import HifzRating from "@/components/HifzRating";
@@ -27,7 +27,6 @@ interface WordSheetProps {
     isFav: boolean;
     onToggleFavourite: () => void;
     onTafsir: () => void;
-    onReadings: () => void;
     onShare: () => void;
     onCopy: () => void;
     copied: boolean;
@@ -130,7 +129,7 @@ export default function WordSheet({
 
           {/* Ayah actions (1.0.75) — tapping an ayah used to open only
               this sheet and hide the ayah's actions (tafsir / share /
-              copy / favourite / readings + hifz rating). They now live
+              copy / favourite + hifz rating). They now live
               here too, right under the word, so one tap shows both. */}
           {actions && (
             <div data-testid="word-sheet-actions">
@@ -143,14 +142,6 @@ export default function WordSheet({
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                   التفسير
-                </button>
-                <button
-                  onClick={actions.onReadings}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-teal-500/10 border border-teal-500/30 text-teal-700 dark:text-teal-400 hover:bg-teal-500/20 transition-colors whitespace-nowrap"
-                  aria-label="مقارنة الروايات"
-                >
-                  <BookCopy className="w-3.5 h-3.5" />
-                  الروايات
                 </button>
                 <button
                   onClick={actions.onToggleFavourite}

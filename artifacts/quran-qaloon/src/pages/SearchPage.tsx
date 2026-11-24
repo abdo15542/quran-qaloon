@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { ArrowRight, Search, Loader2, Moon, Sun, BookOpen, ChevronDown, ChevronUp, ChevronLeft, RefreshCw, ScrollText, Hash, Tags, ListOrdered, AlignStartVertical, AlignEndVertical, Music, Sprout, ListTree, Mic } from "lucide-react";
-import { SURAHS, QIRAAT, getGlobalAyahNumber, type RevelationType } from "@/data/surahs";
+import { SURAHS, getGlobalAyahNumber, type RevelationType } from "@/data/surahs";
 import { getJuzNumber } from "@/data/juz";
 import { ATHKAR_CATEGORIES } from "@/data/athkar";
 import { searchQuranDetailed, highlightSegments, normalizeArabic, cleanSearchQuery, getAyah, QURAN_TEXT, matchWord, type QuranSearchHitDetailed, type QuranSearchDetailed } from "@/data/quran-text";
@@ -87,21 +87,14 @@ function highlight(text: string, query: string): React.ReactNode {
   return <HighlightedAyah text={text} query={query} />;
 }
 
-// Offline: ayah context comes from the bundled Uthmani text — no network.
-// Search and context use the selected qira'ah's text (same key SurahPlayer
-// stores). Only hafs remains, so a stored qira'ah from before the
-// reciter cleanup falls back to hafs.
-function getStoredQirahId(): string {
-  const stored = localStorage.getItem("quran_qirah");
-  if (stored && QIRAAT.some((q) => q.id === stored)) return stored;
-  return "hafs";
-}
-
+// Offline: ayah context comes from the bundled Qaloon Uthmani text —
+// no network. 1.0.115: the app is Qaloon-only, so there is no qira'ah
+// selection any more.
 async function fetchAyah(surahNum: number, ayahNum: number): Promise<ContextAyah | null> {
   if (ayahNum < 1) return null;
   const surah = SURAHS.find((s) => s.number === surahNum);
   if (!surah || ayahNum > surah.numberOfAyahs) return null;
-  const a = getAyah(surahNum, ayahNum, getStoredQirahId());
+  const a = getAyah(surahNum, ayahNum);
   return a ? { numberInSurah: a.numberInSurah, text: a.text } : null;
 }
 
@@ -307,7 +300,7 @@ function searchAthkar(query: string): AthkarResult[] {
 
 // ---- [1.0.74 advanced search] ----
 // Pure helpers for the new search modes. All offline, computed from the
-// bundled Hafs text (QURAN_TEXT) and the bundled topics data — no network,
+// bundled Qaloon text (QURAN_TEXT) and the bundled topics data — no network,
 // no new dependencies. Exported so the 1.0.74 harness can call them
 // directly (via the Vite dev server) and check them against
 // searchQuranDetailed.
@@ -319,7 +312,7 @@ let cachedNormWords74: string[][][] | null = null;
 function getNormWords74(): string[][][] {
   if (!cachedNormWords74) {
     cachedNormWords74 = QURAN_TEXT.map((texts) =>
-      texts.map((t) => normalizeArabic(t).split(/\s+/).filter(Boolean))
+      texts.map((t) => normalizeArabic(t, true, false, true).split(/\s+/).filter(Boolean))
     );
   }
   return cachedNormWords74;
@@ -327,7 +320,7 @@ function getNormWords74(): string[][][] {
 
 function ayahRefToResult(surahNumber: number, ayahNumber: number): SearchResult | null {
   const surah = SURAHS.find((s) => s.number === surahNumber);
-  const a = getAyah(surahNumber, ayahNumber, "hafs");
+  const a = getAyah(surahNumber, ayahNumber);
   if (!surah || !a) return null;
   return {
     number: ayahNumber,
@@ -597,7 +590,7 @@ export default function SearchPage({ darkMode, toggleDarkMode }: SearchPageProps
 
     // Offline search over the bundled Uthmani text — every matching ayah,
     // with the number of occurrences in each ayah and the totals.
-    const d = searchQuranDetailed(trimmed, getStoredQirahId());
+    const d = searchQuranDetailed(trimmed);
     setDetailed(d);
     const mapped: SearchResult[] = d.hits
       .map((h: QuranSearchHitDetailed) => {

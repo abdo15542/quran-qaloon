@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, BookCopy, ChartLine, Copy, Share2, Eye, Languages, ScrollText, Hash } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, ChartLine, Copy, Share2, Eye, Languages, ScrollText, Hash } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -43,10 +43,10 @@ function toArabicNum(n: number): string {
 }
 
 function getSelectedReciter() {
-  const reciterId = localStorage.getItem("quran_reciter") ?? "mishary";
+  const reciterId = localStorage.getItem("quran_reciter") ?? "hudhaify-qaloon";
   return (
     RECITERS.find((r) => r.id === reciterId) ??
-    RECITERS.find((r) => r.id === "mishary") ??
+    RECITERS.find((r) => r.id === "hudhaify-qaloon") ??
     RECITERS[0]
   );
 }
@@ -443,15 +443,6 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-[15px] font-bold text-foreground">الحفظ الذكي</span>
               </div>
               <div className="text-xs text-muted-foreground">مراجعة اليوم بتكرار متباعد — قيّم حفظك بعد القراءة</div>
-            </div>
-          </Link>
-          <Link href="/readings/1/1">
-            <div className="rounded-3xl border border-teal-500/25 bg-teal-500/[0.08] dark:bg-teal-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0 shadow-sm"><BookCopy className="w-5 h-5" /></span>
-                <span className="font-arabic text-[15px] font-bold text-foreground">مقارنة الروايات</span>
-              </div>
-              <div className="text-xs text-muted-foreground">حفص وقالون وورش جنبًا إلى جنب لكل آية</div>
             </div>
           </Link>
           <Link href="/analytics">

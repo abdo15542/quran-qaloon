@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Repeat, Square, Volume2, Heart, Languages, Share2, Copy, Check, Eye, EyeOff, Palette, BookCopy, RotateCcw, X } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2, Moon, Sun, FileText, Mic, CheckCircle2, WifiOff, ALargeSmall, Heart, Languages, Share2, Copy, Check, Eye, EyeOff, Palette, X } from "lucide-react";
 import { Link, useLocation, useSearch } from "wouter";
-import { SURAHS, QIRAAT, RECITERS, getRecitersForQirah, buildAudioUrl, buildAyahAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
-import { getAyahTimings } from "@/data/ayah-timings";
-import { getSurahAyahs, splitAyahBasmala, displayAyahText } from "@/data/quran-text";
+import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
+import { getSurahAyahs, splitAyahBasmala, displayAyahText, BASMALA } from "@/data/quran-text";
 import { isSajdahAyah } from "@/data/hizb";
 import { getTranslation } from "@/data/translation-en";
 import { getPageOfAyah } from "@/data/mushaf-pages";
@@ -18,7 +17,6 @@ import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import DownloadButton from "@/components/DownloadButton";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
-import { getPlayerVolume, getPlayerRate } from "@/hooks/useAudio";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useFavourites } from "@/hooks/useFavourites";
 import { useOffline } from "@/context/OfflineContext";
@@ -50,16 +48,12 @@ export function AyahActions({
   isFav,
   onToggleFavourite,
   onTafsir,
-  onReadings,
   onShare,
   onCopy,
   copied,
   memorization,
   revealed,
   onToggleReveal,
-  onReplay,
-  continueOn,
-  onToggleContinue,
   onClose,
 }: {
   surahNumber: number;
@@ -67,20 +61,16 @@ export function AyahActions({
   isFav: boolean;
   onToggleFavourite: () => void;
   onTafsir: () => void;
-  onReadings: () => void;
   onShare: () => void;
   onCopy: () => void;
   copied: boolean;
   memorization: boolean;
   revealed: boolean;
   onToggleReveal: () => void;
-  onReplay: () => void;
-  continueOn: boolean;
-  onToggleContinue: () => void;
   onClose: () => void;
 }) {
   // In the translation layout the buttons sit inside the clickable ayah
-  // block, so stop the click from bubbling up and re-triggering playback.
+  // block, so stop the click from bubbling up and re-selecting the ayah.
   return (
     <span className="flex flex-wrap items-center justify-center gap-2 my-2">
       <button
@@ -92,17 +82,6 @@ export function AyahActions({
       >
         <BookOpen className="w-3.5 h-3.5" />
         التفسير
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onReadings();
-        }}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-teal-500/10 border border-teal-500/30 text-teal-700 dark:text-teal-400 hover:bg-teal-500/20 transition-colors whitespace-nowrap"
-        aria-label="مقارنة الروايات"
-      >
-        <BookCopy className="w-3.5 h-3.5" />
-        الروايات
       </button>
       <button
         onClick={(e) => {
@@ -144,33 +123,6 @@ export function AyahActions({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onReplay();
-        }}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-primary transition-colors whitespace-nowrap"
-        aria-label="إعادة تشغيل الآية"
-      >
-        <RotateCcw className="w-3.5 h-3.5" />
-        إعادة
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleContinue();
-        }}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic border transition-colors whitespace-nowrap ${
-          continueOn
-            ? "bg-primary text-primary-foreground border-primary"
-            : "bg-background border-border text-muted-foreground hover:text-foreground"
-        }`}
-        aria-label="متابعة قراءة الآيات التالية"
-        aria-pressed={continueOn}
-      >
-        <Repeat className="w-3.5 h-3.5" />
-        متواصل
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
           onClose();
         }}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-arabic bg-background border border-border text-muted-foreground hover:text-destructive transition-colors whitespace-nowrap"
@@ -196,34 +148,13 @@ export function AyahActions({
   );
 }
 
-export function getStoredQirahId(): string {
-  const stored = localStorage.getItem("quran_qirah");
-  // A stored qira'ah from before the reciter cleanup (e.g. "qaloon")
-  // no longer exists — fall back to hafs instead of an empty list.
-  if (stored && QIRAAT.some((q) => q.id === stored)) return stored;
-  return "hafs";
-}
-
-export function getStoredReciterId(qirahId: string): string {
+export function getStoredReciterId(_qirahId: string): string {
   const stored = localStorage.getItem("quran_reciter");
-  if (stored) {
-    const reciter = RECITERS.find((r) => r.id === stored && r.qirahId === qirahId);
-    if (reciter) return stored;
-  }
-  return (
-    RECITERS.find((r) => r.id === "mishary" && r.qirahId === qirahId)?.id ??
-    getRecitersForQirah(qirahId)[0]?.id ??
-    RECITERS[0].id
-  );
+  if (stored && RECITERS.some((r) => r.id === stored)) return stored;
+  // 1.0.115: the default reciter is Hudhaify (Qaloon). An old stored
+  // Hafs reciter id (e.g. "mishary") matches nothing and falls through.
+  return "hudhaify-qaloon";
 }
-
-// في WebView على أندرويد يخرج الصوت المسموع متأخرًا عن ساعة عنصر الصوت
-// (currentTime) بنحو ثانيتين بسبب التخزين المؤقت للصوت، فتتقدّم الشارة
-// (الآية الظاهرة) على ما يُسمع فعلًا ويبدو أن التطبيق يقرأ الآية السابقة.
-// نؤخّر إنهاء الآية بهذا القدر حتى تتزامن الشارة مع الصوت المسموع.
-// (قيسناه من فيديوهات الجهاز: الشارة تسبق الصوت ~٢ ث؛ القفز نفسه صحيح
-// ويبدأ من الآية المضغوطة، المشكلة في التزامن فقط).
-const AYAH_END_LATENCY_S = 1.5;
 
 export default function SurahPlayer({
   surahNumber,
@@ -262,9 +193,8 @@ export default function SurahPlayer({
     return stored ? Number(stored) : 22;
   });
 
-  const [selectedQirahId, setSelectedQirahId] = useState<string>(getStoredQirahId);
   const [selectedReciterId, setSelectedReciterId] = useState<string>(() =>
-    getStoredReciterId(getStoredQirahId())
+    getStoredReciterId("qaloon")
   );
   const [effectiveAudioUrl, setEffectiveAudioUrl] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
@@ -272,7 +202,7 @@ export default function SurahPlayer({
   const { getProgress, saveProgress, clearProgress } = useListeningProgress();
   const { isCompleted, markCompleted, markUncompleted } = useKhatma();
   const { isFavourite, toggleFavourite } = useFavourites();
-  const { isCached, getCachedBlobUrl, getCachedAyahUrl, cacheAyahAudio } = useOffline();
+  const { isCached, getCachedBlobUrl } = useOffline();
 
 
   useEffect(() => {
@@ -287,8 +217,7 @@ export default function SurahPlayer({
   const prevSurah = SURAHS.find((s) => s.number === surahNumber - 1);
   const nextSurah = SURAHS.find((s) => s.number === surahNumber + 1);
 
-  const currentQirah = QIRAAT.find((q) => q.id === selectedQirahId) ?? QIRAAT[0];
-  const recitersForQirah = getRecitersForQirah(selectedQirahId);
+  const recitersForQirah = RECITERS;
   const currentReciter =
     recitersForQirah.find((r) => r.id === selectedReciterId) ?? recitersForQirah[0];
 
@@ -301,24 +230,12 @@ export default function SurahPlayer({
   const initialTime = savedProgress?.currentTime ?? 0;
   const surahCompleted = isCompleted(surahNumber);
 
-  // ---- تشغيل آية بالضغط عليها (مع تكرار للحفظ وتشغيل متواصل) ----
-  const [playingAyah, setPlayingAyah] = useState<number | null>(null);
-  // الآية المحدّدة بالضغط — تبقى محدّدة حتى لو فشل صوتها (بلا إنترنت
-  // أو بلا تحميل)، حتى يبقى زر «التفسير» متاحًا دائمًا. التفسير
-  // مضمّن في التطبيق ولا يعتمد على الصوت ولا على تحميل المصحف.
+  // 1.0.115: tapping an ayah no longer plays it — there is no per-ayah
+  // Qaloon audio anywhere. It selects the ayah and shows its actions
+  // (tafsir / favourite / share / copy) plus the hifz rating; tapping
+  // a word in it opens the word sheet. Whole-surah playback is the
+  // AudioPlayer above.
   const [selectedAyah, setSelectedAyah] = useState<number | null>(null);
-  const [ayahRepeat, setAyahRepeat] = useState<number>(1);
-  // [1.0.77] «متواصل» — هل يقرأ الآيات التي بعد الآية المضغوطة أم يقف
-  // عندها. محفوظ: اختيار المستخدم يبقى بين الجلسات.
-  const [ayahContinuous, setAyahContinuous] = useState(() => {
-    try {
-      return localStorage.getItem("quran_ayah_continuous") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [ayahError, setAyahError] = useState<string | null>(null);
-  const [pauseSignal, setPauseSignal] = useState(0);
   // English translation (Sahih International) under each ayah — persisted.
   const [showTranslation, setShowTranslation] = useState<boolean>(() => {
     try {
@@ -345,6 +262,8 @@ export default function SurahPlayer({
   // Ayah whose «تم النسخ ✓» feedback is showing (null = none).
   const [copiedAyah, setCopiedAyah] = useState<number | null>(null);
   const copyTimerRef = useRef<number | null>(null);
+  // Guards the blob -> network fallback so it fires at most once per surah+reciter.
+  const audioFallbackTriedRef = useRef("");
 
   const toggleMemorization = () => {
     setMemorization((v) => {
@@ -448,522 +367,40 @@ export default function SurahPlayer({
       translation: getTranslation(surahNumber, sharePreviewAyah),
     };
   })();
-  const ayahAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Guards the blob -> network fallback so it fires at most once per surah+reciter.
-  const audioFallbackTriedRef = useRef("");
-  const [ayahBuffering, setAyahBuffering] = useState(false);
-  // هل بدأ صوت الآية يتحرك فعلًا (وليس مجرد ضغطة بانتظار البيانات).
-  const [ayahStarted, setAyahStarted] = useState(false);
-  // عنصر تحميل مسبق لصوت الآية التالية (لقرّاء الصوت-لكل-آية فقط).
-  const ayahPrefetchRef = useRef<HTMLAudioElement | null>(null);
-  const ayahSessionRef = useRef<{
-    ayah: number;
-    start: number;
-    end: number | null;
-    totalRepeats: number;
-    played: number;
-  } | null>(null);
-  const ayahRangeRef = useRef<{ startFrac: number; endFrac: number } | null>(null);
-  // موضع دقيق بالثواني من جدول التوقيت المقاس (إن وُجد لهذا القارئ والسورة).
-  const ayahExactRef = useRef<{ start: number; end: number } | null>(null);
-  const ayahContinuousRef = useRef(false);
-  useEffect(() => {
-    ayahContinuousRef.current = ayahContinuous;
-    try {
-      localStorage.setItem("quran_ayah_continuous", ayahContinuous ? "1" : "0");
-    } catch {
-      // storage unavailable
-    }
-  }, [ayahContinuous]);
-
-  const ayahSeekTimerRef = useRef<number | null>(null);
-  // The pending seek's `seeked` listener: stopping (or tapping another
-  // ayah) must remove it, or it fires later and restarts the old ayah
-  // / yanks the new one back to the old position.
-  const ayahSeekListenerRef = useRef<(() => void) | null>(null);
-  const clearAyahSeek = useCallback(() => {
-    if (ayahSeekTimerRef.current != null) {
-      window.clearTimeout(ayahSeekTimerRef.current);
-      ayahSeekTimerRef.current = null;
-    }
-    const audio = ayahAudioRef.current;
-    if (audio && ayahSeekListenerRef.current) {
-      audio.removeEventListener("seeked", ayahSeekListenerRef.current);
-      ayahSeekListenerRef.current = null;
-    }
-  }, []);
-
-  const stopAyah = useCallback(() => {
-    const audio = ayahAudioRef.current;
-    if (audio) audio.pause();
-    clearAyahStopTimer();
-    clearAyahSeek();
-    ayahSessionRef.current = null;
-    ayahRangeRef.current = null;
-    ayahExactRef.current = null;
-    setAyahStarted(false);
-    setPlayingAyah(null);
-  }, [clearAyahSeek]);
-
+  // 1.0.115: no per-ayah audio any more — there is no per-ayah Qaloon
+  // audio anywhere, so tap-ayah does not play one ayah. Tapping an ayah
+  // selects it (AyahActions below) and tapping a word opens the word
+  // sheet. Whole-surah playback lives in the AudioPlayer above.
   // عند الانتقال إلى سورة أخرى ألغِ تحديد الآية (حتى لا تبقى لوحة
-  // سورة قديمة ظاهرة) وأوقف صوت الآية، وأخفِ الآيات المكشوفة في
-  // وضع الحفظ.
+  // سورة قديمة ظاهرة) وأخفِ الآيات المكشوفة في وضع الحفظ.
   useEffect(() => {
     setSelectedAyah(null);
     setRevealedAyahs(new Set());
-    stopAyah();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber]);
 
-  // قفز موثوق في WebView أندرويد: تغيير currentTime قد يُتجاهل إن لم
-  // تكن بيانات الصوت جاهزة (أو إن سبقه تشغيل)، فيبدأ الصوت من أول
-  // السورة فيسمع المستخدم الآيات السابقة للآية المضغوطة. لذلك نوقف
-  // التشغيل، نقفز، ونتأكد أن الموضع تغيّر فعلًا (حدث seeked أو قراءة
-  // currentTime) قبل أن نشغّل؛ وإن لم يتغيّر نعيد القفز بضع مرات.
-  // وإن لم تكن بيانات الصوت قد حُمّلت أصلًا لا نشغّل من موضع خاطئ؛
-  // مستمع loadedmetadata يعيد تطبيق القفز عند جاهزيتها.
-  // الضغط على آية يريدها المستخدم من بدايتها دائمًا، حتى لو كان
-  // الصوت واقفًا داخلها أصلًا؛ أما التقدّم المتواصل فيترك الصوت يكمل
-  // من حيث هو حتى لا يعيد بداية الآية التالية (انظر applyAyahRange).
-  // يُمرَّر عبر ref لأن مستمع loadedmetadata قد يطبّق القفز لاحقًا.
-  const ayahForceSeekRef = useRef(false);
-  // مؤقّت إيقاف بالساعة (احتياط لمستمع timeupdate): يوقف الصوت عند
-  // نهاية الآية حتى لو تأخّر timeupdate أو ساعة العنصر في WebView.
-  const ayahStopTimerRef = useRef<number | null>(null);
-  const clearAyahStopTimer = () => {
-    if (ayahStopTimerRef.current != null) {
-      window.clearTimeout(ayahStopTimerRef.current);
-      ayahStopTimerRef.current = null;
-    }
-  };
-  const seekAyahAudio = useCallback((target: number) => {
-    const audio = ayahAudioRef.current;
-    if (!audio) return;
-    clearAyahSeek();
-    audio.pause();
-    audio.currentTime = target;
-    let tries = 0;
-    let done = false;
-    const onSeeked = () => {
-      if (Math.abs(audio.currentTime - target) < 0.75) finish();
-    };
-    const giveUp = () => {
-      if (done) return;
-      done = true;
-      audio.removeEventListener("seeked", onSeeked);
-      ayahSeekListenerRef.current = null;
-      if (ayahSeekTimerRef.current != null) {
-        window.clearTimeout(ayahSeekTimerRef.current);
-        ayahSeekTimerRef.current = null;
-      }
-    };
-    const finish = () => {
-      if (done) return;
-      giveUp();
-      audio.play().catch(() => {
-        setAyahError("تعذّر تشغيل صوت الآية");
-        stopAyah();
-      });
-    };
-    // القفز لم ينجح بعد مهلة طويلة: لا تشغّل من موضع خاطئ فيسمع
-    // المستخدم آية أخرى؛ أظهر خطأً وأوقف الجلسة بدل ذلك.
-    const failSeek = () => {
-      if (done) return;
-      giveUp();
-      setAyahBuffering(false);
-      setAyahError("تعذّر القفز إلى الآية — تحقق من الاتصال وحاول مجددًا");
-      stopAyah();
-    };
-    const check = () => {
-      if (done) return;
-      if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
-      // بيانات الصوت لم تُحمَّل بعد: انتظر loadedmetadata بدل التشغيل
-      // من موضع خاطئ.
-      if (audio.readyState < 1) { giveUp(); return; }
-      // مهلة أطول (~10 ثوانٍ) لأن القفز البعيد في ملف سورة كبير
-      // متدفَّق من الشبكة قد يحتاج جلب نطاقه أولًا.
-      if (tries >= 28) { failSeek(); return; }
-      tries += 1;
-      if (!audio.seeking) audio.currentTime = target;
-      ayahSeekTimerRef.current = window.setTimeout(check, 350);
-    };
-    if (Math.abs(audio.currentTime - target) < 0.75) { finish(); return; }
-    ayahSeekListenerRef.current = onSeeked;
-    audio.addEventListener("seeked", onSeeked);
-    ayahSeekTimerRef.current = window.setTimeout(check, 600);
-  }, [stopAyah, clearAyahSeek]);
-
-  // يطبّق موضع الآية (دقيق من الجدول أو تقديري من النص) على عنصر الصوت.
-  // ضغطة المستخدم (forceSeek) تقفز دائمًا إلى بداية الآية؛ أما التقدّم
-  // المتواصل فيترك الصوت يكمل إن كان داخل الآية التالية أصلًا.
-  const applyAyahRange = useCallback(() => {
-    const audio = ayahAudioRef.current;
-    const session = ayahSessionRef.current;
-    if (!audio || !session) return false;
-    const forceSeek = ayahForceSeekRef.current;
-    ayahForceSeekRef.current = false;
-    const exact = ayahExactRef.current;
-    if (exact) {
-      ayahSessionRef.current = { ...session, start: exact.start, end: exact.end };
-      // الصوت وصل فعلًا إلى داخل هذه الآية (بعد تأخير الإنهاء): لا تقفز
-      // للوراء وتعيد بدايتها، اتركه يكمل من حيث هو. ولأن الصوت لم يتوقف
-      // أصلًا فلن يصل حدث playing من جديد، فثبّت حالة البدء يدويًا حتى
-      // تظهر الشارة ولا يبقى مؤشر التحميل.
-      // هذا للتقدم المتواصل فقط؛ ضغطة المستخدم تقفز للبداية دائمًا.
-      if (!forceSeek && audio.currentTime >= exact.start && audio.currentTime < exact.end) {
-        if (audio.paused) audio.play().catch(() => {});
-        setAyahBuffering(false);
-        setAyahStarted(true);
-        return true;
-      }
-      seekAyahAudio(exact.start);
-      return true;
-    }
-    const range = ayahRangeRef.current;
-    if (range && isFinite(audio.duration) && audio.duration > 0) {
-      const start = Math.max(0, range.startFrac * audio.duration - 1);
-      const end = range.endFrac * audio.duration;
-      ayahSessionRef.current = { ...session, start, end };
-      if (!forceSeek && audio.currentTime >= start && audio.currentTime < end) {
-        if (audio.paused) audio.play().catch(() => {});
-        setAyahBuffering(false);
-        setAyahStarted(true);
-        return true;
-      }
-      seekAyahAudio(start);
-      return true;
-    }
-    return false;
-  }, [seekAyahAudio]);
-
-  const playAyah = useCallback(
-    async (ayahNumberInSurah: number, fromTap = false, force = false) => {
-      // الضغط على الآية الجارية يوقفها ويغلق اللوحة — إلا عند الإعادة
-      // الصريحة (force)، فتعيد التشغيل من أول الآية بدل الإيقاف.
-      if (!force && playingAyah === ayahNumberInSurah) {
-        stopAyah();
-        setSelectedAyah(null);
-        return;
-      }
-      clearAyahStopTimer();
-      clearAyahSeek();
-      setHighlightedAyah(null);
-      // حدّد الآية فور الضغط — قبل محاولة تشغيل الصوت — حتى تبقى
-      // اللوحة وزر «التفسير» ظاهرين حتى لو فشل الصوت.
-      setSelectedAyah(ayahNumberInSurah);
-      const audio = ayahAudioRef.current;
-      if (!audio) return;
-      // The tap-ayah element is separate from the main player: apply
-      // the persisted volume/speed here too, or a muted main player
-      // still plays tapped ayahs at full volume / 1×.
-      audio.volume = getPlayerVolume();
-      audio.playbackRate = getPlayerRate();
-      // أوقف مشغّل السورة الرئيسي حتى لا يتداخل الصوتان.
-      setPauseSignal((s) => s + 1);
-      setAyahError(null);
-      setAyahStarted(false);
-      const perAyahUrl = currentReciter
-        ? buildAyahAudioUrl(currentReciter, surahNumber, ayahNumberInSurah)
-        : null;
-      if (perAyahUrl) {
-        // صوت دقيق لكل آية (العفاسي، الحصري، المعيقلي، الشريم، العجمي، عبد الباسط، الحذيفي).
-        ayahRangeRef.current = null;
-        ayahExactRef.current = null;
-        ayahSessionRef.current = {
-          ayah: ayahNumberInSurah,
-          start: 0,
-          end: null,
-          totalRepeats: ayahRepeat,
-          played: 0,
-        };
-        setPlayingAyah(ayahNumberInSurah);
-        // Offline first: a downloaded or previously heard ayah plays
-        // from the device instead of the network.
-        const globalAyah = getGlobalAyahNumber(surahNumber, ayahNumberInSurah);
-        const cachedUrl = currentReciter
-          ? await getCachedAyahUrl(currentReciter.id, globalAyah)
-          : null;
-        // The user may have tapped another ayah (or stopped) while the
-        // cache lookup was in flight — only play if this session is
-        // still the current one.
-        if (ayahSessionRef.current?.ayah !== ayahNumberInSurah) return;
-        audio.src = cachedUrl ?? perAyahUrl;
-        audio.play().catch(() => {
-          // Offline with an uncached ayah: say so plainly, instead of
-          // a generic connection error — the fix is downloading the
-          // surah, not checking the connection.
-          setAyahError(
-            !cachedUrl && !navigator.onLine
-              ? "هذه الآية غير محمّلة — حمّل السورة أولاً"
-              : "تعذّر تشغيل صوت الآية — تحقق من الاتصال"
-          );
-          stopAyah();
-        });
-        // Cache this ayah for offline use after it plays online.
-        if (!cachedUrl && currentReciter) {
-          void cacheAyahAudio(currentReciter.id, globalAyah, perAyahUrl);
-        }
-        // حمّل الآية التالية مسبقًا حتى لا تنتظر الشبكة عند الانتقال إليها.
-        const nextUrl =
-          ayahs.some((a) => a.numberInSurah === ayahNumberInSurah + 1) && currentReciter
-            ? buildAyahAudioUrl(currentReciter, surahNumber, ayahNumberInSurah + 1)
-            : null;
-        const pre = ayahPrefetchRef.current;
-        if (pre && nextUrl && pre.src !== nextUrl) {
-          pre.src = nextUrl;
-          pre.load();
-        }
-        return;
-      }
-      // بديل (قالون وباقي القرّاء بلا مصدر صوت لكل آية): شغّل صوت
-      // السورة من عند الآية المضغوطة.
-      // 1) إن وُجد جدول توقيت مقاس لهذا القارئ والسورة (من تسجيله نفسه):
-      //    موضع دقيق بالثواني، لا تقدير.
-      // 2) وإلا: تقدير من حصة الآية من طول نص السورة، يبدأ قبلها بثانية.
-      const url = effectiveAudioUrl ?? networkAudioUrl;
-      if (!url) {
-        setAyahError("لا يوجد صوت متاح لهذه السورة");
-        return;
-      }
-      const timings = currentReciter
-        ? getAyahTimings(currentReciter.id, surahNumber)
-        : null;
-      ayahExactRef.current = null;
-      ayahRangeRef.current = null;
-      if (timings && timings.s.length === ayahs.length) {
-        const idx = ayahNumberInSurah - 1;
-        const start = Math.max(0, timings.s[idx] - 0.2);
-        const end =
-          idx + 1 < timings.s.length ? timings.s[idx + 1] : timings.d;
-        ayahExactRef.current = { start, end };
-      } else {
-        const totalChars = ayahs.reduce((sum, a) => sum + a.text.length, 0);
-        if (totalChars === 0) return;
-        let beforeChars = 0;
-        let ayahChars = 0;
-        for (const a of ayahs) {
-          if (a.numberInSurah < ayahNumberInSurah) beforeChars += a.text.length;
-          else if (a.numberInSurah === ayahNumberInSurah) ayahChars = a.text.length;
-        }
-        ayahRangeRef.current = {
-          startFrac: beforeChars / totalChars,
-          endFrac: (beforeChars + ayahChars) / totalChars,
-        };
-      }
-      ayahSessionRef.current = {
-        ayah: ayahNumberInSurah,
-        start: 0,
-        end: null,
-        totalRepeats: ayahRepeat,
-        played: 0,
-      };
-      setPlayingAyah(ayahNumberInSurah);
-      if (audio.src !== url) audio.src = url;
-      // ضغطة المستخدم تعني: ابدأ هذه الآية من أولها مهما كان موضع
-      // الصوت الحالي (حتى لو كان داخلها). التقدّم المتواصل يترك
-      // الصوت يكمل من حيث هو.
-      ayahForceSeekRef.current = fromTap;
-      if (audio.readyState >= 1 && isFinite(audio.duration) && audio.duration > 0) {
-        applyAyahRange();
-      } else if (ayahExactRef.current) {
-        // الموضع الدقيق لا يحتاج مدة الملف: اقفز وشغّل فورًا.
-        applyAyahRange();
-      } else {
-        // انتظر تحميل بيانات الصوت ثم اقفز لموضع الآية (في مستمع loadedmetadata).
-        audio.load();
-      }
-    },
-    [playingAyah, currentReciter, surahNumber, ayahRepeat, effectiveAudioUrl, networkAudioUrl, ayahs, stopAyah, applyAyahRange, clearAyahSeek, getCachedAyahUrl, cacheAyahAudio]
-  );
-
-  // [1.0.76] First tap on an ayah plays it; tapping the selected ayah
-  // again opens the word sheet for the tapped word. The ayah stays
-  // selected after its audio ends, so the second tap still opens the
-  // sheet — replay is via the ayah-number marker or the player.
-  const handleWordTap = useCallback(
-    (ayahNumberInSurah: number, wordIndex: number, wordText: string) => {
-      if (selectedAyah === ayahNumberInSurah) {
-        setWordSheet({ surahNumber, ayahNumber: ayahNumberInSurah, wordIndex, wordText });
-      } else {
-        playAyah(ayahNumberInSurah, true);
-      }
-    },
-    [selectedAyah, surahNumber, playAyah]
-  );
-
-  // [1.0.77] Replay the ayah from its start: stop first, then force
-  // play (plain playAyah would toggle and STOP a playing ayah).
-  const replayAyah = useCallback(
-    (ayahNumberInSurah: number) => {
-      stopAyah();
-      const audio = ayahAudioRef.current;
-      if (audio) audio.currentTime = 0;
-      playAyah(ayahNumberInSurah, true, true);
-    },
-    [stopAyah, playAyah]
-  );
-
-  // [1.0.77] Exit the selected-ayah mode entirely: stop the audio,
-  // close the word sheet if open, and deselect — the layout returns
-  // to plain reading and the previous ayah is visible again.
-  const exitAyahMode = useCallback(() => {
-    stopAyah();
-    setWordSheet(null);
-    setSelectedAyah(null);
-  }, [stopAyah]);
-
-  const finishAyah = useCallback(() => {
-    clearAyahStopTimer();
-    const session = ayahSessionRef.current;
-    const audio = ayahAudioRef.current;
-    if (!session || !audio) return;
-    const played = session.played + 1;
-    if (played < session.totalRepeats) {
-      ayahSessionRef.current = { ...session, played };
-      seekAyahAudio(session.start);
-      return;
-    }
-    const nextAyah = session.ayah + 1;
-    if (ayahContinuousRef.current && ayahs.some((a) => a.numberInSurah === nextAyah)) {
-      playAyah(nextAyah);
-      return;
-    }
-    stopAyah();
-  }, [ayahs, playAyah, stopAyah, seekAyahAudio]);
-
-  // مستمعو عنصر صوت الآية (مرة واحدة عند التركيب).
-  const playAyahRef = useRef(playAyah);
-  playAyahRef.current = playAyah;
-  const finishAyahRef = useRef(finishAyah);
-  finishAyahRef.current = finishAyah;
-  const stopAyahRef = useRef(stopAyah);
-  stopAyahRef.current = stopAyah;
-
-  // مؤقّت إيقاف بالساعة: عند بدء تشغيل آية يُضبط ليوقف الصوت عند
-  // نهايتها بعد (النهاية − الموضع الحالي) من زمن التشغيل الفعلي،
-  // فيعمل حتى لو تأخّر حدث timeupdate أو ساعة العنصر. يُعاد ضبطه
-  // عند كل استئناف للتشغيل، ويُلغى عند الإيقاف أو التخزين المؤقت.
-  const scheduleAyahStop = () => {
-    clearAyahStopTimer();
-    const audio = ayahAudioRef.current;
-    const session = ayahSessionRef.current;
-    if (!audio || !session || session.end == null) return;
-    const target = ayahContinuousRef.current
-      ? session.end + AYAH_END_LATENCY_S
-      : session.end;
-    const remainingMs = (target - audio.currentTime) * 1000;
-    if (remainingMs <= 0) {
-      audio.pause();
-      finishAyahRef.current();
-      return;
-    }
-    ayahStopTimerRef.current = window.setTimeout(() => {
-      ayahStopTimerRef.current = null;
-      const a = ayahAudioRef.current;
-      if (a) a.pause();
-      finishAyahRef.current();
-    }, remainingMs);
-  };
-  const applyAyahRangeRef = useRef(applyAyahRange);
-  applyAyahRangeRef.current = applyAyahRange;
-  useEffect(() => {
-    const audio = ayahAudioRef.current;
-    if (!audio) return;
-    const onLoadedMetadata = () => {
-      applyAyahRangeRef.current();
-    };
-    const onTimeUpdate = () => {
-      const session = ayahSessionRef.current;
-      if (!session || session.end == null) return;
-      // التشغيل المتواصل مطفأ: أوقف الصوت عند نهاية الآية تمامًا
-      // حتى لا يُسمع شيء من الآية التالية، ثم أنهِ الجلسة (تكرار
-      // أو إيقاف). الإيقاف الفوري هنا يسبق أي تقدّم للشارة.
-      if (!ayahContinuousRef.current) {
-        if (audio.currentTime >= session.end) {
-          audio.pause();
-          finishAyahRef.current();
-        }
-        return;
-      }
-      // المتواصل: أخّر الإنهاء بقدر تأخر الصوت المسموع عن ساعة العنصر
-      // حتى لا تتقدّم الشارة على ما يُسمع (انظر AYAH_END_LATENCY_S).
-      if (audio.currentTime >= session.end + AYAH_END_LATENCY_S) {
-        finishAyahRef.current();
-      }
-    };
-    const onEnded = () => finishAyahRef.current();
-    const onError = () => {
-      // Offline: the ayah file is not on the device — say so, instead
-      // of blaming the connection (the fix is downloading the surah).
-      setAyahError(
-        !navigator.onLine
-          ? "هذه الآية غير محمّلة — حمّل السورة أولاً"
-          : "تعذّر تشغيل صوت الآية — تحقق من الاتصال"
-      );
-      stopAyahRef.current();
-    };
-    // أثناء انتظار بيانات الصوت من الشبكة أظهر «جارٍ التحميل» بدل أن
-    // تبدو الآية متوقفة أو أن توقيتها خاطئ.
-    const onWaiting = () => { clearAyahStopTimer(); setAyahBuffering(true); };
-    const onPlaying = () => {
-      setAyahBuffering(false);
-      setAyahStarted(true);
-      scheduleAyahStop();
-    };
-    const onPause = () => clearAyahStopTimer();
-    const onCanPlay = () => setAyahBuffering(false);
-    audio.addEventListener("loadedmetadata", onLoadedMetadata);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("error", onError);
-    audio.addEventListener("waiting", onWaiting);
-    audio.addEventListener("playing", onPlaying);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("canplay", onCanPlay);
-    return () => {
-      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("waiting", onWaiting);
-      audio.removeEventListener("playing", onPlaying);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("canplay", onCanPlay);
-      clearAyahStopTimer();
-      audio.pause();
-    };
+  // Tap an ayah: select it (shows its actions); tap it again to deselect.
+  const handleAyahTap = useCallback((ayahNumberInSurah: number) => {
+    setHighlightedAyah(null);
+    setSelectedAyah((prev) => (prev === ayahNumberInSurah ? null : ayahNumberInSurah));
   }, []);
 
-  // تغيير السورة أو القارئ يوقف صوت الآية.
-  useEffect(() => {
-    stopAyah();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surahNumber, currentReciter?.id]);
+  // [1.0.74] Tap a word: select its ayah and open the word sheet
+  // (root / meanings) for it directly — no audio gate any more.
+  const handleWordTap = useCallback(
+    (ayahNumberInSurah: number, wordIndex: number, wordText: string) => {
+      setSelectedAyah(ayahNumberInSurah);
+      setWordSheet({ surahNumber, ayahNumber: ayahNumberInSurah, wordIndex, wordText });
+    },
+    [surahNumber]
+  );
 
-  // حمّل صوت السورة مسبقًا في عنصر صوت الآية منذ فتح الصفحة، حتى لا
-  // تنتظر كل قفزة إلى آية جلب بياناتها من الشبكة. كان العنصر
-  // preload="metadata" فيجلب البيانات عند الضغط فقط، فتتوقف الآية
-  // ثوانيَ أثناء التحميل ويبدو توقيتها خاطئًا على الاتصال البطيء.
-  useEffect(() => {
-    const audio = ayahAudioRef.current;
-    const url = effectiveAudioUrl ?? networkAudioUrl;
-    const firstAyahUrl = currentReciter
-      ? buildAyahAudioUrl(currentReciter, surahNumber, 1)
-      : null;
-    // لقرّاء الصوت-لكل-آية لا يحتاج عنصر الآية ملف السورة أبدًا،
-    // فيُكتفى بتحميل صوت الآية الأولى مسبقًا.
-    if (audio && url && !firstAyahUrl && audio.src !== url) {
-      audio.src = url;
-      audio.load();
-    }
-    // لقرّاء الصوت-لكل-آية: حمّل صوت الآية الأولى مسبقًا أيضًا، فهي
-    // ملفات مستقلة لا يغطيها تحميل ملف السورة.
-    const pre = ayahPrefetchRef.current;
-    if (pre && firstAyahUrl && pre.src !== firstAyahUrl) {
-      pre.src = firstAyahUrl;
-      pre.load();
-    }
-  }, [effectiveAudioUrl, networkAudioUrl, currentReciter, surahNumber]);
+  // Exit the selected-ayah mode entirely: close the word sheet if open,
+  // and deselect — the layout returns to plain reading.
+  const exitAyahMode = useCallback(() => {
+    setWordSheet(null);
+    setSelectedAyah(null);
+  }, []);
 
   // If the offline blob fails to play (a corrupt/empty cache entry or a
   // stale blob URL), fall back to the network URL once instead of leaving
@@ -1007,16 +444,6 @@ export default function SurahPlayer({
     };
   }, [surahNumber, currentReciter?.id, networkAudioUrl, getCachedBlobUrl, isCached(surahNumber, currentReciter?.id ?? "")]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleQirahChange = (qirahId: string) => {
-    setSelectedQirahId(qirahId);
-    localStorage.setItem("quran_qirah", qirahId);
-    const firstReciter = getRecitersForQirah(qirahId)[0];
-    if (firstReciter) {
-      setSelectedReciterId(firstReciter.id);
-      localStorage.setItem("quran_reciter", firstReciter.id);
-    }
-  };
-
   const handleReciterChange = (reciterId: string) => {
     setSelectedReciterId(reciterId);
     localStorage.setItem("quran_reciter", reciterId);
@@ -1036,14 +463,13 @@ export default function SurahPlayer({
     setTimeout(() => setJustCompleted(false), 4000);
   }, [surahNumber, clearProgress, markCompleted, currentReciter?.id]);
 
-  // Offline: the full Uthmani text is bundled in src/data/quran-text.ts —
+  // Offline: the full Qaloon text is bundled in src/data/quran-text.ts —
   // no network is needed to read a surah. Only audio is streamed/downloaded.
-  // The displayed text follows the selected qira'ah (Qaloon has its own
-  // table; other qira'at fall back to the Hafs text).
+  // 1.0.115: the displayed text is always Qaloon ('an Nafi').
   useEffect(() => {
     if (!surah) return;
     setJustCompleted(false);
-    const local = getSurahAyahs(surahNumber, selectedQirahId);
+    const local = getSurahAyahs(surahNumber);
     if (local.length > 0) {
       setAyahs(local);
       setError(null);
@@ -1052,7 +478,7 @@ export default function SurahPlayer({
       setError("تعذّر تحميل نص السورة");
     }
     setLoading(false);
-  }, [surahNumber, surah, selectedQirahId]);
+  }, [surahNumber, surah]);
 
   // الانتقال إلى الآية المطلوبة من رابط (نتيجة بحث): مرّر إليها في
   // النص وظلّلها حتى يضغط المستخدم على آية أخرى.
@@ -1082,10 +508,6 @@ export default function SurahPlayer({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* عنصر صوت الآية (مخفي) — خارج أي شرط حتى تُرفَق مستمعاته عند التركيب */}
-      <audio ref={ayahAudioRef} preload="auto" className="hidden" />
-      {/* عنصر تحميل مسبق للآية التالية (لقرّاء الصوت-لكل-آية) */}
-      <audio ref={ayahPrefetchRef} preload="auto" className="hidden" />
       {justCompleted && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] text-center bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-bounce-once font-arabic text-sm">
           <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
@@ -1205,7 +627,7 @@ export default function SurahPlayer({
                   <AudioPlayer
                     surahNumber={surahNumber}
                     surahName={surah.name}
-                    reciterName={currentReciter?.name ?? currentQirah.name}
+                    reciterName={currentReciter?.name ?? "قالون عن نافع"}
                     audioUrl={effectiveAudioUrl}
                     initialTime={initialTime}
                     onProgress={handleProgress}
@@ -1214,7 +636,6 @@ export default function SurahPlayer({
                     onNext={nextSurah ? () => navigate(`/surah/${surahNumber + 1}`) : undefined}
                     hasPrevious={!!prevSurah}
                     hasNext={!!nextSurah}
-                    pauseSignal={pauseSignal}
                     onError={handlePlayerError}
                   />
                 </div>
@@ -1251,24 +672,7 @@ export default function SurahPlayer({
               )}
 
               <div className="card-modern p-4 text-sm space-y-3">
-                <div className="text-xs text-muted-foreground">{QIRAAT.length > 1 ? "اختيار القراءة والقارئ" : "اختيار القارئ"}</div>
-
-                {QIRAAT.length > 1 && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-muted-foreground">القراءة</label>
-                    <select
-                      value={selectedQirahId}
-                      onChange={(e) => handleQirahChange(e.target.value)}
-                      className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {QIRAAT.map((q) => (
-                        <option key={q.id} value={q.id}>
-                          {q.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div className="text-xs text-muted-foreground">اختيار القارئ — قالون عن نافع</div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs text-muted-foreground">القارئ</label>
@@ -1387,7 +791,7 @@ export default function SurahPlayer({
                   {surah.number !== 9 && surah.number !== 1 && (
                     <div className="text-center py-5 border-b border-border bg-primary/5">
                       <div className="bismillah-text text-2xl sm:text-3xl text-primary">
-                        بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                        {BASMALA}
                       </div>
                     </div>
                   )}
@@ -1433,7 +837,7 @@ export default function SurahPlayer({
                         </div>
                       )}
                       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-muted-foreground">اضغط على أي آية لسماعها</span>
+                        <span className="text-muted-foreground">اضغط على أي آية لعرض إجراءاتها</span>
                         <button
                           onClick={() => navigate(`/reading/${getPageOfAyah(surahNumber, selectedAyah ?? 1)}`)}
                           className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full hover:bg-primary/20 transition-colors"
@@ -1442,80 +846,7 @@ export default function SurahPlayer({
                           <BookOpen className="w-3.5 h-3.5" />
                           المصحف
                         </button>
-                        {/* شارة الآية تظهر فقط عندما يتحرك الصوت فعلًا،
-                            لا من لحظة الضغط — حتى لا يُحسب زمن انتظار
-                            الشبكة ضمن مدة الآية. */}
-                        {playingAyah != null && ayahStarted && !ayahBuffering && (
-                          <span className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full">
-                            <Volume2 className="w-3.5 h-3.5" />
-                            الآية {toArabicNum(playingAyah)}
-                          </span>
-                        )}
-                        {playingAyah != null && (!ayahStarted || ayahBuffering) && (
-                          <span className="flex items-center gap-1 bg-amber-500/10 text-amber-600 px-2 py-1 rounded-full">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            جارٍ تحميل الصوت...
-                          </span>
-                        )}
                       </div>
-                      {/* لوحة أزرار التشغيل (تكرار/متواصل/إيقاف) — تظهر فقط
-                          أثناء التشغيل فعلًا. زر «التفسير» صار فوق الآية
-                          المضغوطة مباشرة (داخل نص السورة)، حتى لا يضطر
-                          المستخدم للرجوع إلى أول السورة ليجده. */}
-                      {selectedAyah != null && playingAyah != null && (
-                        <div className="mb-4 flex flex-wrap items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2">
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Repeat className="w-3.5 h-3.5" />
-                            تكرار الآية:
-                          </span>
-                          {[1, 3, 5].map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => {
-                                setAyahRepeat(n);
-                                if (ayahSessionRef.current) {
-                                  ayahSessionRef.current = {
-                                    ...ayahSessionRef.current,
-                                    totalRepeats: n,
-                                  };
-                                }
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                                ayahRepeat === n
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              ×{n}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => setAyahContinuous((c) => !c)}
-                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
-                              ayahContinuous
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            متواصل
-                          </button>
-                          <button
-                            onClick={() => {
-                              stopAyah();
-                              setSelectedAyah(null);
-                            }}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                          >
-                            <Square className="w-3 h-3" />
-                            إيقاف
-                          </button>
-                        </div>
-                      )}
-                      {ayahError && (
-                        <div className="mb-3 text-xs text-destructive bg-destructive/10 rounded-xl px-3 py-2">
-                          {ayahError}
-                        </div>
-                      )}
                       {/* مفتاح ألوان التجويد — يظهر فقط عند تفعيل التلوين. */}
                       {tajweed && rightMode === "text" && (
                         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-muted/60 px-3 py-2">
@@ -1537,9 +868,9 @@ export default function SurahPlayer({
                             <div
                               key={ayah.number}
                               data-ayah={ayah.numberInSurah}
-                              onClick={() => playAyah(ayah.numberInSurah, true)}
+                              onClick={() => handleAyahTap(ayah.numberInSurah)}
                               className={`cursor-pointer rounded-xl px-3 py-2 transition-colors hover:bg-primary/5 ${
-                                playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/10" : ""
+                                selectedAyah === ayah.numberInSurah ? "bg-primary/10" : ""
                               } ${
                                 highlightedAyah === ayah.numberInSurah
                                   ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
@@ -1569,16 +900,12 @@ export default function SurahPlayer({
                                   isFav={isFavourite(surahNumber, ayah.numberInSurah)}
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
-                                  onReadings={() => navigate(`/readings/${surahNumber}/${ayah.numberInSurah}`)}
                                   onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
                                   onCopy={() => handleCopyAyah(ayah.numberInSurah)}
                                   copied={copiedAyah === ayah.numberInSurah}
                                   memorization={memorization}
                                   revealed={revealedAyahs.has(ayah.numberInSurah)}
                                   onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
-                                  onReplay={() => replayAyah(ayah.numberInSurah)}
-                                  continueOn={ayahContinuous}
-                                  onToggleContinue={() => setAyahContinuous((c) => !c)}
                                   onClose={exitAyahMode}
                                 />
                               )}
@@ -1596,9 +923,9 @@ export default function SurahPlayer({
                             <Fragment key={ayah.number}>
                               <span
                                 data-ayah={ayah.numberInSurah}
-                                onClick={() => playAyah(ayah.numberInSurah, true)}
+                                onClick={() => handleAyahTap(ayah.numberInSurah)}
                                 className={`cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
-                                  playingAyah === ayah.numberInSurah || selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
+                                  selectedAyah === ayah.numberInSurah ? "bg-primary/15" : ""
                                 } ${
                                   highlightedAyah === ayah.numberInSurah
                                     ? "bg-amber-200/80 dark:bg-amber-800/60 ring-2 ring-amber-400/70"
@@ -1627,16 +954,12 @@ export default function SurahPlayer({
                                   isFav={isFavourite(surahNumber, ayah.numberInSurah)}
                                   onToggleFavourite={() => toggleFavourite(surahNumber, ayah.numberInSurah)}
                                   onTafsir={() => setTafsirAyah(ayah.numberInSurah)}
-                                  onReadings={() => navigate(`/readings/${surahNumber}/${ayah.numberInSurah}`)}
                                   onShare={() => setSharePreviewAyah(ayah.numberInSurah)}
                                   onCopy={() => handleCopyAyah(ayah.numberInSurah)}
                                   copied={copiedAyah === ayah.numberInSurah}
                                   memorization={memorization}
                                   revealed={revealedAyahs.has(ayah.numberInSurah)}
                                   onToggleReveal={() => toggleReveal(ayah.numberInSurah)}
-                                  onReplay={() => replayAyah(ayah.numberInSurah)}
-                                  continueOn={ayahContinuous}
-                                  onToggleContinue={() => setAyahContinuous((c) => !c)}
                                   onClose={exitAyahMode}
                                 />
                               )}
@@ -1698,16 +1021,12 @@ export default function SurahPlayer({
               setWordSheet(null);
               setTafsirAyah(wordSheet.ayahNumber);
             },
-            onReadings: () => navigate(`/readings/${wordSheet.surahNumber}/${wordSheet.ayahNumber}`),
             onShare: () => {
               setWordSheet(null);
               setSharePreviewAyah(wordSheet.ayahNumber);
             },
             onCopy: () => handleCopyAyah(wordSheet.ayahNumber),
             copied: copiedAyah === wordSheet.ayahNumber,
-            onReplay: () => replayAyah(wordSheet.ayahNumber),
-            continueOn: ayahContinuous,
-            onToggleContinue: () => setAyahContinuous((c) => !c),
             onClose: exitAyahMode,
           }}
           onRated={() => setHifzVersion((v) => v + 1)}
@@ -1720,10 +1039,6 @@ export default function SurahPlayer({
           surahNumber={surahNumber}
           ayahNumber={tafsirAyah}
           onClose={() => setTafsirAyah(null)}
-          onPlayAyah={(n) => {
-            setTafsirAyah(null);
-            replayAyah(n);
-          }}
         />
       )}
 

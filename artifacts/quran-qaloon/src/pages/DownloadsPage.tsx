@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { ArrowRight, HardDrive, Trash2, BookOpen, Moon, Sun, WifiOff, Download, AlertTriangle, Square, CheckCircle2 } from "lucide-react";
 import { useOffline } from "@/context/OfflineContext";
-import { SURAHS, RECITERS, buildAudioUrl, getGlobalAyahNumber } from "@/data/surahs";
+import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 
 interface DownloadsPageProps {
   darkMode: boolean;
@@ -26,41 +26,21 @@ function formatDate(ts: number): string {
 }
 
 export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPageProps) {
-  const { cachedItems, totalStorageBytes, deleteAudio, clearAll, downloadAudio, isCached, getCachedAyahKeys } = useOffline();
+  const { cachedItems, totalStorageBytes, deleteAudio, clearAll, downloadAudio, isCached } = useOffline();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  // All cached ayah keys: a surah counts as fully downloaded only when
-  // its surah file AND all its ayah files are cached (an interrupted
-  // ayah phase used to be skipped as "already downloaded").
-  const [ayahKeys, setAyahKeys] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    let cancelled = false;
-    getCachedAyahKeys().then((keys) => {
-      if (!cancelled) setAyahKeys(keys);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [cachedItems, getCachedAyahKeys]);
-
-  const isSurahFullyCached = (surahNumber: number, reciterId: string, keys: Set<string> = ayahKeys): boolean => {
-    if (!isCached(surahNumber, reciterId)) return false;
-    const surah = SURAHS.find((s) => s.number === surahNumber);
-    if (!surah) return false;
-    const firstGlobal = getGlobalAyahNumber(surahNumber, 1);
-    for (let a = 0; a < surah.numberOfAyahs; a++) {
-      if (!keys.has(`ayah-${reciterId}-${firstGlobal + a}`)) return false;
-    }
-    return true;
-  };
+  // 1.0.115: a surah counts as downloaded when its whole-surah file is
+  // cached — there are no per-ayah files any more.
+  const isSurahFullyCached = (surahNumber: number, reciterId: string): boolean =>
+    isCached(surahNumber, reciterId);
 
   // ---- تحميل المصحف كاملاً دفعة واحدة ----
   const [selectedReciterId, setSelectedReciterId] = useState<string>(() => {
-    if (typeof window === "undefined") return "mishary";
+    if (typeof window === "undefined") return "hudhaify-qaloon";
     const stored = localStorage.getItem("quran_reciter");
     if (stored && RECITERS.some((r) => r.id === stored)) return stored;
-    return "mishary";
+    return "hudhaify-qaloon";
   });
   const [bulk, setBulk] = useState<{
     status: "idle" | "running" | "done" | "cancelled";
@@ -77,7 +57,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
 
   const selectedReciter =
     RECITERS.find((r) => r.id === selectedReciterId) ??
-    RECITERS.find((r) => r.id === "mishary") ??
+    RECITERS.find((r) => r.id === "hudhaify-qaloon") ??
     RECITERS[0];
   const alreadyCachedForReciter = SURAHS.filter((s) => isSurahFullyCached(s.number, selectedReciter.id)).length;
   const remainingForReciter = SURAHS.length - alreadyCachedForReciter;
@@ -88,8 +68,8 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
   const startBulkDownload = async () => {
     setBulkError(null);
     // Not enough free space for a whole-Quran download: refuse to
-    // start instead of failing halfway through (a full Quran with its
-    // ayah files is several hundred megabytes).
+    // start instead of failing halfway through (a full Quran of
+    // whole-surah files is several hundred megabytes).
     try {
       const estimate = await navigator.storage?.estimate?.();
       if (estimate && typeof estimate.quota === "number" && typeof estimate.usage === "number") {
@@ -102,10 +82,7 @@ export default function DownloadsPage({ darkMode, toggleDarkMode }: DownloadsPag
     } catch {
       // estimate unavailable — proceed and let the download fail loudly
     }
-    // Fresh keys at click time: the state copy can lag a just-finished
-    // download, and a stale empty set would re-queue all 114 surahs.
-    const freshAyahKeys = await getCachedAyahKeys();
-    const pending = SURAHS.filter((s) => !isSurahFullyCached(s.number, selectedReciter.id, freshAyahKeys));
+    const pending = SURAHS.filter((s) => !isSurahFullyCached(s.number, selectedReciter.id));
     if (pending.length === 0) {
       setBulk({ status: "done", done: 0, total: 0, failed: 0, currentSurah: "" });
       return;

@@ -37,7 +37,7 @@ export default function RecitersList({ darkMode, toggleDarkMode }: RecitersListP
           {/* Header */}
           <div className="px-5 py-4 border-b border-border/50 bg-blue-100 dark:bg-blue-900/40">
             <div className="font-arabic text-lg font-semibold text-blue-700 dark:text-blue-400">القُرّاء</div>
-            <div className="text-sm text-muted-foreground mt-1">حفص عن عاصم</div>
+            <div className="text-sm text-muted-foreground mt-1">قالون عن نافع</div>
           </div>
 
           {/* Reciters grid */}
@@ -55,7 +55,7 @@ export default function RecitersList({ darkMode, toggleDarkMode }: RecitersListP
                     {reciter.name}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    حفص عن عاصم
+                    قالون عن نافع
                   </div>
                 </button>
               </Link>

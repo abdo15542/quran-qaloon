@@ -6,9 +6,6 @@ interface OfflineContextValue {
   isLoaded: boolean;
   isCached: (surahNumber: number, reciterId: string) => boolean;
   getCachedBlobUrl: (surahNumber: number, reciterId: string) => Promise<string | null>;
-  getCachedAyahUrl: (reciterId: string, globalAyah: number) => Promise<string | null>;
-  getCachedAyahKeys: () => Promise<Set<string>>;
-  cacheAyahAudio: (reciterId: string, globalAyah: number, url: string) => Promise<boolean>;
   downloadAudio: (
     surahNumber: number,
     surahName: string,

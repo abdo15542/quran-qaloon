@@ -13,19 +13,21 @@
 // mismatch between the two interpretations is resolved in favour of the
 // one whose bundled word equals wordText.
 //
-// BUNDLED -> QAC MAPPING: the bundled Hafs text and the QAC word list
-// agree word-for-word (verified: 99.987% normalised equality, see
-// deep-data-prep/report-74.json) once standalone pause-mark tokens
-// (ۛ ۖ ۚ ۗ …) are skipped — they are not words in QAC. So the QAC word
-// number of a bundled word is its ordinal among the bundled text's
-// real word tokens (Basmala words of ayah 1 map to QAC 1:1 words 1-4).
-// Known exceptions (positional mapping still returns *a* word for them):
+// BUNDLED -> QAC MAPPING: the bundled Qaloon text and the Hafs-based
+// QAC word list agree word-for-word for 6,222 of 6,236 ayahs (verified
+// 2026-11-24, check115morph.mts: real-word token count per ayah vs the
+// QAC table length, +4 Basmala words for ayah 1 of surahs 2-114 except
+// 9). The 14 exceptions are Uthmani/QAC tokenisation quirks (a word
+// split or joined differently), NOT reading differences. For 13 of
+// them the positional mapping would return WRONG roots, so root /
+// lemma / POS are disabled for those ayahs (see MISALIGNED_AYAHS
+// below); meanings still work — they match by word text, not position.
+//  - 37:130 is the one benign exception: QAC joins "إِلۡ يَاسِينَ" into
+//    one word (3 QAC words vs 4 bundled tokens) — the bundled 4th token
+//    has no QAC word (null, handled by the bounds check in qacWordRef),
+//    while tokens 1-3 still map correctly, so it is NOT gated.
 //  - 15:7: QAC lists "لَّوۡمَا" twice (words 1 and 2); the bundled text
-//    splits it into "لَّوْ" + "مَا" — both map to the same QAC entry.
-//  - 37:130: QAC joins "إِلۡ يَاسِينَ" into one word (3 QAC words vs 4
-//    bundled tokens) — the bundled 4th token has no QAC word (null).
-//  - بَعْدَمَا (2:181, 8:6, 13:37): one QAC word "بَعۡدَ مَا" (internal
-//    space) vs one bundled token — positions still agree.
+//    splits it into "لَّوْ" + "مَا" — counts agree, so it is aligned.
 import { QURAN_TEXT, normalizeArabic, displayAyahText } from "@/data/quran-text";
 import {
   MORPHOLOGY_ROOTS,
@@ -70,6 +72,33 @@ export interface RootAyah {
   count: number;
 }
 
+// Ayahs whose Qaloon real-word count disagrees with the Hafs-based QAC
+// table (see the header comment): the positional mapping cannot be
+// trusted there, so qacWordRef() returns null and searchByRoot()
+// skips them. Computed once from the bundled text itself, so the set
+// stays correct if the text ever changes. 37:130 is excluded on
+// purpose — its first three tokens map correctly (see above).
+const MISALIGNED_AYAHS: Set<string> = (() => {
+  const bad = new Set<string>();
+  for (let s = 1; s <= 114; s++) {
+    for (let a = 1; a <= QURAN_TEXT[s - 1].length; a++) {
+      const tokens = splitAyahWords(QURAN_TEXT[s - 1][a - 1]);
+      const real = tokens.filter(isWordToken).length;
+      const basmala = a === 1 && s !== 1 && s !== 9 ? 4 : 0;
+      const table = MORPHOLOGY_WORDS[`${s}:${a}`];
+      if (!table || real !== table.length + basmala) bad.add(`${s}:${a}`);
+    }
+  }
+  bad.delete("37:130");
+  return bad;
+})();
+
+/** False for the 13 ayahs whose Qaloon words cannot be mapped to the
+    Hafs-based QAC table (roots disabled there); true everywhere else. */
+export function isMorphologyAligned(surahNumber: number, ayahNumber: number): boolean {
+  return !MISALIGNED_AYAHS.has(`${surahNumber}:${ayahNumber}`);
+}
+
 export interface RootSearchResult {
   /** The root as typed (normalised) and as stored for display. */
   query: string;
@@ -111,6 +140,8 @@ export function qacWordRef(
 ): { surah: number; ayah: number; word: number } | null {
   const fullText = QURAN_TEXT[surahNumber - 1]?.[ayahNumber - 1];
   if (!fullText) return null;
+  // 1.0.115: Qaloon/QAC misalignment — never return a wrong root.
+  if (!isMorphologyAligned(surahNumber, ayahNumber)) return null;
   const fullTokens = splitAyahWords(fullText);
   const basmalaWords =
     ayahNumber === 1 && surahNumber !== 1 && surahNumber !== 9 ? 4 : 0;
@@ -229,11 +260,15 @@ export function searchByRoot(root: string): RootSearchResult {
   if (!query) return { query, root: null, ayahCount: 0, totalOccurrences: 0, ayahs: [] };
   const entries = MORPHOLOGY_ROOT_INDEX[query];
   if (!entries) return { query, root: null, ayahCount: 0, totalOccurrences: 0, ayahs: [] };
-  const ayahs: RootAyah[] = entries.map(([s, a, c]) => ({
-    surahNumber: s,
-    ayahNumber: a,
-    count: c,
-  }));
+  // 1.0.115: drop the 13 Qaloon-misaligned ayahs — their QAC-based
+  // counts do not match the displayed Qaloon words.
+  const ayahs: RootAyah[] = entries
+    .filter(([s, a]) => isMorphologyAligned(s, a))
+    .map(([s, a, c]) => ({
+      surahNumber: s,
+      ayahNumber: a,
+      count: c,
+    }));
   return {
     query,
     root: MORPHOLOGY_ROOT_DISPLAY[query] ?? query,

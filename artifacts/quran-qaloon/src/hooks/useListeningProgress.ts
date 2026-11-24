@@ -13,7 +13,7 @@ export interface SurahProgress {
 // Progress used to be keyed by surah number only, so switching reciter
 // resumed at the wrong position in a different recording. Since 1.0.64
 // the key is `<surah>-<reciterId>`; entries saved before that (plain
-// surah number) are read only for the default reciter (mishary).
+// surah number) are read only for the default reciter (hudhaify-qaloon).
 type ProgressMap = Record<string, SurahProgress>;
 
 function loadAll(): ProgressMap {
@@ -33,7 +33,7 @@ function saveAll(data: ProgressMap) {
   }
 }
 
-const DEFAULT_RECITER_ID = "mishary";
+const DEFAULT_RECITER_ID = "hudhaify-qaloon";
 
 function keyFor(surahNumber: number, reciterId?: string): string {
   return reciterId ? `${surahNumber}-${reciterId}` : String(surahNumber);

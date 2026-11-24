@@ -21,24 +21,25 @@ export interface Reciter {
   qirahId: string;
   audioBaseUrl: string;
   padded?: boolean;
-  /** Per-ayah audio base URL (Islamic Network CDN, 64kbps). All seven
-      kept reciters have one, so tap-ayah always plays the exact ayah
-      file — no timing table or char estimate is needed. */
-  ayahAudioBase?: string;
+  // 1.0.115: whole-surah audio ONLY. There is no per-ayah Qaloon audio
+  // anywhere (verified 2026-11-24: the only Qaloon per-ayah edition
+  // answers 403, and the other sources have no Qaloon at all), so the
+  // per-ayah base URL is gone — tap-ayah does not play one ayah.
+  // Whole-surah files come from the mp3quran CDN, all verified live.
 }
 
 export const QIRAAT: Qirah[] = [
-  { id: "hafs", name: "حفص عن عاصم", description: "أشهر الروايات", textEdition: "quran-uthmani" },
+  { id: "qaloon", name: "قالون عن نافع", description: "رواية أهل ليبيا والعالم العربي", textEdition: "quran-qaloon" },
 ];
 
 export const RECITERS: Reciter[] = [
-  { id: "basit-hafs", name: "عبد الباسط عبد الصمد - مرتل", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/abdulbasit-abdulsamad/r3/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.abdulbasitmurattal/" },
-  { id: "husary", name: "محمود خليل الحصري", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/mahmoud-husary/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.husary/" },
-  { id: "suraim", name: "سعود الشريم", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/qdc/saud_ash-shuraym/murattal/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.saoodshuraym/" },
-  { id: "huthify", name: "علي الحذيفي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/ali-hudhaifi/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.hudhaify/" },
-  { id: "ajmy", name: "أحمد العجمي", qirahId: "hafs", audioBaseUrl: "https://download.quranicaudio.com/quran/ahmed_ibn_3ali_al-3ajamy//", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.ahmedajamy/" },
-  { id: "maher", name: "ماهر المعيقلي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/maher-muaiqly/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.mahermuaiqly/" },
-  { id: "mishary", name: "مشاري العفاسي", qirahId: "hafs", audioBaseUrl: "https://cdn.mp3quran.net/audio/mishary-alafasy/r1/", padded: true, ayahAudioBase: "https://cdn.islamic.network/quran/audio/64/ar.alafasy/" },
+  { id: "hudhaify-qaloon", name: "علي الحذيفي", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/ali-hudhaifi/r2/", padded: true },
+  { id: "husary-qaloon", name: "محمود خليل الحصري", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/mahmoud-husary/r5/", padded: true },
+  { id: "tarabulsi-qaloon", name: "أحمد الطرابلسي", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/ahmad-tarabulsi/r1/", padded: true },
+  { id: "dokali-qaloon", name: "الدوكالي محمد العالم", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/dokali-alim/r1/", padded: true },
+  { id: "qeniwa-qaloon", name: "محمد الأمين قنيوة", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/muhammad-qeniwa/r1/", padded: true },
+  { id: "saber-qaloon", name: "صابر عبدالحكم", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/saber-abdulhakam/r3/", padded: true },
+  { id: "naehi-qaloon", name: "وليد النائحي", qirahId: "qaloon", audioBaseUrl: "https://cdn.mp3quran.net/audio/waleed-naehi/r1/", padded: true },
 ];
 
 export const SURAHS: Surah[] = [
@@ -165,8 +166,9 @@ export function buildAudioUrl(reciter: Reciter, surahNumber: number): string {
   return `${reciter.audioBaseUrl}${num}.mp3`;
 }
 
-/** Global ayah number across the whole Quran (1..6236), used by
-    per-ayah audio sources that number files globally, not per-surah. */
+/** Global ayah number across the whole Quran (1..6236). Used by the
+    juz/hifz helpers and the offline per-ayah cache keys (1.0.115: the
+    per-ayah audio itself is gone — no per-ayah Qaloon audio exists). */
 export function getGlobalAyahNumber(surahNumber: number, ayahNumberInSurah: number): number {
   let n = 0;
   for (const s of SURAHS) {
@@ -176,20 +178,7 @@ export function getGlobalAyahNumber(surahNumber: number, ayahNumberInSurah: numb
   return n + ayahNumberInSurah;
 }
 
-/** Per-ayah MP3 URL for reciters that have one (see ayahAudioBase).
-    All seven kept reciters have one. Returns null only if a reciter
-    has no per-ayah source — callers must fall back to playing the
-    surah audio from the tapped ayah instead. */
-export function buildAyahAudioUrl(
-  reciter: Reciter,
-  surahNumber: number,
-  ayahNumberInSurah: number
-): string | null {
-  if (!reciter.ayahAudioBase) return null;
-  return `${reciter.ayahAudioBase}${getGlobalAyahNumber(surahNumber, ayahNumberInSurah)}.mp3`;
-}
-
-export function getAudioUrl(surahNumber: number, reciterId = "mishary"): string {
+export function getAudioUrl(surahNumber: number, reciterId = "hudhaify-qaloon"): string {
   const reciter = RECITERS.find((r) => r.id === reciterId) ?? RECITERS[0];
   return buildAudioUrl(reciter, surahNumber);
 }
