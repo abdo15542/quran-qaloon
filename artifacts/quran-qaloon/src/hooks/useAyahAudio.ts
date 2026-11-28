@@ -16,6 +16,20 @@
 // so the UI can say so plainly. The hook never pretends an approximate
 // play is a timed one (`playing.timed`).
 //
+// [1.0.119] Two hardening rules, after the "reads the next ayah" report:
+//   1. SEEK GATE: a bare `currentTime = start` can be ignored by the
+//      WebView (element still playing, data not ready yet), and the audio
+//      then plays from the wrong position. The seek is now verified by
+//      reading currentTime back (within 0.5 s of start), retried up to 5
+//      times, and playback starts ONLY after the read-back matches. If
+//      the seek never lands, the session fails loudly instead of playing
+//      the wrong ayah.
+//   2. NO ADVANCE WITHOUT PLAY: a session that ends without its playhead
+//      ever entering its window (seek overshot past the end, file ended
+//      early) never calls onFinished, so the caller's continuous-play
+//      (متواصل) cannot jump to the next ayah on a session that never
+//      sounded its own ayah — the exact failure the user reported.
+//
 // One Audio element is shared for all tap-ayah plays (created lazily);
 // the main whole-surah player (AudioPlayer/useAudio) is a different
 // element — the caller pauses it via its pauseSignal when a tap starts.
@@ -60,6 +74,10 @@ interface Session {
   repeat: number;
   repeatIndex: number;
   onFinished?: (finished: { surah: number; ayah: number }) => void;
+  /** True once the playhead has been inside this session's window.
+   * [1.0.119] onFinished fires only for sessions that actually sounded
+   * their own ayah — see finishSession. */
+  playedInside: boolean;
 }
 
 function wordCount(text: string): number {
@@ -71,6 +89,7 @@ export function useAyahAudio() {
   const sessionRef = useRef<Session | null>(null);
   const wallTimerRef = useRef<number | null>(null);
   const metaTimerRef = useRef<number | null>(null);
+  const seekTimerRef = useRef<number | null>(null);
   const tokenRef = useRef(0);
   const [playing, setPlaying] = useState<PlayingAyah | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -90,12 +109,26 @@ export function useAyahAudio() {
     }
   }, []);
 
+  const clearSeekTimer = useCallback(() => {
+    if (seekTimerRef.current != null) {
+      window.clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = null;
+    }
+  }, []);
+
   const finishSession = useCallback(
     (session: Session, reason: "ended" | "stopped") => {
       clearWallTimer();
       if (sessionRef.current === session) sessionRef.current = null;
       setPlaying(null);
-      if (reason === "ended") session.onFinished?.({ surah: session.surah, ayah: session.ayah });
+      // [1.0.119] A session that ends without its playhead ever entering
+      // its window never sounded its own ayah (seek overshot past the
+      // end, or the file ended early) — do NOT call onFinished, or the
+      // caller's continuous play (متواصل) would jump to the next ayah
+      // and the user would hear only ayah+1. Only a session that played
+      // inside its window may advance.
+      if (reason === "ended" && session.playedInside)
+        session.onFinished?.({ surah: session.surah, ayah: session.ayah });
     },
     [clearWallTimer]
   );
@@ -103,12 +136,13 @@ export function useAyahAudio() {
   const stop = useCallback(() => {
     clearWallTimer();
     clearMetaTimer();
+    clearSeekTimer();
     tokenRef.current += 1;
     sessionRef.current = null;
     const audio = audioRef.current;
     if (audio) audio.pause();
     setPlaying(null);
-  }, [clearWallTimer, clearMetaTimer]);
+  }, [clearWallTimer, clearMetaTimer, clearSeekTimer]);
 
   // One-time listeners on the shared element (attached on first use).
   const ensureAudio = useCallback(() => {
@@ -117,7 +151,18 @@ export function useAyahAudio() {
     audio.preload = "metadata";
     audio.addEventListener("timeupdate", () => {
       const session = sessionRef.current;
-      if (!session || session.end == null) return;
+      if (!session) return;
+      // [1.0.119] Mark the session as having played inside its window
+      // once the playhead is at/inside it (timed: [start, end);
+      // approximate: [start, file end)). A session that never gets here
+      // never sounded its own ayah — see finishSession.
+      if (
+        audio.currentTime >= session.start - 0.5 &&
+        (session.end == null || audio.currentTime < session.end)
+      ) {
+        session.playedInside = true;
+      }
+      if (session.end == null) return;
       const end = session.end;
       // Stop just past the measured end so the last word is heard whole.
       if (audio.currentTime >= end - 0.03) {
@@ -226,43 +271,76 @@ export function useAyahAudio() {
           repeat,
           repeatIndex: 0,
           onFinished: opts.onFinished,
+          playedInside: false,
         };
         sessionRef.current = session;
-        try {
-          audio.currentTime = start;
-        } catch {
-          // not seekable yet — the metadata wait below retries; if it
-          // never becomes seekable the wall-clock timer still stops it
-        }
-        setPlaying({
-          surah: session.surah,
-          ayah: session.ayah,
-          reciterId: session.reciterId,
-          timed: session.timed,
-          start: session.start,
-          end: session.end,
-          repeat: session.repeat,
-          repeatIndex: 0,
-        });
-        void audio.play().catch(() => {
+        // [1.0.119] SEEK GATE: verify the seek lands before playing.
+        // A bare `currentTime = start` can be ignored by the WebView
+        // (element still playing, data not ready yet) — the audio would
+        // then play from the wrong position. Read currentTime back: if
+        // it is within 0.5 s of start, play; otherwise re-seek, up to 5
+        // attempts; if it never lands, fail loudly through the existing
+        // error path instead of playing the wrong ayah.
+        const SEEK_TOLERANCE = 0.5;
+        const MAX_SEEK_ATTEMPTS = 5;
+        let seekAttempts = 0;
+        const beginPlay = () => {
+          setPlaying({
+            surah: session.surah,
+            ayah: session.ayah,
+            reciterId: session.reciterId,
+            timed: session.timed,
+            start: session.start,
+            end: session.end,
+            repeat: session.repeat,
+            repeatIndex: 0,
+          });
+          void audio.play().catch(() => {
+            if (token !== tokenRef.current) return;
+            sessionRef.current = null;
+            setPlaying(null);
+            setError("تعذّر تشغيل الصوت، جرّب إعادة المحاولة");
+          });
+          if (end != null) {
+            clearWallTimer();
+            wallTimerRef.current = window.setTimeout(
+              () => {
+                const s = sessionRef.current;
+                if (s && s.token === token) {
+                  audio.pause();
+                  finishSession(s, "ended");
+                }
+              },
+              ((end - start) / Math.max(0.25, getPlayerRate()) + 2.5) * 1000
+            );
+          }
+        };
+        const failSeek = () => {
           if (token !== tokenRef.current) return;
           sessionRef.current = null;
           setPlaying(null);
-          setError("تعذّر تشغيل الصوت، جرّب إعادة المحاولة");
-        });
-        if (end != null) {
-          clearWallTimer();
-          wallTimerRef.current = window.setTimeout(
-            () => {
-              const s = sessionRef.current;
-              if (s && s.token === token) {
-                audio.pause();
-                finishSession(s, "ended");
-              }
-            },
-            ((end - start) / Math.max(0.25, getPlayerRate()) + 2.5) * 1000
-          );
-        }
+          setError("تعذّر تشغيل الصوت");
+        };
+        const attemptSeek = () => {
+          if (token !== tokenRef.current) return;
+          if (Math.abs(audio.currentTime - start) <= SEEK_TOLERANCE) {
+            beginPlay();
+            return;
+          }
+          seekAttempts += 1;
+          if (seekAttempts > MAX_SEEK_ATTEMPTS) {
+            failSeek();
+            return;
+          }
+          try {
+            audio.currentTime = start;
+          } catch {
+            // not seekable yet — the retry below tries again
+          }
+          clearSeekTimer();
+          seekTimerRef.current = window.setTimeout(attemptSeek, 250);
+        };
+        attemptSeek();
       };
 
       const needsLoad = audio.src !== opts.url || audio.readyState < 1;
@@ -286,7 +364,7 @@ export function useAyahAudio() {
         startPlayback();
       }
     },
-    [stop, ensureAudio, clearWallTimer, clearMetaTimer, finishSession]
+    [stop, ensureAudio, clearWallTimer, clearMetaTimer, clearSeekTimer, finishSession]
   );
 
   const clearNotice = useCallback(() => setNotice(null), []);
@@ -296,13 +374,14 @@ export function useAyahAudio() {
     () => () => {
       clearWallTimer();
       clearMetaTimer();
+      clearSeekTimer();
       const audio = audioRef.current;
       if (audio) {
         audio.pause();
         audio.src = "";
       }
     },
-    [clearWallTimer, clearMetaTimer]
+    [clearWallTimer, clearMetaTimer, clearSeekTimer]
   );
 
   return { playing, notice, error, playAyah, stop, clearNotice, clearError };

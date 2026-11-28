@@ -1451,7 +1451,7 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">ترتيل ليبيا</div>
             <div className="text-sm text-muted-foreground mt-1">
-              الإصدار 1.0.118
+              الإصدار 1.0.119
             </div>
             <p className="text-sm mt-3 leading-relaxed">
               مصحف الجماهيرية — ٦٠٢ صفحة بالترقيم المطبوع، ٧ قرّاء برواية قالون
