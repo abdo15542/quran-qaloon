@@ -1,4 +1,10 @@
 // وضع القراءة بملء الشاشة (1.0.78) — مصحف جديد للقراءة السريعة:
+// (1.0.116) هذا الوضع هو الآن مصحف الجماهيرية (٦٠٢ صفحة، الترقيم
+// المطبوع طبقة عرض فقط — الترقيم الكوفي ٦٢٣٦ محفوظ في كل مكان، وعدد
+// آيات السورة في الترويسة هو العدد المطبوع). المصحف المدني ٦٠٤ ما زال
+// موجودًا: عرض صفحات السورة في المشغّل + صفحة /mushaf. الضغط على آية
+// يشغّل صوتها من تسجيل السورة الكامل (نافذة التوقيت المقاسة، أو موضع
+// تقريبي حين لا يوجد توقيت بعد — انظر useAyahAudio).
 // الصفحة تملأ الشاشة كلها بلا شريط علوي ولا شريط سفلي، والتنقل بين
 // الصفحات بالسحب (يسار = التالية، يمين = السابقة) أو بالأسهم أو من شريط
 // الأدوات الذي يظهر بضغطة زر. كل مزايا المصحف الأول محفوظة: صفحات
@@ -40,21 +46,27 @@ import {
   PanelBottom,
   Search,
   SlidersHorizontal,
+  Square,
   Sun,
   X,
 } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { quarterLabelForAyah } from "@/data/hizb-quarters";
-import { SURAHS } from "@/data/surahs";
+import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
+import { getPageOfAyah } from "@/data/mushaf-pages";
 import {
-  getMushafPageRange,
-  getLastMushafPage,
-  setLastMushafPage,
-  getPageOfAyah,
-} from "@/data/mushaf-pages";
+  JAMAHIRIYA_TOTAL_PAGES,
+  getJamahiriyaPageRange,
+  getJamahiriyaPageOfAyah,
+  getJamahiriyaSurahStartPage,
+  getLastJamahiriyaPage,
+  setLastJamahiriyaPage,
+  getPrintedNumbers,
+  getPrintedSurahCount,
+} from "@/data/jamahiriya";
 import { getSurahAyahs, displayAyahText } from "@/data/quran-text";
 import { getTranslation } from "@/data/translation-en";
-import { buildPageAyahs, BASMALA, type PageAyah } from "@/pages/MushafPage";
+import { buildJamahiriyaPageAyahs, BASMALA, type PageAyah } from "@/pages/MushafPage";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
 import WordTapText from "@/components/WordTapText";
 import WordSheet from "@/components/WordSheet";
@@ -64,6 +76,7 @@ import TajweedRuleSheet from "@/components/TajweedRuleSheet";
 import TafsirSheet from "@/components/TafsirSheet";
 import SharePreviewSheet from "@/components/SharePreviewSheet";
 import { useFavourites } from "@/hooks/useFavourites";
+import { useAyahAudio } from "@/hooks/useAyahAudio";
 import { copyTextToClipboard } from "@/lib/copy";
 
 function toArabicNum(n: number): string {
@@ -82,6 +95,7 @@ function PageContent({
   onRuleClick,
   onWordTap,
   onWordLongPress,
+  onAyahTap,
   innerRef,
 }: {
   page: number;
@@ -91,14 +105,17 @@ function PageContent({
   // Ayah whose word sheet is open (highlighted) — null when none.
   selectedAyah: { surah: number; ayah: number } | null;
   onRuleClick: (rule: string) => void;
-  // 1.0.115: tapping a word opens its word sheet (root / meanings /
-  // tafsir / share). There is no per-ayah Qaloon audio, so a tap no
-  // longer plays the ayah.
+  // Tapping a word opens its word sheet (root / meanings / tafsir /
+  // share). Tapping the ayah itself plays its audio (onAyahTap below).
   onWordTap: (surah: number, ayah: number, wordIndex: number, wordText: string) => void;
   onWordLongPress: (surah: number, ayah: number, wordIndex: number, wordText: string) => void;
+  // [1.0.116] Tap an ayah to play its audio (measured window, or an
+  // approximate position when no timing exists yet). Word taps stop
+  // propagation in WordTapText, so they never reach this handler.
+  onAyahTap: (surah: number, ayah: number) => void;
   innerRef?: React.Ref<HTMLDivElement>;
 }) {
-  const items = useMemo(() => buildPageAyahs(page), [page]);
+  const items = useMemo(() => buildJamahiriyaPageAyahs(page), [page]);
   // [1.0.83] ترويسة السورة تظهر فقط حيث تبدأ السورة فعلًا في هذه
   // الصفحة (آيتها الأولى) — كالمصحف المطبوع تمامًا. صفحة المتابعة
   // (مثل 521: أولها 51:7) لا تحمل ترويسة، فتتسع الصفحة للنص.
@@ -146,7 +163,7 @@ function PageContent({
                   : SURAHS[b.surah - 1].revelationType === "Medinan"
                     ? "مدنية"
                     : ""}{" "}
-                • {toArabicNum(SURAHS[b.surah - 1].numberOfAyahs)} آية
+                • {toArabicNum(getPrintedSurahCount(b.surah))} آية
               </span>
             </div>
           </div>
@@ -167,6 +184,7 @@ function PageContent({
             <span
               data-ayah={b.item.ayah.numberInSurah}
               data-surah={b.item.surah}
+              onClick={interactive ? () => onAyahTap(b.item.surah, b.item.ayah.numberInSurah) : undefined}
               className={
                 interactive
                   ? `cursor-pointer rounded px-0.5 transition-colors hover:bg-primary/10 ${
@@ -193,7 +211,7 @@ function PageContent({
                     : undefined
                 }
               />{" "}
-              <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{toArabicNum(b.item.ayah.numberInSurah)}﴾</span>{" "}
+              <span className="text-primary inline-block mx-1 text-[0.65em]">﴿{getPrintedNumbers(b.item.surah, b.item.ayah.numberInSurah).map(toArabicNum).join("، ")}﴾</span>{" "}
             </span>
           </Fragment>
         ),
@@ -251,8 +269,8 @@ export default function ReadingMode({
   const [, navigate] = useLocation();
   const [page, setPage] = useState<number>(() => {
     const p = params?.page ? parseInt(params.page, 10) : NaN;
-    if (!isNaN(p) && p >= 1 && p <= 604) return p;
-    return getLastMushafPage();
+    if (!isNaN(p) && p >= 1 && p <= JAMAHIRIYA_TOTAL_PAGES) return p;
+    return getLastJamahiriyaPage();
   });
   const [jump, setJump] = useState("");
   const [showTools, setShowTools] = useState(false);
@@ -268,7 +286,7 @@ export default function ReadingMode({
   const [bookmarkPage, setBookmarkPage] = useState<number | null>(() => {
     try {
       const v = parseInt(localStorage.getItem("quran_bookmark_page") ?? "", 10);
-      return isNaN(v) || v < 1 || v > 604 ? null : v;
+      return isNaN(v) || v < 1 || v > JAMAHIRIYA_TOTAL_PAGES ? null : v;
     } catch {
       return null;
     }
@@ -320,7 +338,7 @@ export default function ReadingMode({
   // /reading/:page link would leave the old page on screen.
   useEffect(() => {
     const p = params?.page ? parseInt(params.page, 10) : NaN;
-    if (!isNaN(p) && p >= 1 && p <= 604 && p !== page) setPage(p);
+    if (!isNaN(p) && p >= 1 && p <= JAMAHIRIYA_TOTAL_PAGES && p !== page) setPage(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.page]);
 
@@ -344,16 +362,22 @@ export default function ReadingMode({
   };
 
   const [selectedRule, setSelectedRule] = useState<string | null>(null);
+  // [1.0.116] Tap-ayah audio (declared before selectedAyah, which
+  // highlights the playing ayah).
+  const ayahAudio = useAyahAudio();
   const [wordSheet, setWordSheet] = useState<{
     surahNumber: number;
     ayahNumber: number;
     wordIndex: number;
     wordText: string;
   } | null>(null);
-  // Ayah highlighted on the page while its word sheet is open.
+  // Ayah highlighted on the page: while its word sheet is open, or
+  // while its audio is playing.
   const selectedAyah = wordSheet
     ? { surah: wordSheet.surahNumber, ayah: wordSheet.ayahNumber }
-    : null;
+    : ayahAudio.playing
+      ? { surah: ayahAudio.playing.surah, ayah: ayahAudio.playing.ayah }
+      : null;
   // A page can span two surahs, so tafsir/share targets carry both.
   const [tafsirTarget, setTafsirTarget] = useState<{ surah: number; ayah: number } | null>(null);
   const [shareTarget, setShareTarget] = useState<{ surah: number; ayah: number } | null>(null);
@@ -361,20 +385,49 @@ export default function ReadingMode({
   const copyTimerRef = useRef<number | null>(null);
   const { isFavourite, toggleFavourite } = useFavourites();
 
-  // 1.0.115: no per-ayah audio any more — there is no per-ayah Qaloon
-  // audio anywhere. Tapping a word opens its word sheet (below);
-  // long-press does the same. Whole-surah playback is the player
-  // (SurahPlayer / AudioPlayer), not this page.
+  // [1.0.116] Tap-ayah audio is back: tapping an ayah plays it from
+  // the reciter's whole-surah recording (measured timing window, or an
+  // approximate position when no timing exists yet — the notice says so).
+  // Network only here (no offline blob in reading mode); tapping the
+  // playing ayah again stops it. Tapping a word opens its word sheet
+  // (below); long-press does the same.
+  const handleAyahTap = useCallback((s: number, a: number) => {
+    if (ayahAudio.playing?.surah === s && ayahAudio.playing?.ayah === a) {
+      ayahAudio.stop();
+      return;
+    }
+    let stored = "";
+    try {
+      stored = localStorage.getItem("quran_reciter") ?? "";
+    } catch {
+      // storage unavailable
+    }
+    const reciter = RECITERS.find((r) => r.id === stored) ?? RECITERS[0];
+    ayahAudio.playAyah({
+      url: buildAudioUrl(reciter, s),
+      reciterId: reciter.id,
+      surah: s,
+      ayah: a,
+      repeat: 1,
+    });
+  }, [ayahAudio]);
+  // Approximate-playback notice / error: show as the info toast.
+  useEffect(() => {
+    if (ayahAudio.notice) setInfoToast(ayahAudio.notice);
+  }, [ayahAudio.notice]);
+  useEffect(() => {
+    if (ayahAudio.error) setInfoToast(ayahAudio.error);
+  }, [ayahAudio.error]);
 
   // Exit the selected-ayah mode: close the word sheet.
   const exitAyahMode = useCallback(() => {
     setWordSheet(null);
   }, []);
 
-  const range = getMushafPageRange(page);
+  const range = getJamahiriyaPageRange(page);
 
   // [1.0.82] أول آية في الصفحة — لتفسير الصفحة ولتنبيه ربع الحزب.
-  const firstPageAyah = useMemo(() => buildPageAyahs(page)[0] ?? null, [page]);
+  const firstPageAyah = useMemo(() => buildJamahiriyaPageAyahs(page)[0] ?? null, [page]);
 
   // [1.0.82] تنبيه ربع الحزب عند كل صفحة (مثل الفيديو): تسمية
   // الربع الذي تنتمي إليه أول آية في الصفحة، يظهر ٢٫٥ ثانية.
@@ -387,10 +440,11 @@ export default function ReadingMode({
     return () => window.clearTimeout(t);
   }, [firstPageAyah]);
 
-  // Keep the URL and the last-read page in sync (same key as the old
-  // Mushaf — both modes share the reader's position).
+  // Keep the URL and the last-read page in sync. Turning the page stops
+  // a playing ayah (it just left the screen).
   useEffect(() => {
-    setLastMushafPage(page);
+    ayahAudio.stop();
+    setLastJamahiriyaPage(page);
     if (params?.page !== String(page)) {
       navigate(`/reading/${page}`, { replace: true });
     }
@@ -500,7 +554,7 @@ export default function ReadingMode({
   }, [fitPage]);
 
   const goTo = useCallback((p: number) => {
-    if (p >= 1 && p <= 604) setPage(p);
+    if (p >= 1 && p <= JAMAHIRIYA_TOTAL_PAGES) setPage(p);
   }, []);
 
   // [1.0.104] ردّا النداء كانا سهمين مضمّنين يُعاد إنشاؤهما عند كل
@@ -788,7 +842,7 @@ export default function ReadingMode({
     }
     // مطاط عند الحدود: لا صفحة بعد الأخيرة ولا قبل الأولى.
     let eff = dx;
-    if ((dx < 0 && page >= 604) || (dx > 0 && page <= 1)) eff = dx * 0.4;
+    if ((dx < 0 && page >= JAMAHIRIYA_TOTAL_PAGES) || (dx > 0 && page <= 1)) eff = dx * 0.4;
     // [1.0.85] طبّق التحويل مرة واحدة لكل إطار (rAF) بدل كل حدث.
     pendingDxRef.current = eff;
     if (dragRafRef.current == null) {
@@ -823,7 +877,7 @@ export default function ReadingMode({
     // سحبة ذهابًا وإيابًا ثم نقرة سريعة تلتزم باتجاه النقرة.
     const dir: 1 | -1 =
       Math.abs(recentDx) >= 20 ? (recentDx < 0 ? 1 : -1) : dx < 0 ? 1 : -1;
-    const atEdge = (dir === 1 && page >= 604) || (dir === -1 && page <= 1);
+    const atEdge = (dir === 1 && page >= JAMAHIRIYA_TOTAL_PAGES) || (dir === -1 && page <= 1);
     // أي سحب — حتى المرتد — يكبت النقرة التي تليه.
     swipedRef.current = true;
     window.setTimeout(() => {
@@ -952,7 +1006,7 @@ export default function ReadingMode({
         {/* [1.0.81] الصفحتان المجاورتان تحت الجارية — السحب يكشف
             التالية (أو السابقة) فعلًا بدل فراغ أبيض. شفافة حتى يبدأ
             السحب (opacity تُدار مباشرة من معالجات المؤشر). */}
-        {page < 604 && (
+        {page < JAMAHIRIYA_TOTAL_PAGES && (
           <div
             ref={previewNextRef}
             data-testid="reading-preview-next"
@@ -969,6 +1023,7 @@ export default function ReadingMode({
               onRuleClick={setSelectedRule}
               onWordTap={() => {}}
               onWordLongPress={() => {}}
+              onAyahTap={() => {}}
             />
           </div>
         )}
@@ -989,6 +1044,7 @@ export default function ReadingMode({
               onRuleClick={setSelectedRule}
               onWordTap={() => {}}
               onWordLongPress={() => {}}
+              onAyahTap={() => {}}
             />
           </div>
         )}
@@ -1015,6 +1071,7 @@ export default function ReadingMode({
               onRuleClick={setSelectedRule}
               onWordTap={handleWordTap}
               onWordLongPress={handleWordLongPress}
+              onAyahTap={handleAyahTap}
               innerRef={innerRef}
             />
             {/* ظل الطية — يشتد مع تقدّم السحب، واتجاهه يُضبط
@@ -1077,6 +1134,28 @@ export default function ReadingMode({
         </div>
       )}
 
+      {/* [1.0.116] Tap-ayah playing pill — the stop button while an
+          ayah plays (also in the bottom icon bar). */}
+      {ayahAudio.playing && (
+        <div
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-red-600 text-white px-3 py-1.5 rounded-full text-xs whitespace-nowrap shadow-md"
+          data-testid="reading-ayah-playing"
+        >
+          <span>
+            جارٍ تشغيل الآية ﴿{toArabicNum(ayahAudio.playing.ayah)}﴾
+            {ayahAudio.playing.timed ? "" : " — موضع تقريبي"}
+          </span>
+          <button
+            onClick={() => ayahAudio.stop()}
+            className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full"
+            aria-label="إيقاف صوت الآية"
+          >
+            <Square className="w-3 h-3" />
+            إيقاف
+          </button>
+        </div>
+      )}
+
       {/* Page pill — always visible, never blocks taps (hidden while
           the bottom bar is shown — the bar is the interface then). */}
       {!showTools && !showBottomBar && (
@@ -1084,7 +1163,7 @@ export default function ReadingMode({
           className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-card/85 backdrop-blur border border-border px-3 py-1.5 rounded-full text-xs text-muted-foreground pointer-events-none whitespace-nowrap"
           data-testid="reading-page-pill"
         >
-          صفحة {toArabicNum(page)} / {toArabicNum(604)}
+          مصحف الجماهيرية • صفحة {toArabicNum(page)} / {toArabicNum(JAMAHIRIYA_TOTAL_PAGES)}
           {startSurah ? ` • سورة ${startSurah.name}` : ""}
         </div>
       )}
@@ -1125,10 +1204,14 @@ export default function ReadingMode({
                 (ResizeObserver يقيس ارتفاع الشريط + 16px). */}
             <div className="px-4 pt-5 pb-3 flex items-center gap-2">
               <button
-                onClick={() => navigate(`/mushaf/${page}`)}
+                onClick={() =>
+                  navigate(
+                    `/mushaf/${firstPageAyah ? getPageOfAyah(firstPageAyah.surah, firstPageAyah.ayah.numberInSurah) : 1}`
+                  )
+                }
                 className="p-2 rounded-full hover:bg-muted transition-colors"
                 aria-label="العودة إلى المصحف"
-                title="العودة إلى المصحف"
+                title="العودة إلى المصحف المدني (٦٠٤)"
               >
                 <ArrowRight className="w-5 h-5" />
               </button>
@@ -1181,10 +1264,10 @@ export default function ReadingMode({
             <div className="flex items-center justify-between gap-2">
               {/* [1.0.80] لا أزرار لتقليب الصفحات — التقليب باليد فقط. */}
               <span className="text-xs text-muted-foreground text-center flex-1">
-                اضغط على أي كلمة لمعانيها وجذرها والتفسير
+                اضغط على أي آية لتشغيل صوتها، وعلى أي كلمة لمعانيها وجذرها والتفسير
               </span>
               <span className="text-sm text-muted-foreground bg-card border border-border px-3 py-1.5 rounded-full whitespace-nowrap">
-                صفحة {toArabicNum(page)} / {toArabicNum(604)}
+                صفحة {toArabicNum(page)} / {toArabicNum(JAMAHIRIYA_TOTAL_PAGES)}
               </span>
             </div>
             {/* [1.0.81] تكبير/تصغير الخط — يدوي (١٥–٣٦) أو تلقائي
@@ -1232,7 +1315,7 @@ export default function ReadingMode({
                 value={jump}
                 onChange={(e) => setJump(e.target.value.replace(/[^0-9٠-٩]/g, ""))}
                 inputMode="numeric"
-                placeholder="رقم الصفحة (١–٦٠٤)"
+                placeholder="رقم الصفحة (١–٦٠٢)"
                 aria-label="رقم الصفحة"
                 className="w-44 px-3 py-2 rounded-xl bg-card border border-border text-sm text-center placeholder:text-muted-foreground"
               />
@@ -1276,6 +1359,13 @@ export default function ReadingMode({
               onClick={() => setShowBrightness((v) => !v)}
               active={showBrightness}
               testId="reading-brightness-btn"
+            />
+            <BarButton
+              icon={<Square className="w-5 h-5" />}
+              label="إيقاف الصوت"
+              onClick={() => ayahAudio.stop()}
+              disabled={!ayahAudio.playing}
+              testId="reading-stop-ayah"
             />
             <BarButton
               icon={<ChevronDown className="w-5 h-5" />}
@@ -1361,11 +1451,12 @@ export default function ReadingMode({
           >
             <div className="font-arabic text-2xl text-primary">ترتيل ليبيا</div>
             <div className="text-sm text-muted-foreground mt-1">
-              الإصدار 1.0.115
+              الإصدار 1.0.118
             </div>
             <p className="text-sm mt-3 leading-relaxed">
-              المصحف المدني — ٦٠٤ صفحات، ٧ قرّاء برواية قالون عن نافع، تفسير ومعاني
-              الكلمات وأحكام التجويد، ويعمل دون إنترنت إلا عند تحميل الصوت.
+              مصحف الجماهيرية — ٦٠٢ صفحة بالترقيم المطبوع، ٧ قرّاء برواية قالون
+              عن نافع، اضغط أي آية لتشغيل صوتها، تفسير ومعاني الكلمات وأحكام
+              التجويد، ويعمل دون إنترنت إلا عند تحميل الصوت.
             </p>
             <button
               onClick={() => setShowAbout(false)}
@@ -1381,6 +1472,7 @@ export default function ReadingMode({
       {showHizb && (
         <HizbSheet
           onClose={() => setShowHizb(false)}
+          pageForAyah={getJamahiriyaPageOfAyah}
           onSelectPage={(p) => {
             setShowHizb(false);
             setShowTools(false);
@@ -1393,6 +1485,7 @@ export default function ReadingMode({
       {showIndex && (
         <SurahIndexSheet
           onClose={() => setShowIndex(false)}
+          pageForSurah={getJamahiriyaSurahStartPage}
           onSelectPage={(p) => {
             setShowIndex(false);
             setShowTools(false);

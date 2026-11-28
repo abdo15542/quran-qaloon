@@ -11,6 +11,7 @@ import AthkarDetail from "@/pages/AthkarDetail";
 import SearchPage from "@/pages/SearchPage";
 import DownloadsPage from "@/pages/DownloadsPage";
 import TasbeehPage from "@/pages/TasbeehPage";
+import DuasPage from "@/pages/DuasPage";
 import RecitersList from "@/pages/RecitersList";
 import FavouritesPage from "@/pages/FavouritesPage";
 import JuzPage from "@/pages/JuzPage";
@@ -142,6 +143,7 @@ function AppRoutes() {
           <Route path="/search" component={() => <SearchPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/downloads" component={() => <DownloadsPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/tasbeeh" component={() => <TasbeehPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
+          <Route path="/duas" component={() => <DuasPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/reciters" component={() => <RecitersList darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/favourites" component={() => <FavouritesPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />
           <Route path="/juz" component={() => <JuzPage darkMode={darkMode} toggleDarkMode={toggleDarkMode} />} />

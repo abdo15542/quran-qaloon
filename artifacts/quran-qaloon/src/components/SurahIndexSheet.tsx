@@ -18,9 +18,14 @@ function typeLabel(t: string): string {
 export default function SurahIndexSheet({
   onClose,
   onSelectPage,
+  // [1.0.116] Page of a surah's first ayah in the mushaf being browsed.
+  // Defaults to the Madani 604 layout; the Jamahiriya reading mode
+  // passes its own mapping.
+  pageForSurah,
 }: {
   onClose: () => void;
   onSelectPage: (page: number) => void;
+  pageForSurah?: (surah: number) => number;
 }) {
   const [q, setQ] = useState("");
   const entries = useMemo(
@@ -30,9 +35,9 @@ export default function SurahIndexSheet({
         name: s.name,
         type: typeLabel(s.revelationType),
         ayahs: s.numberOfAyahs,
-        page: getPageOfAyah(s.number, 1),
+        page: pageForSurah ? pageForSurah(s.number) : getPageOfAyah(s.number, 1),
       })),
-    []
+    [pageForSurah]
   );
   const filtered = useMemo(() => {
     const query = q.trim();

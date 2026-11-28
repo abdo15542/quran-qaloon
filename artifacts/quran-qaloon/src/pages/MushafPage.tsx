@@ -4,6 +4,7 @@ import { Link, useLocation, useRoute } from "wouter";
 import { SURAHS } from "@/data/surahs";
 import { getSurahAyahs, type LocalAyah } from "@/data/quran-text";
 import { getMushafPageRange, getLastMushafPage, setLastMushafPage } from "@/data/mushaf-pages";
+import { getJamahiriyaPageRange } from "@/data/jamahiriya";
 import TajweedText, { TAJWEED_LEGEND } from "@/components/TajweedText";
 import WordTapText from "@/components/WordTapText";
 import WordSheet from "@/components/WordSheet";
@@ -27,6 +28,32 @@ export interface PageAyah {
 
 export function buildPageAyahs(page: number): PageAyah[] {
   const range = getMushafPageRange(page);
+  if (!range) return [];
+  const out: PageAyah[] = [];
+  for (let s = range.startSurah; s <= range.endSurah; s++) {
+    const ayahs = getSurahAyahs(s);
+    const from = s === range.startSurah ? range.startAyah : 1;
+    const to = s === range.endSurah ? range.endAyah : ayahs.length;
+    for (let n = from; n <= to; n++) {
+      const ayah = ayahs[n - 1];
+      if (!ayah) continue;
+      let basmala = false;
+      let rest = ayah.text;
+      if (n === 1 && s !== 9 && ayah.text.startsWith(BASMALA)) {
+        basmala = true;
+        rest = ayah.text.slice(BASMALA.length).trim();
+      }
+      out.push({ surah: s, ayah, basmala, rest });
+    }
+  }
+  return out;
+}
+
+// [1.0.116] The same builder over مصحف الجماهيرية (602 pages, Kufi
+// ayahs, printed numbers are a display layer — see jamahiriya.ts).
+// The full-screen reading mode renders these pages.
+export function buildJamahiriyaPageAyahs(page: number): PageAyah[] {
+  const range = getJamahiriyaPageRange(page);
   if (!range) return [];
   const out: PageAyah[] = [];
   for (let s = range.startSurah; s <= range.endSurah; s++) {

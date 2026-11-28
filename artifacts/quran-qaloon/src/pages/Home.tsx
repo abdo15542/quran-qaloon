@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, ChartLine, Copy, Share2, Eye, Languages, ScrollText, Hash } from "lucide-react";
+import { Search, BookOpen, Moon, Sun, Info, SearchIcon, RotateCcw, CheckCircle2, Heart, Clock, BarChart3, Compass, Sparkles, Quote, Brain, ChartLine, Copy, Share2, Eye, Languages, ScrollText, Hash, HandHeart } from "lucide-react";
 import { SURAHS, RECITERS, buildAudioUrl } from "@/data/surahs";
 import { getAyah, displayAyahText } from "@/data/quran-text";
 import { getVerseOfDay } from "@/data/verse-of-day";
@@ -13,7 +13,7 @@ import { getNextPrayerForCoords, getActiveLocation, formatPrayerTime, formatCoun
 import { refreshAfterPrayerAthkar } from "@/hooks/useAthkarReminders";
 import { updateWidgetData } from "@/lib/widget-data";
 import { Capacitor } from "@capacitor/core";
-import { getLastMushafPage } from "@/data/mushaf-pages";
+import { getLastJamahiriyaPage } from "@/data/jamahiriya";
 import DownloadButton from "@/components/DownloadButton";
 import AnnouncementBar from "@/components/AnnouncementBar";
 import { Link } from "wouter";
@@ -113,7 +113,7 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const lastMushafPage = getLastMushafPage();
+  const lastMushafPage = getLastJamahiriyaPage();
 
   // آية اليوم — ثابتة لكل يوم (بذرة من التاريخ)، اضغط للانتقال إليها.
   const verseOfDay = useMemo(() => getVerseOfDay(new Date()), []);
@@ -241,13 +241,13 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
           </div>
         </Link>
 
-        {/* المصحف — وضع القراءة بملء الشاشة للقراءة السريعة */}
+        {/* المصحف — مصحف الجماهيرية بملء الشاشة للقراءة السريعة */}
         <Link href={`/reading/${lastMushafPage}`}>
           <div className="bg-gradient-to-l from-primary/15 to-primary/5 border border-primary/30 rounded-3xl p-4 mb-6 hover:border-primary/60 hover:shadow-md active:scale-[0.99] transition-all cursor-pointer animate-fade-up" style={{ animationDelay: "100ms" }}>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><BookOpen className="w-5 h-5" /></span>
               <span className="font-arabic text-base text-foreground">المصحف</span>
-              <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">٦٠٤ صفحات</span>
+              <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">مصحف الجماهيرية • ٦٠٢ صفحة</span>
             </div>
             <div className="text-xs text-muted-foreground">
               {lastMushafPage > 1
@@ -498,6 +498,16 @@ export default function Home({ darkMode, toggleDarkMode }: HomeProps) {
                 <span className="font-arabic text-[15px] font-bold text-foreground">قصص الأنبياء</span>
               </div>
               <div className="text-xs text-muted-foreground">قصة كل نبي من الآيات التي ذكرته، مرتبة بترتيب المصحف</div>
+            </div>
+          </Link>
+          {/* [1.0.118] قسم الأدعية */}
+          <Link href="/duas">
+            <div className="rounded-3xl border border-rose-500/25 bg-rose-500/[0.08] dark:bg-rose-500/10 p-4 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="w-11 h-11 rounded-2xl bg-white/80 dark:bg-white/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 shadow-sm"><HandHeart className="w-5 h-5" /></span>
+                <span className="font-arabic text-[15px] font-bold text-foreground">الأدعية</span>
+              </div>
+              <div className="text-xs text-muted-foreground">أدعية نصية كاملة + تسجيلات حصن المسلم — ٢٩٠ دعاءً و١٣١ تسجيلاً</div>
             </div>
           </Link>
           <Link href="/deep-stats">

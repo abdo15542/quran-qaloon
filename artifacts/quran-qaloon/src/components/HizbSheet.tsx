@@ -12,13 +12,17 @@ function toArabicNum(n: number): string {
 export default function HizbSheet({
   onClose,
   onSelectPage,
+  // [1.0.116] Page of an ayah in the mushaf being browsed. Defaults to
+  // the Madani 604 layout; the Jamahiriya reading mode passes its own.
+  pageForAyah,
 }: {
   onClose: () => void;
   onSelectPage: (page: number) => void;
+  pageForAyah?: (surah: number, ayah: number) => number;
 }) {
   const hizbs = getHizbList().map((h) => ({
     ...h,
-    page: getPageOfAyah(h.startSurah, h.startAyah),
+    page: pageForAyah ? pageForAyah(h.startSurah, h.startAyah) : getPageOfAyah(h.startSurah, h.startAyah),
   }));
 
   return (

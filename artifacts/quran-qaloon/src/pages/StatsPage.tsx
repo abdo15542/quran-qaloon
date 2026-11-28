@@ -7,7 +7,7 @@ import { useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Moon, Sun, BookOpen, Headphones, Heart, Flame, WifiOff, CheckCircle2, Download, Upload, ShieldCheck } from "lucide-react";
 import { SURAHS } from "@/data/surahs";
-import { getLastMushafPage } from "@/data/mushaf-pages";
+import { getLastJamahiriyaPage } from "@/data/jamahiriya";
 import { useKhatma } from "@/hooks/useKhatma";
 import { useListeningProgress } from "@/hooks/useListeningProgress";
 import { useFavourites } from "@/hooks/useFavourites";
@@ -40,7 +40,9 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
   const { count: favouritesCount } = useFavourites();
   const { streak, todayDone, startPage, endPage } = useWird();
   const { cachedItems } = useOffline();
-  const lastMushafPage = getLastMushafPage();
+  // [1.0.116] Full-screen reading is مصحف الجماهيرية now — the
+  // progress tile tracks its 602 pages, not the old 604 key.
+  const lastMushafPage = getLastJamahiriyaPage();
 
   // نسخة احتياطية: تصدير كل بيانات التطبيق إلى ملف JSON واستعادتها.
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
   };
 
   const khatmaPct = Math.round((totalCompleted / 114) * 100);
-  const mushafPct = Math.round((lastMushafPage / 604) * 100);
+  const mushafPct = Math.round((lastMushafPage / 602) * 100);
 
   const tiles = [
     {
@@ -113,7 +115,7 @@ export default function StatsPage({ darkMode, toggleDarkMode }: StatsPageProps) 
       icon: <BookOpen className="w-5 h-5 text-primary" />,
       label: "المصحف",
       value: `صفحة ${toArabicNum(lastMushafPage)}`,
-      sub: `من ٦٠٤ — ${toArabicNum(mushafPct)}٪`,
+      sub: `من ٦٠٢ — ${toArabicNum(mushafPct)}٪`,
     },
     {
       icon: <WifiOff className="w-5 h-5 text-emerald-500" />,
