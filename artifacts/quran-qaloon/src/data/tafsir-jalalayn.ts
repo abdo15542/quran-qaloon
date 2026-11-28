@@ -1,7 +1,8 @@
 // Tafsir al-Jalalayn (تفسير الجلالين) — Jalal ad-Din al-Mahalli and Jalal ad-Din as-Suyuti.
 // Source: api.alquran.cloud/v1/quran/ar.jalalayn (downloaded 2026-11-17).
 // Bundled offline so tafsir works without internet, like the Quran text.
-// 114 surahs, 6236 ayahs, aligned to the Hafs ayah numbering.
+// 114 surahs, 6236 ayahs, aligned to the shared 6,236-ayah numbering
+// (identical in Qaloon and Hafs).
 // TAFSIR_JALALAYN[surahNumber - 1][ayahNumber - 1] = tafsir text for that ayah.
 
 export const TAFSIR_JALALAYN: string[][] = [
