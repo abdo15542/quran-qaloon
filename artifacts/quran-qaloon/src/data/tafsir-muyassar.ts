@@ -1,7 +1,8 @@
 // Tafsir al-Muyassar (تفسير الميسر) — King Fahd Quran Complex.
 // Source: api.alquran.cloud/v1/quran/ar.muyassar (downloaded 2026-11-16).
 // Bundled offline so tafsir works without internet, like the Quran text.
-// 114 surahs, 6236 ayahs, aligned to the Hafs ayah numbering.
+// 114 surahs, 6236 ayahs, aligned to the shared 6,236-ayah numbering
+// (identical in Qaloon and Hafs).
 // TAFSIR_MUYASSAR[surahNumber - 1][ayahNumber - 1] = tafsir text for that ayah.
 
 export const TAFSIR_MUYASSAR: string[][] = [
